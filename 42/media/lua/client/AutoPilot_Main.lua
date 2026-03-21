@@ -64,6 +64,18 @@ local LLM_ACTION_MAP = {
             AutoPilot_LLM.log("[Main] loot_item: could not find '" .. keyword .. "' nearby.")
         end
     end,
+    place_item = function(p, cmd)
+        local keyword = cmd.reason or ""
+        if keyword == "" then
+            AutoPilot_LLM.log("[Main] place_item: no keyword in reason field.")
+            return
+        end
+        if AutoPilot_Inventory.placeItem(p, keyword) then
+            AutoPilot_LLM.log("[Main] place_item: placing '" .. keyword .. "'.")
+        else
+            AutoPilot_LLM.log("[Main] place_item: failed for '" .. keyword .. "'.")
+        end
+    end,
     walk_to = function(p, cmd)
         local dest = cmd.reason or ""
         if dest == "" then
@@ -171,7 +183,24 @@ local function onTick()
         end
     end
 
-    -- 5. LLM/piped command — runs in BOTH modes
+    -- 5. Critical survival needs — runs in BOTH modes
+    --    Pilot mode delegates to the sidecar, but hunger/thirst/bleeding
+    --    can't wait for the next LLM cycle.
+    if mode == "pilot" then
+        if AutoPilot_Medical.hasCriticalWound(player) then
+            AutoPilot_Medical.check(player, true)
+            actionCooldown = ACTION_COOLDOWN_CYCLES
+            return
+        end
+        if AutoPilot_Needs.shouldInterrupt(player) then
+            AutoPilot_LLM.log("[Main] Pilot: handling urgent survival need.")
+            AutoPilot_Needs.check(player)
+            actionCooldown = ACTION_COOLDOWN_CYCLES
+            return
+        end
+    end
+
+    -- 6. LLM/piped command — runs in BOTH modes
     local cmd = AutoPilot_LLM.consumeCommand()
     if cmd then
         applyLLMCommand(player, cmd)
@@ -179,7 +208,7 @@ local function onTick()
         return
     end
 
-    -- 6. PILOT mode stops here — wait for next command
+    -- 7. PILOT mode stops here — wait for next command
     if mode == "pilot" then return end
 
     -- 7. EXERCISE mode — autonomous needs state machine

@@ -482,6 +482,100 @@ function AutoPilot_Inventory.lootItem(player, keyword)
     return true
 end
 
+-- Place an item from player inventory into the nearest container.
+-- keyword: partial name match for the inventory item to place.
+function AutoPilot_Inventory.placeItem(player, keyword)
+    if not keyword or keyword == "" then
+        AutoPilot_LLM.log("[Inventory] placeItem: no keyword given.")
+        return false
+    end
+
+    -- Find matching item in player inventory
+    local inv = player:getInventory()
+    local items = inv:getItems()
+    local target = nil
+    local kw = keyword:lower()
+
+    for i = 0, items:size() - 1 do
+        local item = items:get(i)
+        if item then
+            local ok, name = pcall(function() return item:getName() end)
+            if ok and name and name:lower():find(kw, 1, true) then
+                target = item
+                break
+            end
+        end
+    end
+
+    if not target then
+        AutoPilot_LLM.log("[Inventory] placeItem: '"
+            .. keyword .. "' not found in inventory.")
+        return false
+    end
+
+    -- Find nearest container on nearby tiles
+    local px, py, pz = player:getX(), player:getY(), player:getZ()
+    local bestContainer = nil
+    local bestObj = nil
+    local bestDist = math.huge
+    local PLACE_SEARCH_DIST = 20
+
+    for dx = -PLACE_SEARCH_DIST, PLACE_SEARCH_DIST do
+        for dy = -PLACE_SEARCH_DIST, PLACE_SEARCH_DIST do
+            local sq = getCell():getGridSquare(px + dx, py + dy, pz)
+            if sq then
+                for i = 0, sq:getObjects():size() - 1 do
+                    local obj = sq:getObjects():get(i)
+                    local ok, ctr = pcall(function()
+                        return obj:getContainer()
+                    end)
+                    if ok and ctr then
+                        local dist = dx * dx + dy * dy
+                        if dist < bestDist then
+                            bestDist = dist
+                            bestContainer = ctr
+                            bestObj = obj
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    if not bestContainer then
+        AutoPilot_LLM.log("[Inventory] placeItem: no container found nearby.")
+        return false
+    end
+
+    -- Walk to the container's square first, then transfer
+    local objSq = bestObj:getSquare()
+    AutoPilot_LLM.log("[Inventory] Placing '"
+        .. tostring(target:getName()) .. "' into container at ("
+        .. tostring(objSq:getX()) .. ","
+        .. tostring(objSq:getY()) .. ").")
+
+    -- Queue walk then transfer
+    if bestDist > 4 then
+        ISTimedActionQueue.add(
+            ISWalkToTimedAction:new(player, objSq))
+    end
+
+    local ok, err = pcall(function()
+        ISTimedActionQueue.add(ISInventoryTransferAction:new(
+            player, target, inv, bestContainer))
+    end)
+    if not ok then
+        AutoPilot_LLM.log("[Inventory] placeItem transfer error: "
+            .. tostring(err))
+        -- Fallback: direct transfer
+        pcall(function()
+            inv:Remove(target)
+            bestContainer:AddItem(target)
+        end)
+    end
+    return true
+end
+
 -- Returns search result names from the last searchItem call.
 function AutoPilot_Inventory.getLastSearchResults()
     return AutoPilot_Inventory._lastSearchResults or {}

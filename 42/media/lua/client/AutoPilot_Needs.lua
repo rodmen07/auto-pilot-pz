@@ -6,9 +6,9 @@
 --   2. Thirst        -> drink from tap/sink, then inventory, then loot
 --   3. Hunger        -> eat
 --   4. Wounds        -> treat non-bleeding wounds (scratches, bites, etc.)
---   5. Exhausted     -> rest in place (endurance critically low)
---   6. Tired         -> sleep
---   7. Bored         -> read literature, then go outside
+--   5. Tired         -> sleep (recovers both fatigue AND endurance)
+--   6. Exhausted     -> rest in place (endurance critically low, but not sleepy)
+--   7. Bored/Sad     -> read literature, then go outside
 --   8. Idle          -> exercise (strength/fitness alternating by level)
 
 AutoPilot_Needs = {}
@@ -66,10 +66,12 @@ end
 local function doEat(player)
     local food = AutoPilot_Inventory.getBestFood(player)
     if not food then
-        AutoPilot_LLM.log("[Needs] Hungry but no food — attempting to loot nearby.")
+        AutoPilot_LLM.log("[Needs] Hungry but no food in inventory — looting nearby.")
         AutoPilot_Inventory.lootNearbyFood(player)
         return false
     end
+    AutoPilot_LLM.log("[Needs] Best food: " .. tostring(food:getName())
+        .. " (cal=" .. tostring(food:getCalories()) .. ")")
     AutoPilot_LLM.log("[Needs] Eating: " .. tostring(food:getName()))
     ISTimedActionQueue.add(ISEatFoodAction:new(player, food, 1))
     return true
@@ -353,13 +355,26 @@ function AutoPilot_Needs.check(player)
     -- 3. Hunger (0.0=full, ~1.0=starving)
     local hunger = safeStat(player, CharacterStat.HUNGER)
     if hunger >= HUNGER_STAT_THRESHOLD then
-        return doEat(player)
+        AutoPilot_LLM.log(string.format(
+            "[Needs] Hunger triggered (%.0f%%). Attempting to eat.", hunger * 100))
+        local ate = doEat(player)
+        if not ate then
+            AutoPilot_LLM.log("[Needs] doEat returned false — no food available?")
+        end
+        return ate
     end
 
     -- 4. Wounds — treat non-bleeding wounds (scratches, bites, deep wounds)
     if AutoPilot_Medical.check(player, false) then return true end
 
-    -- 5. Exhausted (endurance: 1.0=full, 0.0=empty)
+    -- 5. Tired (fatigue: 0.0=rested, ~1.0=exhausted) — checked BEFORE endurance
+    -- because sleep recovers both fatigue AND endurance.
+    local fatigue = safeStat(player, CharacterStat.FATIGUE)
+    if fatigue >= FATIGUE_STAT_THRESHOLD then
+        return doSleep(player)
+    end
+
+    -- 6. Exhausted (endurance: 1.0=full, 0.0=empty) — only if NOT tired enough to sleep
     -- Rest cooldown prevents spam (doRest has no timed action, so the character
     -- appears idle immediately — without the cooldown we'd loop every tick).
     local endurance = safeStat(player, CharacterStat.ENDURANCE)
@@ -369,12 +384,6 @@ function AutoPilot_Needs.check(player)
         end)
         if cooldownOk and nowMs < restCooldownMs then return true end
         return doRest(player)
-    end
-
-    -- 6. Tired (fatigue: 0.0=rested, ~1.0=exhausted)
-    local fatigue = safeStat(player, CharacterStat.FATIGUE)
-    if fatigue >= FATIGUE_STAT_THRESHOLD then
-        return doSleep(player)
     end
 
     -- 7. Bored or Sad -> read literature first, then go outside

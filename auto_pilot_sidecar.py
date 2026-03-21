@@ -38,7 +38,7 @@ CMD_FILE        = ZOMBOID_LUA_DIR / "auto_pilot_cmd.json"
 PROMPT_FILE     = ZOMBOID_LUA_DIR / "auto_pilot_prompt.txt"
 LOG_FILE        = ZOMBOID_LUA_DIR / "auto_pilot_sidecar.log"
 POLL_INTERVAL   = 2.0
-MODEL           = "claude-haiku-4-5-20251001"
+MODEL           = "claude-sonnet-4-6"
 
 # ── Logging ──────────────────────────────────────────────────────────────────
 
@@ -58,7 +58,7 @@ log.addHandler(_console)
 VALID_ACTIONS = {
     "eat", "drink", "sleep", "rest", "exercise", "outside",
     "fight", "flee", "bandage", "idle", "stop", "status",
-    "search_item", "loot_item", "walk_to",
+    "search_item", "loot_item", "place_item", "walk_to",
 }
 
 # ── System prompts ───────────────────────────────────────────────────────────
@@ -103,6 +103,9 @@ Available actions:
                  Example: {"action": "search_item", "reason": "saw"}
   loot_item    — pick up a found item. Set reason to the item name to grab.
                  Example: {"action": "loot_item", "reason": "Saw"}
+  place_item   — place an item from inventory into the nearest container.
+                 Set reason to the item name to place.
+                 Example: {"action": "place_item", "reason": "Baking Tray"}
   walk_to      — walk to a compass direction or named place.
                  Example: {"action": "walk_to", "reason": "north 30"}
   idle         — do nothing this cycle, wait for state to change
@@ -221,7 +224,7 @@ def exercise_cycle(client: anthropic.Anthropic, state: dict) -> dict:
 
     t0 = time.perf_counter()
     with client.messages.stream(
-        model=MODEL, max_tokens=256, thinking={"type": "adaptive"},
+        model=MODEL, max_tokens=256,
         system=EXERCISE_SYSTEM,
         messages=[{"role": "user", "content": user_msg}],
     ) as stream:
@@ -266,7 +269,7 @@ class PilotSession:
 
         t0 = time.perf_counter()
         with client.messages.stream(
-            model=MODEL, max_tokens=512, thinking={"type": "adaptive"},
+            model=MODEL, max_tokens=512,
             system=PILOT_SYSTEM,
             messages=self.history,
         ) as stream:
@@ -324,18 +327,27 @@ def main() -> None:
                 time.sleep(POLL_INTERVAL)
                 continue
 
+            # Check for new user prompt (pilot mode) — do this BEFORE
+            # the mtime gate so new goals trigger immediately.
+            new_goal = False
+            if mode == "pilot":
+                prompt = read_prompt()
+                if prompt:
+                    pilot.set_goal(prompt)
+                    clear_prompt()
+                    new_goal = True
+
             mtime = STATE_FILE.stat().st_mtime
-            if mtime <= last_mtime:
-                # In pilot mode, also check for new prompts even without state change
-                if mode == "pilot":
-                    prompt = read_prompt()
-                    if prompt:
-                        pilot.set_goal(prompt)
-                        clear_prompt()
+            state_changed = mtime > last_mtime
+
+            # Skip cycle unless state changed OR a new goal just arrived
+            if not state_changed and not new_goal:
                 time.sleep(POLL_INTERVAL)
                 continue
 
-            last_mtime = mtime
+            if state_changed:
+                last_mtime = mtime
+
             cycle += 1
             state = json.loads(STATE_FILE.read_text(encoding="utf-8"))
 
@@ -354,8 +366,9 @@ def main() -> None:
             )
             log.debug("[#%d] Full state: %s", cycle, json.dumps(state))
 
-            # Check for new user prompt (pilot mode)
-            if mode == "pilot":
+            # Check for prompt again on state-change cycles (goal may have
+            # arrived between polls)
+            if mode == "pilot" and not new_goal:
                 prompt = read_prompt()
                 if prompt:
                     pilot.set_goal(prompt)
