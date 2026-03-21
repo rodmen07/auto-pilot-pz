@@ -58,6 +58,9 @@ local function writeState(player)
     local invSummary    = AutoPilot_Inventory.getInventorySummary(player)
     local searchResults = AutoPilot_Inventory.getLastSearchResults()
 
+    local hx, hy, hz, hr = AutoPilot_Home.getState()
+    local homeSet = AutoPilot_Home.isSet()
+
     local state = {
         health              = math.floor((player:getHealth() or 1) * 100),
         endurance           = math.floor((player:getStats():get(CharacterStat.ENDURANCE) or 0) * 100),
@@ -71,10 +74,15 @@ local function writeState(player)
         strength_level      = player:getPerkLevel(Perks.Strength),
         fitness_level       = player:getPerkLevel(Perks.Fitness),
         is_outside          = player:getSquare():isOutside(),
+        home_set            = homeSet,
+        home_x              = hx or 0,
+        home_y              = hy or 0,
+        home_r              = hr or 0,
         moodles             = moodles,
         wounds              = wounds,
         inventory_summary   = invSummary,
         search_results      = searchResults,
+        available_actions   = AutoPilot_Actions.getSchemaNames(),
     }
 
     local json = jsonVal(state)

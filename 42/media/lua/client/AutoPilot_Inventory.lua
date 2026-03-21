@@ -143,7 +143,7 @@ function AutoPilot_Inventory.lootNearbyReadable(player)
     for dx = -LOOT_SEARCH_RADIUS, LOOT_SEARCH_RADIUS do
         for dy = -LOOT_SEARCH_RADIUS, LOOT_SEARCH_RADIUS do
             local sq = getCell():getGridSquare(px + dx, py + dy, pz)
-            if sq then
+            if sq and AutoPilot_Home.isInside(sq) then
                 for i = 0, sq:getObjects():size() - 1 do
                     local obj = sq:getObjects():get(i)
                     if obj then
@@ -203,7 +203,7 @@ function AutoPilot_Inventory.lootNearbyFood(player)
     for dx = -LOOT_SEARCH_RADIUS, LOOT_SEARCH_RADIUS do
         for dy = -LOOT_SEARCH_RADIUS, LOOT_SEARCH_RADIUS do
             local sq = getCell():getGridSquare(px + dx, py + dy, pz)
-            if sq then
+            if sq and AutoPilot_Home.isInside(sq) then
                 for i = 0, sq:getObjects():size() - 1 do
                     local obj = sq:getObjects():get(i)
                     if obj then
@@ -251,7 +251,7 @@ function AutoPilot_Inventory.lootNearbyDrink(player)
     for dx = -LOOT_SEARCH_RADIUS, LOOT_SEARCH_RADIUS do
         for dy = -LOOT_SEARCH_RADIUS, LOOT_SEARCH_RADIUS do
             local sq = getCell():getGridSquare(px + dx, py + dy, pz)
-            if sq then
+            if sq and AutoPilot_Home.isInside(sq) then
                 for i = 0, sq:getObjects():size() - 1 do
                     local obj = sq:getObjects():get(i)
                     if obj then
@@ -452,7 +452,7 @@ function AutoPilot_Inventory.searchItem(player, keyword)
     for dx = -LOOT_SEARCH_RADIUS, LOOT_SEARCH_RADIUS do
         for dy = -LOOT_SEARCH_RADIUS, LOOT_SEARCH_RADIUS do
             local sq = getCell():getGridSquare(px + dx, py + dy, pz)
-            if sq then
+            if sq and AutoPilot_Home.isInside(sq) then
                 for i = 0, sq:getObjects():size() - 1 do
                     local obj = sq:getObjects():get(i)
                     if obj then

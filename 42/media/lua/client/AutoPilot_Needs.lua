@@ -114,7 +114,7 @@ local function findRestFurniture(player)
     for dx = -REST_SEARCH_DIST, REST_SEARCH_DIST do
         for dy = -REST_SEARCH_DIST, REST_SEARCH_DIST do
             local sq = getCell():getGridSquare(px + dx, py + dy, pz)
-            if sq then
+            if sq and AutoPilot_Home.isInside(sq) then
                 for i = 0, sq:getObjects():size() - 1 do
                     local obj = sq:getObjects():get(i)
                     local priority = nil
@@ -203,10 +203,54 @@ end
 local BED_SEARCH_DIST = 100
 local BED_SEARCH_FLOORS = 3  -- check z, z+1, z-1 (ground floor + upstairs + basement)
 
+local function hasBedOnSquare(sq)
+    for i = 0, sq:getObjects():size() - 1 do
+        local obj = sq:getObjects():get(i)
+        local ok, isBed = pcall(function()
+            return obj:getSprite()
+                and obj:getSprite():getProperties()
+                    :has(IsoFlagType.bed)
+        end)
+        if ok and isBed then return true end
+    end
+    return false
+end
+
+local function getBedObjectOnSquare(sq)
+    for i = 0, sq:getObjects():size() - 1 do
+        local obj = sq:getObjects():get(i)
+        local ok, isBed = pcall(function()
+            return obj:getSprite()
+                and obj:getSprite():getProperties()
+                    :has(IsoFlagType.bed)
+        end)
+        if ok and isBed then return obj end
+    end
+    return nil
+end
+
 local function doSleep(player)
     AutoPilot_LLM.log("[Needs] Sleeping...")
-    local px, py, pz = player:getX(), player:getY(), player:getZ()
 
+    -- Home set: restrict search to home bounds only
+    if AutoPilot_Home.isSet() then
+        local bedSq = AutoPilot_Home.getNearestInside(player, hasBedOnSquare)
+        if bedSq then
+            local bedObj = getBedObjectOnSquare(bedSq)
+            if bedObj then
+                AutoPilot_LLM.log("[Needs] Found bed inside home bounds — getting on it.")
+                ISTimedActionQueue.add(ISGetOnBedAction:new(player, bedObj))
+                return true
+            end
+        end
+        AutoPilot_LLM.log("[Needs] No bed found inside home bounds — sleeping in place.")
+        player:setAsleep(true)
+        player:setAsleepTime(0.0)
+        return true
+    end
+
+    -- No home set: wide search across floors
+    local px, py, pz = player:getX(), player:getY(), player:getZ()
     local bestObj  = nil
     local bestDist = math.huge
 
@@ -217,21 +261,13 @@ local function doSleep(player)
                     for dy = -BED_SEARCH_DIST, BED_SEARCH_DIST do
                         local sq = getCell():getGridSquare(px + dx, py + dy, z)
                         if sq then
-                            for i = 0, sq:getObjects():size() - 1 do
-                                local obj = sq:getObjects():get(i)
-                                local ok, isBed = pcall(function()
-                                    return obj:getSprite()
-                                        and obj:getSprite():getProperties()
-                                            :has(IsoFlagType.bed)
-                                end)
-                                if ok and isBed then
-                                    -- Prefer same floor; penalize other floors
-                                    local floorPenalty = math.abs(z - pz) * 200
-                                    local dist = dx * dx + dy * dy + floorPenalty
-                                    if dist < bestDist then
-                                        bestDist = dist
-                                        bestObj  = obj
-                                    end
+                            local obj = getBedObjectOnSquare(sq)
+                            if obj then
+                                local floorPenalty = math.abs(z - pz) * 200
+                                local dist = dx * dx + dy * dy + floorPenalty
+                                if dist < bestDist then
+                                    bestDist = dist
+                                    bestObj  = obj
                                 end
                             end
                         end
@@ -271,28 +307,22 @@ local function doGoOutside(player)
     end
 
     AutoPilot_LLM.log("[Needs] Bored — finding outdoor square.")
-    local bestSq  = nil
-    local bestDist = math.huge
 
-    for dx = -OUTDOOR_SEARCH_DIST, OUTDOOR_SEARCH_DIST do
-        for dy = -OUTDOOR_SEARCH_DIST, OUTDOOR_SEARCH_DIST do
-            local sq = getCell():getGridSquare(px + dx, py + dy, pz)
-            if sq and sq:isOutside() and sq:isFree(false) then
-                local dist = dx * dx + dy * dy
-                if dist < bestDist then
-                    bestDist = dist
-                    bestSq   = sq
-                end
-            end
+    -- Home set: only search within home bounds
+    if AutoPilot_Home.isSet() then
+        local outsideSq = AutoPilot_Home.getNearestInside(player, function(sq)
+            return sq:isOutside() and sq:isFree(false)
+        end)
+        if outsideSq then
+            ISTimedActionQueue.add(ISWalkToTimedAction:new(player, outsideSq))
+            return true
         end
+        AutoPilot_LLM.log("[Needs] No outdoor square found inside home bounds — skipping.")
+        return false
     end
 
-    if bestSq then
-        ISTimedActionQueue.add(ISWalkToTimedAction:new(player, bestSq))
-        return true
-    end
-
-    AutoPilot_LLM.log("[Needs] No outdoor square found nearby.")
+    -- No home set: skip outdoor walk for safety (containment guard)
+    AutoPilot_LLM.log("[Needs] No home set — skipping outdoor walk.")
     return false
 end
 
@@ -485,6 +515,12 @@ function AutoPilot_Needs.check(player, skipExercise)
     if skipExercise then return false end
     return doExercise(player)
 end
+
+-- ── Public aliases for chain-action use ──────────────────────────────────────
+-- AutoPilot_Actions.lua references these so it can delegate without duplicating
+-- the full bed-search and outdoor-square-search logic.
+AutoPilot_Needs.trySleep    = doSleep
+AutoPilot_Needs.tryGoOutside = doGoOutside
 
 -- Returns a snapshot of current stat levels for LLM state reporting.
 -- B42: Uses player:getStats():get(CharacterStat.XXX) pattern.

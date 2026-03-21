@@ -62,8 +62,73 @@ function AutoPilot_Threat.countNegativeMoodles(player)
     return count
 end
 
+-- Flee: when home is set, run toward home center; otherwise flee away from zombie centroid.
+local function doFlee(player, zombies)
+    local destSq = nil
+
+    if AutoPilot_Home.isSet() then
+        -- Safehouse mode: flee toward home center
+        local hx, hy, hz = AutoPilot_Home.getState()
+        local homeZ = hz or player:getZ()
+        local found = false
+        for r = 0, 5 do
+            for ddx = -r, r do
+                for ddy = -r, r do
+                    local sq = getCell():getGridSquare(hx + ddx, hy + ddy, homeZ)
+                    if sq and sq:isFree(false) and AutoPilot_Home.isInside(sq) then
+                        destSq = sq
+                        found  = true
+                        break
+                    end
+                end
+                if found then break end
+            end
+            if found then break end
+        end
+    else
+        -- No home: flee away from zombie centroid
+        local cx, cy = 0, 0
+        for _, z in ipairs(zombies) do
+            cx = cx + z:getX()
+            cy = cy + z:getY()
+        end
+        cx = cx / #zombies
+        cy = cy / #zombies
+
+        local dx = player:getX() - cx
+        local dy = player:getY() - cy
+        local len = math.sqrt(dx * dx + dy * dy)
+        if len < 0.001 then dx, dy = 1, 0 else dx, dy = dx / len, dy / len end
+
+        local targetX = math.floor(player:getX() + dx * FLEE_DISTANCE)
+        local targetY = math.floor(player:getY() + dy * FLEE_DISTANCE)
+        local targetZ = player:getZ()
+
+        local cell = getCell()
+        targetX = math.max(0, math.min(targetX, cell:getWidth()  - 1))
+        targetY = math.max(0, math.min(targetY, cell:getHeight() - 1))
+
+        destSq = cell:getGridSquare(targetX, targetY, targetZ)
+    end
+
+    if destSq then
+        player:setRunning(true)
+        ISTimedActionQueue.add(ISWalkToTimedAction:new(player, destSq))
+    end
+
+    AutoPilot_LLM.log("[Threat] FLEE — " .. #zombies .. " zombie(s), " ..
+        AutoPilot_Threat.countNegativeMoodles(player) .. " negative stats elevated.")
+end
+
 -- Fight the nearest zombie: equip best weapon, then walk toward it.
+-- In safehouse mode (home set), always flee instead of fighting.
 local function doFight(player, zombies)
+    if AutoPilot_Home.isSet() then
+        AutoPilot_LLM.log("[Threat] Safehouse mode — redirecting FIGHT to FLEE.")
+        doFlee(player, zombies)
+        return
+    end
+
     local px, py = player:getX(), player:getY()
     table.sort(zombies, function(a, b)
         local da = (a:getX()-px)^2 + (a:getY()-py)^2
@@ -86,39 +151,6 @@ local function doFight(player, zombies)
     end
 
     AutoPilot_LLM.log("[Threat] FIGHT — " .. #zombies .. " zombie(s) nearby.")
-end
-
--- Flee away from the zombie centroid.
-local function doFlee(player, zombies)
-    local cx, cy = 0, 0
-    for _, z in ipairs(zombies) do
-        cx = cx + z:getX()
-        cy = cy + z:getY()
-    end
-    cx = cx / #zombies
-    cy = cy / #zombies
-
-    local dx = player:getX() - cx
-    local dy = player:getY() - cy
-    local len = math.sqrt(dx * dx + dy * dy)
-    if len < 0.001 then dx, dy = 1, 0 else dx, dy = dx / len, dy / len end
-
-    local targetX = math.floor(player:getX() + dx * FLEE_DISTANCE)
-    local targetY = math.floor(player:getY() + dy * FLEE_DISTANCE)
-    local targetZ = player:getZ()
-
-    local cell = getCell()
-    targetX = math.max(0, math.min(targetX, cell:getWidth()  - 1))
-    targetY = math.max(0, math.min(targetY, cell:getHeight() - 1))
-
-    local destSq = cell:getGridSquare(targetX, targetY, targetZ)
-    if destSq then
-        player:setRunning(true)
-        ISTimedActionQueue.add(ISWalkToTimedAction:new(player, destSq))
-    end
-
-    AutoPilot_LLM.log("[Threat] FLEE — " .. #zombies .. " zombie(s), " ..
-        AutoPilot_Threat.countNegativeMoodles(player) .. " negative stats elevated.")
 end
 
 -- Force fight regardless of moodle state (used by LLM overrides).

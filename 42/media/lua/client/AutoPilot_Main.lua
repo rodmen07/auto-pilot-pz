@@ -115,11 +115,37 @@ local LLM_ACTION_MAP = {
         local px = p:getX() + dx
         local py = p:getY() + dy
         local pz = p:getZ()
-        ISTimedActionQueue.add(ISWalkToTimedAction:new(p, ISWalkToTimedAction.pathFindDirect, px, py, pz))
+        -- Find a walkable square near the target (avoid landing inside walls)
+        local targetSq = nil
+        for r = 0, 5 do
+            for ddx = -r, r do
+                for ddy = -r, r do
+                    local sq = getCell():getGridSquare(px + ddx, py + ddy, pz)
+                    if sq and sq:isFree(false) then
+                        targetSq = sq
+                        break
+                    end
+                end
+                if targetSq then break end
+            end
+            if targetSq then break end
+        end
+        if not targetSq then
+            AutoPilot_LLM.log("[Main] walk_to: no walkable square near target.")
+            return
+        end
+        -- Sprint to destination
+        pcall(function() p:setSprinting(true) end)
+        ISTimedActionQueue.add(ISWalkToTimedAction:new(p, targetSq))
     end,
     stop     = function(p)
         ISTimedActionQueue.clear(p)
         AutoPilot_LLM.log("[Main] Stopped — queue cleared.")
+    end,
+    chain    = function(p, cmd)
+        local steps = cmd.steps or ""
+        AutoPilot_LLM.log("[Main] Chain received: " .. steps)
+        AutoPilot_Actions.executeChain(p, steps)
     end,
     status   = function(p)
         local snap = AutoPilot_Needs.getMoodleSnapshot(p)
@@ -221,6 +247,11 @@ local function onKeyPressed(key)
             mode = "off"
         else
             mode = "exercise"
+            -- Auto-set home on first enable if not already set
+            if not AutoPilot_Home.isSet() then
+                AutoPilot_Home.set(player)
+                AutoPilot_LLM.log("[Main] AutoPilot enabled — home auto-set to current position.")
+            end
         end
         sayMode(player)
 
@@ -229,8 +260,19 @@ local function onKeyPressed(key)
             mode = "off"
         else
             mode = "pilot"
+            -- Auto-set home on first enable if not already set
+            if not AutoPilot_Home.isSet() then
+                AutoPilot_Home.set(player)
+                AutoPilot_LLM.log("[Main] AutoPilot enabled — home auto-set to current position.")
+            end
         end
         sayMode(player)
+
+    elseif key == Keyboard.KEY_H then
+        -- Set/reset home position while AutoPilot is active
+        if mode ~= "off" and player then
+            AutoPilot_Home.set(player)
+        end
     end
 end
 
