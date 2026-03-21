@@ -112,9 +112,9 @@ Edge cases and minor optimizations.
 | Temperature/clothing | Pending | Equip warmer/cooler clothing by season |
 | Safehouse barricading | Pending | One-time window/door barricading at home base |
 
-### Phase 5: Deployment — NOT STARTED
+### Phase 5: Deployment — NOT STARTED *(V1.0 release milestone)*
 
-Publish the mod for others to use.
+Publish the mod for others to use. Completing this phase marks the **V1.0** public release.
 
 | Task | Status | Details |
 |------|--------|---------|
@@ -123,7 +123,7 @@ Publish the mod for others to use.
 | Poster artwork | Pending | Finalize `poster.png` for Workshop listing |
 | In-game testing on fresh save | Pending | Full end-to-end validation on clean install (no leftover state) |
 | Multiplayer compatibility check | Pending | Verify mod behavior in MP (client-only, no server-side effects) |
-| Version tagging | Pending | Git tag releases (`v0.1`, `v0.1.1`, `v0.1.2`, etc.) for traceability |
+| Version tagging | Pending | Minor/patch releases use lowercase `v` (e.g. `v0.1`, `v0.1.2`); major releases use capital `V` (e.g. `V1.0`) |
 
 ---
 
