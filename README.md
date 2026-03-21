@@ -60,7 +60,7 @@ python auto_pilot_sidecar.py
 
 ## Development Roadmap
 
-### Phase 1: Don't Die (Survive Indefinitely) — COMPLETE
+### Phase 1: Don't Die (Survive Indefinitely) — COMPLETE *(v0.1.1)*
 
 Added the two critical missing survival systems that would kill the character before reaching max stats.
 
@@ -77,7 +77,7 @@ Added the two critical missing survival systems that would kill the character be
 | Expanded LLM state snapshot | Done | Now includes wound data + water source availability |
 | Updated schemas & sidecar | Done | `bandage` action added, wound/water fields in state |
 
-### Phase 2: Level Faster (Exercise Optimization) — NOT STARTED
+### Phase 2: Level Faster (Exercise Optimization) — NOT STARTED *(v0.1.2)*
 
 Maximize XP gain per in-game day.
 
@@ -89,7 +89,7 @@ Maximize XP gain per in-game day.
 | Loot exercise equipment | Pending | Prioritize `Base.DumbBell` and `Base.BarBell` in container scanning |
 | STR/FIT decay prevention | Pending | Ensure consistent exercise cadence to prevent XP timer decay |
 
-### Phase 3: Sustained Survival (Weeks/Months) — NOT STARTED
+### Phase 3: Sustained Survival (Weeks/Months) — NOT STARTED *(v0.1.3)*
 
 Handle resource depletion for long-term play.
 
@@ -102,7 +102,7 @@ Handle resource depletion for long-term play.
 | Unhappiness management | Pending | Eat tasty food, read magazines for happiness |
 | Weight management | Pending | Calorie-aware food selection based on player weight |
 
-### Phase 4: Polish — NOT STARTED
+### Phase 4: Polish — NOT STARTED *(v0.2.1)*
 
 Edge cases and minor optimizations.
 
@@ -112,7 +112,7 @@ Edge cases and minor optimizations.
 | Temperature/clothing | Pending | Equip warmer/cooler clothing by season |
 | Safehouse barricading | Pending | One-time window/door barricading at home base |
 
-### Phase 5: Deployment — NOT STARTED *(V1.0 release milestone)*
+### Phase 5: Deployment — NOT STARTED *(v0.2.2 / V1.0 release milestone)*
 
 Publish the mod for others to use. Completing this phase marks the **V1.0** public release.
 
