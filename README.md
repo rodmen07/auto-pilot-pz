@@ -96,6 +96,70 @@ Edge cases and minor optimizations.
 | Temperature/clothing | Pending | Equip warmer/cooler clothing by season |
 | Safehouse barricading | Pending | One-time window/door barricading at home base |
 
+### Phase 5: Deployment — NOT STARTED
+
+Publish the mod for others to use.
+
+| Task | Status | Details |
+|------|--------|---------|
+| Steam Workshop upload | Pending | Publish via PZ's built-in Workshop uploader or `steamcmd` |
+| Workshop description & tags | Pending | Write Steam Workshop page with feature list, screenshots, usage instructions |
+| Poster artwork | Pending | Finalize `poster.png` for Workshop listing |
+| In-game testing on fresh save | Pending | Full end-to-end validation on clean install (no leftover state) |
+| Multiplayer compatibility check | Pending | Verify mod behavior in MP (client-only, no server-side effects) |
+| Version tagging | Pending | Git tag releases (`v1.0.0`, `v1.1.0`, etc.) for traceability |
+
+---
+
+## AI-Driven Architecture
+
+### Current State
+
+The mod has a **dual-brain design**:
+
+1. **Rule-based Lua brain** (primary) — The `AutoPilot_Needs` priority chain handles all decisions locally inside PZ. This is deterministic, zero-latency, and requires no external dependencies. It works today.
+
+2. **Claude LLM brain** (optional sidecar) — `auto_pilot_sidecar.py` polls game state every ~2s, asks Claude for the next action, and writes the command back via file IPC. When active, LLM commands override the rule-based brain.
+
+### The Constraint
+
+PZ's Lua runtime (Kahlua, a Java-embedded Lua 5.1) is **completely network-isolated by design**:
+- No HTTP/socket access from Lua
+- No arbitrary Java class loading (`java.net.*` is not exposed)
+- Only whitelisted game-engine classes are available
+- File I/O is sandboxed to `~/Zomboid/Lua/` via `getFileWriter`/`getFileReader`
+
+This means **there is no way to call an API from inside the mod**. External communication must go through the filesystem.
+
+### IPC Flow
+
+```
+PZ Game (Lua)                           Python Sidecar
+    |                                        |
+    |-- writes auto_pilot_state.json ------->|
+    |   (every ~10s: health, moodles,        |
+    |    zombies, inventory, wounds)          |
+    |                                        |-- calls Claude API
+    |                                        |
+    |<-- reads auto_pilot_cmd.json ----------|
+    |   (action: eat/drink/sleep/exercise/   |
+    |    fight/flee/bandage/rest/idle)        |
+    |                                        |
+    |-- applies command on next idle tick    |
+```
+
+### Future Options Explored
+
+| Approach | Feasibility | Notes |
+|----------|-------------|-------|
+| HTTP from Lua | Impossible | Kahlua sandbox blocks all network access |
+| Java bridge to `HttpURLConnection` | Impossible | Only whitelisted game classes exposed |
+| Sidecar as `.exe` (PyInstaller) | Viable | Bundle sidecar as single executable, no Python install needed |
+| Auto-launch sidecar with PZ | Viable | Batch script or Steam launch options to start both |
+| Embedded rule engine improvements | Current focus | Make the Lua brain smart enough that AI is optional |
+
+The pragmatic path: keep improving the rule-based system (Phases 2-4) so the mod is fully autonomous, while keeping the sidecar as an optional power-user feature. Packaging the sidecar as a standalone `.exe` is the most likely next step for AI integration UX.
+
 ---
 
 ## Key Technical Notes
