@@ -63,6 +63,12 @@ globals = {
 
     -- PZ B42 engine global for persistent mod storage
     "ModData",
+
+    -- PZ B42 pathfinding / action globals
+    "ISPathFindAction",
+    "ISRestAction",
+    "AdjacentFreeTileFinder",
+    "ISSitOnGround",
 }
 
 -- 211: unused local variable  — common in PZ boilerplate (loop indices, etc.)
