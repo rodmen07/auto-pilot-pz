@@ -53,12 +53,19 @@ _console.setLevel(logging.INFO)
 _console.setFormatter(_fmt)
 log.addHandler(_console)
 
-# ── Valid actions (must match Lua LLM_ACTION_MAP) ─────────────────────────────
+# ── Valid actions (must match Lua LLM_ACTION_MAP + AutoPilot_Actions) ─────────
 
 VALID_ACTIONS = {
     "eat", "drink", "sleep", "rest", "exercise", "outside",
     "fight", "flee", "bandage", "idle", "stop", "status",
     "search_item", "loot_item", "place_item", "walk_to",
+    "chain",   # multi-step sequence: steps field contains pipe-delimited actions
+}
+
+# Steps allowed inside a chain (subset that AutoPilot_Actions.HANDLERS supports).
+CHAIN_STEP_ACTIONS = {
+    "walk_to", "loot_item", "search_item", "place_item",
+    "eat", "drink", "sleep", "rest", "read", "outside", "bandage", "stop",
 }
 
 # ── System prompts ───────────────────────────────────────────────────────────
@@ -92,28 +99,41 @@ Each cycle you receive:
 - The game state (health, inventory, moodles, nearby items, etc.)
 - Your previous plan and progress (conversation history)
 
-You must respond with a SINGLE JSON object (no markdown, no extra text):
-{"action": "<action>", "reason": "<what this step accomplishes toward the goal>"}
+SINGLE-ACTION RESPONSE (one step, result visible next cycle):
+{"action": "<action>", "reason": "<what this step accomplishes>"}
 
-Available actions:
+CHAIN RESPONSE (multiple steps queued at once — use when steps are guaranteed to be valid):
+{"action": "chain", "steps": "<step1>|<step2>|<step3>", "reason": "<overall goal>"}
+
+Chain step format: "actionName:param" or just "actionName" (no param needed).
+Examples:
+  "walk_to:north 30"        — walk north 30 tiles
+  "search_item:axe"         — search nearby for an axe
+  "loot_item:Fire Axe"      — pick up a Fire Axe
+  "eat"                     — eat best food from inventory
+Full chain example: {"action": "chain", "steps": "walk_to:north 30|search_item:axe|loot_item:axe", "reason": "Move north and grab an axe"}
+
+The state includes "chainable_actions" listing all valid chain step names.
+
+Single actions:
   eat, drink, sleep, rest, exercise, outside  — survival basics
   fight, flee                                 — combat
   bandage                                     — treat wounds
-  search_item  — search nearby containers. Set reason to the item name/keyword to search for.
+  search_item  — search nearby containers. Set reason to the item name/keyword.
                  Example: {"action": "search_item", "reason": "saw"}
   loot_item    — pick up a found item. Set reason to the item name to grab.
                  Example: {"action": "loot_item", "reason": "Saw"}
-  place_item   — place an item from inventory into the nearest container.
-                 Set reason to the item name to place.
-                 Example: {"action": "place_item", "reason": "Baking Tray"}
-  walk_to      — walk to a compass direction or named place.
-                 Example: {"action": "walk_to", "reason": "north 30"}
+  place_item   — place an inventory item into the nearest container.
+                 Set reason to the item name. Example: {"action": "place_item", "reason": "Baking Tray"}
+  walk_to      — walk in a compass direction. Example: {"action": "walk_to", "reason": "north 30"}
   idle         — do nothing this cycle, wait for state to change
   stop         — clear the action queue
   status       — log current stats (no game effect)
 
 CRITICAL RULES:
-- Issue ONE action per response. The next cycle will show you the result.
+- Issue ONE action or ONE chain per response. The next cycle will show you the result.
+- Use chains when you are confident about a multi-step sequence (e.g., move + loot).
+  Do NOT chain into an action that depends on the result of a prior step you haven't seen yet.
 - If the goal is complete or you need more info, use "idle" and explain in "reason".
 - If a survival need is urgent (bleeding, very thirsty, starving), handle it FIRST even
   if it interrupts the user's goal. Explain why in "reason".
@@ -169,6 +189,11 @@ def build_state_message(state: dict) -> str:
     if sr:
         lines.append(f"Last search results: {sr}")
 
+    # Available chain actions (auto-discovered from Lua registry)
+    chain_actions = state.get("available_actions", [])
+    if chain_actions:
+        lines.append(f"Chainable actions: {', '.join(chain_actions)}")
+
     return "\n".join(lines)
 
 
@@ -177,16 +202,40 @@ def parse_response(response) -> dict:
     text = next((b.text for b in response.content if b.type == "text"), "")
     text = text.strip()
 
+    if not text:
+        log.warning("Claude returned empty text — defaulting to idle")
+        return {"action": "idle", "reason": "empty response from model"}
+
     # Strip markdown fences
     if text.startswith("```"):
         lines = text.splitlines()
         text = "\n".join(lines[1:-1] if lines[-1] == "```" else lines[1:])
         text = text.strip()
 
+    # Try to extract JSON from mixed text (model sometimes adds commentary)
+    if not text.startswith("{"):
+        import re
+        match = re.search(r'\{[^{}]*"action"[^{}]*\}', text)
+        if match:
+            text = match.group(0)
+        else:
+            log.warning("No JSON found in response: %s", text[:200])
+            return {"action": "idle", "reason": "could not parse model response"}
+
     cmd = json.loads(text)
     action = cmd.get("action", "")
     if action not in VALID_ACTIONS:
         raise ValueError(f"Invalid action: {action!r}")
+
+    if action == "chain":
+        steps = cmd.get("steps", "")
+        if not steps:
+            raise ValueError("chain action missing 'steps' field")
+        for step in steps.split("|"):
+            step_name = step.split(":")[0].strip()
+            if step_name not in CHAIN_STEP_ACTIONS:
+                raise ValueError(f"Invalid chain step: {step_name!r}")
+
     return cmd
 
 
@@ -385,13 +434,27 @@ def main() -> None:
                 continue
 
             write_command(cmd)
-            log.info(
-                "[#%d] >>> %s — %s",
-                cycle, cmd["action"].upper(), cmd.get("reason", ""),
-            )
+            if cmd["action"] == "chain":
+                log.info(
+                    "[#%d] >>> CHAIN [%s] — %s",
+                    cycle, cmd.get("steps", ""), cmd.get("reason", ""),
+                )
+            else:
+                log.info(
+                    "[#%d] >>> %s — %s",
+                    cycle, cmd["action"].upper(), cmd.get("reason", ""),
+                )
 
         except json.JSONDecodeError as exc:
             log.error("JSON parse error: %s", exc)
+        except anthropic.OverloadedError:
+            log.warning("API overloaded — retrying in 10s")
+            time.sleep(10)
+            continue
+        except anthropic.RateLimitError:
+            log.warning("Rate limited — retrying in 30s")
+            time.sleep(30)
+            continue
         except anthropic.APIError as exc:
             log.error("Anthropic API error: %s", exc)
         except KeyboardInterrupt:

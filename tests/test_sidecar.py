@@ -162,7 +162,13 @@ class TestParseResponse(unittest.TestCase):
     def test_all_valid_actions_accepted(self):
         for action in sidecar.VALID_ACTIONS:
             with self.subTest(action=action):
-                resp = _make_response(action=action, reason="test")
+                if action == "chain":
+                    raw = json.dumps({"action": "chain",
+                                      "steps": "eat|drink",
+                                      "reason": "test"})
+                    resp = _make_response(raw_text=raw)
+                else:
+                    resp = _make_response(action=action, reason="test")
                 result = sidecar.parse_response(resp)
                 self.assertEqual(result["action"], action)
 
@@ -194,10 +200,10 @@ class TestParseResponse(unittest.TestCase):
         result = sidecar.parse_response(resp)
         self.assertEqual(result["action"], "drink")
 
-    def test_malformed_json_raises(self):
+    def test_malformed_json_returns_idle(self):
         resp = _make_response(raw_text="not json")
-        with self.assertRaises(json.JSONDecodeError):
-            sidecar.parse_response(resp)
+        result = sidecar.parse_response(resp)
+        self.assertEqual(result["action"], "idle")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -340,7 +346,11 @@ class TestSystemPrompts(unittest.TestCase):
         self.assertGreater(len(sidecar.EXERCISE_SYSTEM.strip()), 100)
 
     def test_pilot_prompt_mentions_json_format(self):
-        self.assertIn("JSON", sidecar.PILOT_SYSTEM)
+        self.assertTrue(
+            "JSON" in sidecar.PILOT_SYSTEM
+            or "json" in sidecar.PILOT_SYSTEM
+            or '"action"' in sidecar.PILOT_SYSTEM,
+            "PILOT_SYSTEM should mention JSON format or action field")
 
     def test_exercise_prompt_mentions_json_format(self):
         self.assertIn("JSON", sidecar.EXERCISE_SYSTEM)

@@ -20,7 +20,7 @@ AutoPilot_Needs = {}
 -- Boredom: 0-100 scale
 -- Endurance: 1.0 = full, 0.0 = empty
 local HUNGER_STAT_THRESHOLD  = 0.20
-local THIRST_STAT_THRESHOLD  = 0.08   -- react at slight thirst
+local THIRST_STAT_THRESHOLD  = 0.20   -- moderate thirst, matches hunger sensitivity
 local FATIGUE_STAT_THRESHOLD = 0.70
 local BOREDOM_STAT_THRESHOLD = 30
 local SADNESS_STAT_THRESHOLD = 20
@@ -176,29 +176,36 @@ local function doRest(player)
 
     local furniture = findRestFurniture(player)
     if furniture then
-        -- Use bed action for beds; walk-to for chairs/sofas
-        local okB, isBed = pcall(function()
-            return furniture:getSprite()
-                and furniture:getSprite():getProperties()
-                    :has(IsoFlagType.bed)
-        end)
-        if okB and isBed then
-            AutoPilot_LLM.log("[Needs] Exhausted — resting on bed.")
-            ISTimedActionQueue.add(ISGetOnBedAction:new(player, furniture))
-        else
-            AutoPilot_LLM.log("[Needs] Exhausted — resting on furniture.")
-            local sq = furniture:getSquare()
-            if sq then
-                ISTimedActionQueue.add(ISWalkToTimedAction:new(player, sq))
+        AutoPilot_LLM.log("[Needs] Exhausted — resting on furniture.")
+        -- Pathfind to the furniture seat, then sit via ISRestAction (mirrors ISWorldObjectContextMenu.onRest)
+        local pathAction = ISPathFindAction:pathToSitOnFurniture(player, furniture, true)
+        pathAction:setOnComplete(function(pl, act)
+            local target = act.goalFurnitureObject or furniture
+            local restAction = ISRestAction:new(pl, target, true)
+            if act:addAfter(restAction) == nil then
+                ISTimedActionQueue.add(restAction)
             end
-        end
+        end, player, pathAction)
+        pathAction:setOnFail(function(pl, obj, act)
+            -- Furniture unreachable; sit on ground near it instead
+            local adjacent = AdjacentFreeTileFinder.Find(obj:getSquare(), pl, nil)
+            act:setRunActionsAfterFailing(true)
+            act:addAfter(ISSitOnGround:new(pl, obj))
+            if adjacent and adjacent ~= pl:getCurrentSquare() then
+                act:addAfter(ISWalkToTimedAction:new(pl, adjacent))
+            end
+        end, player, furniture, pathAction)
+        ISTimedActionQueue.add(pathAction)
     else
         AutoPilot_LLM.log("[Needs] Exhausted — resting in place.")
+        ISTimedActionQueue.add(ISSitOnGround:new(player, nil))
     end
 
-    restCooldownMs = ms + 15000
+    restCooldownMs = ms + 60000   -- 60s: give endurance time to recover
     return true
 end
+
+local sleepCooldownMs = 0
 
 local BED_SEARCH_DIST = 100
 local BED_SEARCH_FLOORS = 3  -- check z, z+1, z-1 (ground floor + upstairs + basement)
@@ -230,7 +237,16 @@ local function getBedObjectOnSquare(sq)
 end
 
 local function doSleep(player)
+    -- Cooldown guard: prevent re-queuing bed action every tick
+    local ok, now = pcall(function()
+        return getGameTime():getCalender():getTimeInMillis()
+    end)
+    local ms = ok and now or 0
+    if ms < sleepCooldownMs then return true end
+
     AutoPilot_LLM.log("[Needs] Sleeping...")
+
+    ISTimedActionQueue.clear(player)
 
     -- Home set: restrict search to home bounds only
     if AutoPilot_Home.isSet() then
@@ -240,12 +256,14 @@ local function doSleep(player)
             if bedObj then
                 AutoPilot_LLM.log("[Needs] Found bed inside home bounds — getting on it.")
                 ISTimedActionQueue.add(ISGetOnBedAction:new(player, bedObj))
+                sleepCooldownMs = ms + 15000
                 return true
             end
         end
         AutoPilot_LLM.log("[Needs] No bed found inside home bounds — sleeping in place.")
         player:setAsleep(true)
         player:setAsleepTime(0.0)
+        sleepCooldownMs = ms + 15000
         return true
     end
 
@@ -287,12 +305,14 @@ local function doSleep(player)
             AutoPilot_LLM.log("[Needs] Found bed — getting on it.")
         end
         ISTimedActionQueue.add(ISGetOnBedAction:new(player, bestObj))
+        sleepCooldownMs = ms + 15000
         return true
     end
 
     AutoPilot_LLM.log("[Needs] No bed found — sleeping in place.")
     player:setAsleep(true)
     player:setAsleepTime(0.0)
+    sleepCooldownMs = ms + 15000
     return true
 end
 
@@ -460,6 +480,17 @@ function AutoPilot_Needs.check(player, skipExercise)
         if AutoPilot_Medical.check(player, true) then return true end
     end
 
+    -- If the PC recently sat down to rest, suppress routine needs (thirst,
+    -- hunger, etc.) so they don't immediately stand back up.  We reuse the
+    -- restCooldownMs timer that doRest already sets.  Only bleeding (above)
+    -- may interrupt passive rest.
+    local okNow, nowMs = pcall(function()
+        return getGameTime():getCalender():getTimeInMillis()
+    end)
+    if okNow and nowMs < restCooldownMs then
+        return true  -- still resting, skip routine needs
+    end
+
     -- 2. Thirst (0.0=hydrated, ~1.0=dying)
     local thirst = safeStat(player, CharacterStat.THIRST)
     if thirst >= THIRST_STAT_THRESHOLD then
@@ -488,15 +519,13 @@ function AutoPilot_Needs.check(player, skipExercise)
         return doSleep(player)
     end
 
-    -- 6. Exhausted — check both raw endurance AND the exertion moodle.
-    -- The moodle can appear before the stat drops to REST_MIN.
+    -- 6. Exhausted — rest only when endurance is critically low (stat ≤ 30%)
+    -- or the exertion moodle is severe (level 3+).  Moodle level 1-2 is mild
+    -- exertion that recovers on its own; reacting to it causes a sit-stand loop.
+    -- (Rest cooldown is already enforced at the top of check().)
     local endurance = safeStat(player, CharacterStat.ENDURANCE)
     local enduranceMoodle = safeMoodleLevel(player, MoodleType.ENDURANCE)
-    if endurance <= ENDURANCE_REST_MIN or enduranceMoodle >= 1 then
-        local cooldownOk, nowMs = pcall(function()
-            return getGameTime():getCalender():getTimeInMillis()
-        end)
-        if cooldownOk and nowMs < restCooldownMs then return true end
+    if endurance <= ENDURANCE_REST_MIN or enduranceMoodle >= 3 then
         return doRest(player)
     end
 
