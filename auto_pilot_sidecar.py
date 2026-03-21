@@ -33,30 +33,34 @@ MODEL           = "claude-opus-4-6"
 
 # Matches the keys in AutoPilot_Main.lua's LLM_ACTION_MAP
 VALID_ACTIONS = {"eat", "drink", "sleep", "rest", "exercise", "outside",
-                 "fight", "flee", "idle"}
+                 "fight", "flee", "bandage", "idle"}
 
 SYSTEM_PROMPT = """\
 You are the autonomous decision-making brain of an AFK survival bot in Project Zomboid.
 Given the player's current game state, choose the single best action to take right now.
 
 Priority order (highest → lowest):
-1. Zombies nearby  → fight (if healthy, well-rested, few debuffs) or flee (2+ active negative moodles)
-2. Health/thirst/hunger — eat or drink when moodle level ≥ 2
-3. Exhausted (endurance critically low, ~15%) → rest
-4. Very tired (tired moodle ≥ 3) → sleep
-5. Bored (bored moodle ≥ 3) → outside (go outdoors) or read if already outside
-6. Nothing urgent → exercise (Strength if STR ≤ FIT, else Fitness) or idle
+1. Bleeding wounds → bandage immediately
+2. Zombies nearby  → fight (if healthy, well-rested, few debuffs) or flee (2+ active negative moodles or bleeding)
+3. Health/thirst/hunger — eat or drink when moodle level ≥ 2
+4. Non-bleeding wounds → bandage scratches, bites, deep wounds
+5. Exhausted (endurance critically low, ~15%) → rest
+6. Very tired (tired moodle ≥ 3) → sleep
+7. Bored (bored moodle ≥ 3) → outside (go outdoors) or read if already outside
+8. Nothing urgent → exercise (Strength if STR ≤ FIT, else Fitness) or idle
 
 Respond with a JSON object and nothing else — no markdown fences, no extra text:
 {"action": "<action>", "reason": "<one short sentence explaining why>"}
 
-Valid actions: eat, drink, sleep, rest, exercise, outside, fight, flee, idle
+Valid actions: eat, drink, sleep, rest, exercise, outside, fight, flee, bandage, idle
 """
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 def build_user_message(state: dict) -> str:
+    """Format the game state snapshot into a human-readable message for Claude."""
     m = state.get("moodles", {})
+    w = state.get("wounds", {})
     return (
         f"Health: {state.get('health', '?')}%  "
         f"Endurance: {state.get('endurance', '?')}%\n"
@@ -65,10 +69,17 @@ def build_user_message(state: dict) -> str:
         f"Has food: {state.get('has_food')}  "
         f"Has drink: {state.get('has_drink')}  "
         f"Has weapon: {state.get('has_weapon')}  "
-        f"Has readable: {state.get('has_readable', False)}\n"
+        f"Has readable: {state.get('has_readable', False)}  "
+        f"Has water source: {state.get('has_water_source', False)}\n"
         f"Strength level: {state.get('strength_level', 0)}  "
         f"Fitness level: {state.get('fitness_level', 0)}\n"
         f"Is outside: {state.get('is_outside')}\n"
+        f"Wounds — "
+        f"bleeding={w.get('bleeding', 0)} "
+        f"scratched={w.get('scratched', 0)} "
+        f"deep_wounded={w.get('deep_wounded', 0)} "
+        f"bitten={w.get('bitten', False)} "
+        f"burnt={w.get('burnt', 0)}\n"
         f"Moodle levels — "
         f"hungry={m.get('hungry', 0)} "
         f"thirsty={m.get('thirsty', 0)} "

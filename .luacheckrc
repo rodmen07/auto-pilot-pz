@@ -22,6 +22,12 @@ globals = {
     -- Enum tables
     "MoodleType",
     "Perks",
+    "BodyPartType",
+    "Fluid",
+
+    -- Utility modules
+    "luautils",
+    "FitnessExercises",
 
     -- Timed-action queue and action constructors used by this mod
     "ISTimedActionQueue",
@@ -30,6 +36,14 @@ globals = {
     "ISGetOnBedAction",
     "ISEquipWeaponAction",
     "ISFitnessAction",
+    "ISApplyBandage",
+    "ISDisinfect",
+    "ISReadABook",
+    "ISTakeWaterAction",
+    "ISInventoryTransferAction",
+
+    -- PZ engine utility functions
+    "instanceof",
 
     -- AutoPilot module tables (each defined in its own file, referenced across all)
     "AutoPilot",
@@ -37,6 +51,7 @@ globals = {
     "AutoPilot_Threat",
     "AutoPilot_Inventory",
     "AutoPilot_LLM",
+    "AutoPilot_Medical",
 }
 
 -- 211: unused local variable  — common in PZ boilerplate (loop indices, etc.)

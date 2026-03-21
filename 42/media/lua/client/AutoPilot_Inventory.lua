@@ -198,3 +198,128 @@ function AutoPilot_Inventory.getSupplyCounts(player)
     end
     return foodCount, drinkCount
 end
+
+-- ── Water source management ────────────────────────────────────────────────
+
+local WATER_SEARCH_RADIUS = 10  -- tiles to scan for sinks/rain barrels
+
+-- Finds the nearest world object with fluid (sink, rain barrel, etc.).
+-- Returns the object and its square, or nil.
+function AutoPilot_Inventory.findWaterSource(player)
+    local px, py, pz = player:getX(), player:getY(), player:getZ()
+    local bestObj  = nil
+    local bestDist = math.huge
+
+    for dx = -WATER_SEARCH_RADIUS, WATER_SEARCH_RADIUS do
+        for dy = -WATER_SEARCH_RADIUS, WATER_SEARCH_RADIUS do
+            local sq = getCell():getGridSquare(px + dx, py + dy, pz)
+            if sq then
+                for i = 0, sq:getObjects():size() - 1 do
+                    local obj = sq:getObjects():get(i)
+                    if obj then
+                        local ok, hasFluid = pcall(function() return obj:hasFluid() end)
+                        if ok and hasFluid then
+                            local dist = dx * dx + dy * dy
+                            if dist < bestDist then
+                                bestDist = dist
+                                bestObj  = obj
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+    return bestObj
+end
+
+-- Drink directly from a water source (sink, rain barrel).
+-- Queues walk-to + drink action. Returns true if action was queued.
+function AutoPilot_Inventory.drinkFromSource(player, waterObj)
+    if not waterObj then return false end
+
+    local ok, tainted = pcall(function() return waterObj:isTaintedWater() end)
+    if not ok then tainted = false end
+
+    -- Walk adjacent to the water source
+    local sq = waterObj:getSquare()
+    if sq then
+        local walkOk = pcall(function()
+            luautils.walkAdj(player, sq, true)
+        end)
+        if not walkOk then
+            ISTimedActionQueue.add(ISWalkToTimedAction:new(player, sq))
+        end
+    end
+
+    local drinkOk, _ = pcall(function()
+        ISTimedActionQueue.add(ISTakeWaterAction:new(player, nil, waterObj, tainted))
+    end)
+    if drinkOk then
+        AutoPilot_LLM.log("[Inventory] Drinking from water source.")
+    end
+    return drinkOk
+end
+
+-- Refill a water container from a nearby water source.
+-- Finds the first non-full container in inventory and fills it.
+-- Returns true if a refill action was queued.
+function AutoPilot_Inventory.refillWaterContainer(player, waterObj)
+    if not waterObj then return false end
+
+    local inv = player:getInventory()
+    local items = inv:getItems()
+    local container = nil
+
+    for i = 0, items:size() - 1 do
+        local item = items:get(i)
+        if item then
+            -- Check for FluidContainer-based items (B42 fluid system)
+            local ok, fc = pcall(function() return item:getFluidContainer() end)
+            if ok and fc then
+                local notFull = pcall(function() return not fc:isFull() end)
+                local canAddWater = pcall(function() return fc:canAddFluid(Fluid.Water) end)
+                if notFull and canAddWater then
+                    container = item
+                    break
+                end
+            end
+            -- Fallback: legacy canStoreWater items
+            if not container then
+                local ok2, canStore = pcall(function() return item:canStoreWater() end)
+                if ok2 and canStore then
+                    local ok3, isFull = pcall(function()
+                        return item:isWaterSource() and item:getCurrentUsesFloat() >= 1.0
+                    end)
+                    if ok3 and not isFull then
+                        container = item
+                        break
+                    end
+                end
+            end
+        end
+    end
+
+    if not container then return false end
+
+    local ok, tainted = pcall(function() return waterObj:isTaintedWater() end)
+    if not ok then tainted = false end
+
+    local sq = waterObj:getSquare()
+    if sq then
+        pcall(function() luautils.walkAdj(player, sq, true) end)
+    end
+
+    local fillOk, _ = pcall(function()
+        ISTimedActionQueue.add(ISTakeWaterAction:new(player, container, waterObj, tainted))
+    end)
+    if fillOk then
+        AutoPilot_LLM.log("[Inventory] Refilling " .. tostring(container:getName()) .. " from water source.")
+    end
+    return fillOk
+end
+
+-- Returns true if a water source is nearby.
+function AutoPilot_Inventory.hasNearbyWaterSource(player)
+    return AutoPilot_Inventory.findWaterSource(player) ~= nil
+end

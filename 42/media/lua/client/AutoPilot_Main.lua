@@ -48,7 +48,8 @@ local LLM_ACTION_MAP = {
     outside  = function(p) AutoPilot_Needs.check(p) end,  -- falls through to go-outside
     fight    = function(p) AutoPilot_Threat.forceFight(p) end,
     flee     = function(p) AutoPilot_Threat.forceFlee(p) end,
-    idle  = function(p) AutoPilot_Needs.check(p) end,  -- idle → exercise
+    bandage  = function(p) AutoPilot_Medical.check(p, false) end,
+    idle     = function(p) AutoPilot_Needs.check(p) end,  -- idle → exercise
 }
 
 local function applyLLMCommand(player, cmd)

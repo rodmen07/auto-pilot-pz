@@ -144,6 +144,21 @@ function AutoPilot_Threat.check(player)
 
     ISTimedActionQueue.clear(player)
 
+    -- Always flee if critically wounded (actively bleeding)
+    if AutoPilot_Medical.hasCriticalWound(player) then
+        AutoPilot_LLM.log("[Threat] FLEE — critical wound (bleeding).")
+        doFlee(player, zombies)
+        return true
+    end
+
+    -- Flee if unarmed and outnumbered
+    local weapon = AutoPilot_Inventory.getBestWeapon(player)
+    if not weapon and #zombies > 1 then
+        AutoPilot_LLM.log("[Threat] FLEE — unarmed and " .. #zombies .. " zombies.")
+        doFlee(player, zombies)
+        return true
+    end
+
     if AutoPilot_Threat.countNegativeMoodles(player) > FLEE_MOODLE_LIMIT then
         doFlee(player, zombies)
     else

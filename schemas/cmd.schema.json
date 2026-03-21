@@ -8,7 +8,7 @@
   "properties": {
     "action": {
       "type": "string",
-      "enum": ["eat", "drink", "sleep", "rest", "exercise", "outside", "fight", "flee", "idle"]
+      "enum": ["eat", "drink", "sleep", "rest", "exercise", "outside", "fight", "flee", "bandage", "idle"]
     },
     "reason": {
       "type": "string",

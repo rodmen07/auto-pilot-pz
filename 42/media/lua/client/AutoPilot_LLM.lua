@@ -52,6 +52,9 @@ local function writeState(player)
     local zombies   = AutoPilot_Threat.getNearbyZombies(player)
     local foodCnt, drinkCnt = AutoPilot_Inventory.getSupplyCounts(player)
 
+    local wounds = AutoPilot_Medical.getWoundSnapshot(player)
+    local hasWater = AutoPilot_Inventory.hasNearbyWaterSource(player)
+
     local state = {
         health              = math.floor((player:getHealth() or 1) * 100),
         endurance           = math.floor((player:getStats():getEndurance() or 0) * 100),
@@ -61,10 +64,12 @@ local function writeState(player)
         has_drink           = drinkCnt > 0,
         has_weapon          = AutoPilot_Inventory.getBestWeapon(player) ~= nil,
         has_readable        = AutoPilot_Inventory.getReadable(player) ~= nil,
+        has_water_source    = hasWater,
         strength_level      = player:getPerkLevel(Perks.Strength),
         fitness_level       = player:getPerkLevel(Perks.Fitness),
         is_outside          = player:getSquare():isOutside(),
         moodles             = moodles,
+        wounds              = wounds,
     }
 
     local json = jsonVal(state)

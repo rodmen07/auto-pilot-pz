@@ -2,12 +2,14 @@
 -- Handles survival needs and idle behaviour.
 --
 -- Priority order (highest -> lowest):
---   1. Thirst        -> drink
---   2. Hunger        -> eat
---   3. Exhausted     -> rest in place (endurance critically low)
---   4. Tired         -> sleep
---   5. Bored         -> go outside
---   6. Idle          -> exercise (strength/fitness alternating by level)
+--   1. Bleeding      -> bandage immediately (fatal if untreated)
+--   2. Thirst        -> drink from tap/sink, then inventory, then loot
+--   3. Hunger        -> eat
+--   4. Wounds        -> treat non-bleeding wounds (scratches, bites, etc.)
+--   5. Exhausted     -> rest in place (endurance critically low)
+--   6. Tired         -> sleep
+--   7. Bored         -> read literature, then go outside
+--   8. Idle          -> exercise (strength/fitness alternating by level)
 
 AutoPilot_Needs = {}
 
@@ -72,15 +74,24 @@ local function doEat(player)
 end
 
 local function doDrink(player)
-    local drink = AutoPilot_Inventory.getBestDrink(player)
-    if not drink then
-        AutoPilot_LLM.log("[Needs] Thirsty but no drink — attempting to loot nearby.")
-        AutoPilot_Inventory.lootNearbyDrink(player)
-        return false
+    -- Priority 1: Drink from a nearby water source (sink, rain barrel)
+    local waterObj = AutoPilot_Inventory.findWaterSource(player)
+    if waterObj then
+        return AutoPilot_Inventory.drinkFromSource(player, waterObj)
     end
-    AutoPilot_LLM.log("[Needs] Drinking: " .. tostring(drink:getName()))
-    ISTimedActionQueue.add(ISEatFoodAction:new(player, drink, 1))
-    return true
+
+    -- Priority 2: Drink from inventory
+    local drink = AutoPilot_Inventory.getBestDrink(player)
+    if drink then
+        AutoPilot_LLM.log("[Needs] Drinking: " .. tostring(drink:getName()))
+        ISTimedActionQueue.add(ISEatFoodAction:new(player, drink, 1))
+        return true
+    end
+
+    -- Priority 3: Loot a drink from nearby containers
+    AutoPilot_LLM.log("[Needs] Thirsty but no drink — attempting to loot nearby.")
+    AutoPilot_Inventory.lootNearbyDrink(player)
+    return false
 end
 
 -- Rest in place: clear queue and let the engine recover endurance passively.
@@ -167,6 +178,26 @@ local function doGoOutside(player)
     return false
 end
 
+-- ── Reading (boredom/unhappiness relief) ────────────────────────────────────
+
+local function doRead(player)
+    local book = AutoPilot_Inventory.getReadable(player)
+    if not book then return false end
+
+    -- Check if too dark to read
+    local ok, tooDark = pcall(function() return player:tooDarkToRead() end)
+    if ok and tooDark then
+        AutoPilot_LLM.log("[Needs] Too dark to read.")
+        return false
+    end
+
+    AutoPilot_LLM.log("[Needs] Reading: " .. tostring(book:getName()))
+    local readOk, _ = pcall(function()
+        ISTimedActionQueue.add(ISReadABook:new(player, book))
+    end)
+    return readOk
+end
+
 -- ── Exercise ────────────────────────────────────────────────────────────────
 -- B42: ISFitnessAction:new(character, exercise, timeToExe, exeData, exeDataType)
 -- Exercise data comes from FitnessExercises.exercisesType table.
@@ -228,38 +259,47 @@ end
 -- ── Public API ──────────────────────────────────────────────────────────────
 
 function AutoPilot_Needs.check(player)
-    -- 1. Thirst (0.0=hydrated, ~1.0=dying)
+    -- 1. Bleeding — treat immediately (fatal if untreated)
+    if AutoPilot_Medical.hasCriticalWound(player) then
+        if AutoPilot_Medical.check(player, true) then return true end
+    end
+
+    -- 2. Thirst (0.0=hydrated, ~1.0=dying)
     local thirst = safeStat(player, function(s) return s:getThirst() end)
     if thirst >= THIRST_STAT_THRESHOLD then
         return doDrink(player)
     end
 
-    -- 2. Hunger (0.0=full, ~1.0=starving)
+    -- 3. Hunger (0.0=full, ~1.0=starving)
     local hunger = safeStat(player, function(s) return s:getHunger() end)
     if hunger >= HUNGER_STAT_THRESHOLD then
         return doEat(player)
     end
 
-    -- 3. Exhausted (endurance: 1.0=full, 0.0=empty)
+    -- 4. Wounds — treat non-bleeding wounds (scratches, bites, deep wounds)
+    if AutoPilot_Medical.check(player, false) then return true end
+
+    -- 5. Exhausted (endurance: 1.0=full, 0.0=empty)
     local endurance = safeStat(player, function(s) return s:getEndurance() end)
     if endurance <= ENDURANCE_REST_MIN then
         return doRest(player)
     end
 
-    -- 4. Tired (fatigue: 0.0=rested, ~1.0=exhausted)
+    -- 6. Tired (fatigue: 0.0=rested, ~1.0=exhausted)
     local fatigue = safeStat(player, function(s) return s:getFatigue() end)
     if fatigue >= FATIGUE_STAT_THRESHOLD then
         return doSleep(player)
     end
 
-    -- 5. Bored -> go outside (0-100)
+    -- 7. Bored -> read literature first, then go outside
     local boredom = safeStat(player, function(s) return s:getBoredom() end)
     if boredom >= BOREDOM_STAT_THRESHOLD then
+        if doRead(player) then return true end
         local went = doGoOutside(player)
         if went then return true end
     end
 
-    -- 6. Idle -> exercise
+    -- 8. Idle -> exercise
     return doExercise(player)
 end
 

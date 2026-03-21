@@ -5,8 +5,8 @@
   "type": "object",
   "required": [
     "health", "endurance", "negative_moodles", "zombie_count_nearby",
-    "has_food", "has_drink", "has_weapon", "has_readable",
-    "strength_level", "fitness_level", "is_outside", "moodles"
+    "has_food", "has_drink", "has_weapon", "has_readable", "has_water_source",
+    "strength_level", "fitness_level", "is_outside", "moodles", "wounds"
   ],
   "additionalProperties": false,
   "properties": {
@@ -18,6 +18,7 @@
     "has_drink":           { "type": "boolean" },
     "has_weapon":          { "type": "boolean" },
     "has_readable":        { "type": "boolean" },
+    "has_water_source":    { "type": "boolean" },
     "strength_level":      { "type": "integer", "minimum": 0, "maximum": 10 },
     "fitness_level":       { "type": "integer", "minimum": 0, "maximum": 10 },
     "is_outside":          { "type": "boolean" },
@@ -35,6 +36,18 @@
         "stressed": { "type": "integer", "minimum": 0, "maximum": 4 },
         "bored":    { "type": "integer", "minimum": 0, "maximum": 4 },
         "sad":      { "type": "integer", "minimum": 0, "maximum": 4 }
+      }
+    },
+    "wounds": {
+      "type": "object",
+      "required": ["bleeding", "scratched", "deep_wounded", "bitten", "burnt"],
+      "additionalProperties": false,
+      "properties": {
+        "bleeding":     { "type": "integer", "minimum": 0 },
+        "scratched":    { "type": "integer", "minimum": 0 },
+        "deep_wounded": { "type": "integer", "minimum": 0 },
+        "bitten":       { "type": "boolean" },
+        "burnt":        { "type": "integer", "minimum": 0 }
       }
     }
   }
