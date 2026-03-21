@@ -15,12 +15,10 @@ import unittest
 from unittest.mock import MagicMock
 
 # ── Mock 'anthropic' before the sidecar module loads it ───────────────────────
-# The sidecar does `import anthropic` at module scope, so we must inject the
-# mock into sys.modules BEFORE exec_module() is called below.
 
 _mock_anthropic = types.ModuleType("anthropic")
-_mock_anthropic.Anthropic = MagicMock   # client constructor
-_mock_anthropic.APIError  = Exception   # base exception caught in the main loop
+_mock_anthropic.Anthropic = MagicMock
+_mock_anthropic.APIError  = Exception
 sys.modules.setdefault("anthropic", _mock_anthropic)
 
 # ── Load sidecar by file path (avoids package/sys.path gymnastics) ────────────
@@ -30,14 +28,14 @@ _spec   = importlib.util.spec_from_file_location("auto_pilot_sidecar", _SIDECAR_
 sidecar = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(sidecar)
 
-# ── Helper: build a mock client that returns the given response ───────────────
+# ── Helper: build a mock response object ──────────────────────────────────────
 
-def _make_client(
+def _make_response(
     action: str = "eat",
     reason: str = "hungry",
     raw_text: str | None = None,
 ) -> MagicMock:
-    """Return a mock anthropic.Anthropic client for a single ask_claude call."""
+    """Return a mock Messages API response."""
     if raw_text is None:
         raw_text = json.dumps({"action": action, "reason": reason})
 
@@ -47,17 +45,8 @@ def _make_client(
 
     response = MagicMock()
     response.content = [text_block]
-
-    stream = MagicMock()
-    stream.get_final_message.return_value = response
-
-    ctx = MagicMock()
-    ctx.__enter__ = MagicMock(return_value=stream)
-    ctx.__exit__  = MagicMock(return_value=False)
-
-    client = MagicMock()
-    client.messages.stream.return_value = ctx
-    return client
+    response.usage = MagicMock(input_tokens=100, output_tokens=20)
+    return response
 
 
 # ── Shared minimal game state ─────────────────────────────────────────────────
@@ -65,123 +54,150 @@ def _make_client(
 _BASE_STATE: dict = {
     "health": 75, "endurance": 50,
     "zombie_count_nearby": 0, "negative_moodles": 0,
-    "has_food": True, "has_drink": True, "has_weapon": False, "has_readable": False,
+    "has_food": True, "has_drink": True, "has_weapon": False,
+    "has_readable": False, "has_water_source": True,
     "strength_level": 1, "fitness_level": 1,
     "is_outside": False,
     "moodles": {
         "hungry": 0, "thirsty": 0, "tired": 0, "panicked": 0,
         "injured": 0, "sick": 0, "stressed": 0, "bored": 0, "sad": 0,
     },
+    "wounds": {
+        "bleeding": 0, "scratched": 0, "deep_wounded": 0,
+        "bitten": False, "burnt": 0,
+    },
+    "inventory_summary": ["Claw Hammer", "Bandage x3"],
+    "search_results": {},
 }
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# build_user_message
+# VALID_ACTIONS
 # ─────────────────────────────────────────────────────────────────────────────
 
-class TestBuildUserMessage(unittest.TestCase):
+class TestValidActions(unittest.TestCase):
 
-    def test_full_state_contains_key_values(self):
-        state = dict(_BASE_STATE, health=80, endurance=60, zombie_count_nearby=3)
-        state["moodles"] = dict(_BASE_STATE["moodles"], thirsty=2)
-        msg = sidecar.build_user_message(state)
-        self.assertIn("Health: 80%", msg)
-        self.assertIn("Endurance: 60%", msg)
-        self.assertIn("Zombies nearby: 3", msg)
-        self.assertIn("thirsty=2", msg)
-        self.assertIn("Strength level: 1", msg)
+    def test_contains_core_survival_actions(self):
+        core = {"eat", "drink", "sleep", "rest", "exercise", "fight",
+                "flee", "bandage", "idle", "stop"}
+        missing = core - sidecar.VALID_ACTIONS
+        self.assertFalse(missing, f"Missing core actions: {missing}")
+
+    def test_contains_pilot_actions(self):
+        pilot = {"search_item", "loot_item", "place_item", "walk_to"}
+        missing = pilot - sidecar.VALID_ACTIONS
+        self.assertFalse(missing, f"Missing pilot actions: {missing}")
+
+    def test_all_actions_are_lowercase(self):
+        for action in sidecar.VALID_ACTIONS:
+            self.assertEqual(action, action.lower(),
+                             f"Action '{action}' should be lowercase")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# build_state_message
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestBuildStateMessage(unittest.TestCase):
+
+    def test_contains_key_fields(self):
+        msg = sidecar.build_state_message(_BASE_STATE)
+        self.assertIn("Health: 75%", msg)
+        self.assertIn("Endurance: 50%", msg)
+        self.assertIn("Zombies nearby: 0", msg)
+        self.assertIn("Has food: True", msg)
+        self.assertIn("Has weapon: False", msg)
+        self.assertIn("hungry=0", msg)
 
     def test_missing_health_shows_question_mark(self):
         state = {k: v for k, v in _BASE_STATE.items() if k != "health"}
-        self.assertIn("Health: ?%", sidecar.build_user_message(state))
-
-    def test_missing_zombie_count_defaults_to_zero(self):
-        state = {k: v for k, v in _BASE_STATE.items() if k != "zombie_count_nearby"}
-        self.assertIn("Zombies nearby: 0", sidecar.build_user_message(state))
-
-    def test_missing_has_readable_defaults_to_false(self):
-        state = {k: v for k, v in _BASE_STATE.items() if k != "has_readable"}
-        self.assertIn("Has readable: False", sidecar.build_user_message(state))
+        self.assertIn("Health: ?%", sidecar.build_state_message(state))
 
     def test_missing_moodle_keys_default_to_zero(self):
         state = dict(_BASE_STATE, moodles={})
-        msg = sidecar.build_user_message(state)
+        msg = sidecar.build_state_message(state)
         self.assertIn("hungry=0", msg)
         self.assertIn("tired=0", msg)
-        self.assertIn("bored=0", msg)
+
+    def test_inventory_shown_when_present(self):
+        msg = sidecar.build_state_message(_BASE_STATE)
+        self.assertIn("Claw Hammer", msg)
+
+    def test_inventory_omitted_when_empty(self):
+        state = dict(_BASE_STATE, inventory_summary=[])
+        msg = sidecar.build_state_message(state)
+        self.assertNotIn("Inventory:", msg)
+
+    def test_wounds_shown(self):
+        state = dict(_BASE_STATE, wounds={
+            "bleeding": 2, "scratched": 1, "deep_wounded": 0,
+            "bitten": True, "burnt": 0,
+        })
+        msg = sidecar.build_state_message(state)
+        self.assertIn("bleeding=2", msg)
+        self.assertIn("bitten=True", msg)
+
+    def test_search_results_shown(self):
+        state = dict(_BASE_STATE, search_results=["Saw", "Plank x4"])
+        msg = sidecar.build_state_message(state)
+        self.assertIn("Saw", msg)
+
+    def test_empty_state(self):
+        msg = sidecar.build_state_message({})
+        self.assertIn("Health:", msg)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# ask_claude
+# parse_response
 # ─────────────────────────────────────────────────────────────────────────────
 
-class TestAskClaude(unittest.TestCase):
+class TestParseResponse(unittest.TestCase):
 
-    def test_valid_action_returned(self):
-        client = _make_client(action="eat", reason="hungry moodle level 2")
-        result = sidecar.ask_claude(client, _BASE_STATE)
+    def test_valid_action(self):
+        resp = _make_response(action="eat", reason="hungry")
+        result = sidecar.parse_response(resp)
         self.assertEqual(result["action"], "eat")
-        self.assertEqual(result["reason"], "hungry moodle level 2")
+        self.assertEqual(result["reason"], "hungry")
 
-    def test_all_nine_valid_actions_accepted(self):
+    def test_all_valid_actions_accepted(self):
         for action in sidecar.VALID_ACTIONS:
             with self.subTest(action=action):
-                client = _make_client(action=action, reason="test")
-                result = sidecar.ask_claude(client, _BASE_STATE)
+                resp = _make_response(action=action, reason="test")
+                result = sidecar.parse_response(resp)
                 self.assertEqual(result["action"], action)
 
     def test_invalid_action_raises_value_error(self):
-        client = _make_client(action="dance", reason="party time")
+        resp = _make_response(action="dance", reason="party")
         with self.assertRaises(ValueError):
-            sidecar.ask_claude(client, _BASE_STATE)
+            sidecar.parse_response(resp)
 
     def test_markdown_fences_stripped(self):
         raw = '```json\n{"action": "sleep", "reason": "very tired"}\n```'
-        client = _make_client(raw_text=raw)
-        result = sidecar.ask_claude(client, _BASE_STATE)
+        resp = _make_response(raw_text=raw)
+        result = sidecar.parse_response(resp)
         self.assertEqual(result["action"], "sleep")
 
-    def test_markdown_fence_no_closing_backticks(self):
-        # Model sometimes omits the closing fence
+    def test_markdown_fence_no_closing(self):
         raw = '```\n{"action": "rest", "reason": "low endurance"}'
-        client = _make_client(raw_text=raw)
-        result = sidecar.ask_claude(client, _BASE_STATE)
+        resp = _make_response(raw_text=raw)
+        result = sidecar.parse_response(resp)
         self.assertEqual(result["action"], "rest")
 
-    def test_thinking_block_before_text_block_is_skipped(self):
-        thinking_block = MagicMock()
-        thinking_block.type = "thinking"
-        # thinking blocks must NOT be picked as the text block
-        text_block = MagicMock()
-        text_block.type = "text"
-        text_block.text = '{"action": "drink", "reason": "thirsty"}'
-
-        response = MagicMock()
-        response.content = [thinking_block, text_block]
-
-        stream = MagicMock()
-        stream.get_final_message.return_value = response
-
-        ctx = MagicMock()
-        ctx.__enter__ = MagicMock(return_value=stream)
-        ctx.__exit__  = MagicMock(return_value=False)
-
-        client = MagicMock()
-        client.messages.stream.return_value = ctx
-
-        result = sidecar.ask_claude(client, _BASE_STATE)
+    def test_thinking_block_skipped(self):
+        thinking = MagicMock()
+        thinking.type = "thinking"
+        text = MagicMock()
+        text.type = "text"
+        text.text = '{"action": "drink", "reason": "thirsty"}'
+        resp = MagicMock()
+        resp.content = [thinking, text]
+        result = sidecar.parse_response(resp)
         self.assertEqual(result["action"], "drink")
 
-    def test_malformed_json_raises_json_decode_error(self):
-        client = _make_client(raw_text="not valid json at all")
+    def test_malformed_json_raises(self):
+        resp = _make_response(raw_text="not json")
         with self.assertRaises(json.JSONDecodeError):
-            sidecar.ask_claude(client, _BASE_STATE)
-
-    def test_stream_called_with_correct_model(self):
-        client = _make_client()
-        sidecar.ask_claude(client, _BASE_STATE)
-        call_kwargs = client.messages.stream.call_args
-        self.assertEqual(call_kwargs.kwargs.get("model") or call_kwargs.args[0], sidecar.MODEL)
+            sidecar.parse_response(resp)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -190,130 +206,156 @@ class TestAskClaude(unittest.TestCase):
 
 class TestWriteCommand(unittest.TestCase):
 
-    def _patch_cmd_file(self, tmp_path: pathlib.Path):
-        """Context manager that redirects CMD_FILE to tmp_path for the test."""
+    def _with_tmp_cmd_file(self):
+        """Redirect CMD_FILE to a temp path."""
         import contextlib
 
         @contextlib.contextmanager
         def _ctx():
             original = sidecar.CMD_FILE
-            sidecar.CMD_FILE = tmp_path
-            try:
-                yield tmp_path
-            finally:
-                sidecar.CMD_FILE = original
-
+            with tempfile.TemporaryDirectory() as td:
+                tmp = pathlib.Path(td) / "auto_pilot_cmd.json"
+                sidecar.CMD_FILE = tmp
+                try:
+                    yield tmp
+                finally:
+                    sidecar.CMD_FILE = original
         return _ctx()
 
-    def test_writes_correct_json(self):
-        with tempfile.TemporaryDirectory() as td:
-            cmd_path = pathlib.Path(td) / "auto_pilot_cmd.json"
-            with self._patch_cmd_file(cmd_path):
-                sidecar.write_command({"action": "fight", "reason": "zombie close"})
-            written = json.loads(cmd_path.read_text(encoding="utf-8"))
-            self.assertEqual(written["action"], "fight")
-            self.assertEqual(written["reason"], "zombie close")
+    def test_writes_valid_json(self):
+        with self._with_tmp_cmd_file() as cmd_path:
+            sidecar.write_command({"action": "fight", "reason": "zombie"})
+            data = json.loads(cmd_path.read_text(encoding="utf-8"))
+            self.assertEqual(data["action"], "fight")
 
-    def test_no_tmp_file_left_behind(self):
-        with tempfile.TemporaryDirectory() as td:
-            cmd_path = pathlib.Path(td) / "auto_pilot_cmd.json"
-            with self._patch_cmd_file(cmd_path):
-                sidecar.write_command({"action": "idle", "reason": "nothing urgent"})
-            self.assertFalse(
-                cmd_path.with_suffix(".tmp").exists(),
-                "Atomic rename should leave no .tmp file behind",
-            )
+    def test_no_tmp_file_left(self):
+        with self._with_tmp_cmd_file() as cmd_path:
+            sidecar.write_command({"action": "idle", "reason": "waiting"})
+            self.assertFalse(cmd_path.with_suffix(".tmp").exists())
 
-    def test_output_is_valid_json(self):
-        with tempfile.TemporaryDirectory() as td:
-            cmd_path = pathlib.Path(td) / "auto_pilot_cmd.json"
-            with self._patch_cmd_file(cmd_path):
-                sidecar.write_command({"action": "flee", "reason": "too many debuffs"})
-            # Should not raise
-            json.loads(cmd_path.read_text(encoding="utf-8"))
+    def test_overwrites_previous(self):
+        with self._with_tmp_cmd_file() as cmd_path:
+            sidecar.write_command({"action": "eat", "reason": "first"})
+            sidecar.write_command({"action": "drink", "reason": "second"})
+            data = json.loads(cmd_path.read_text(encoding="utf-8"))
+            self.assertEqual(data["action"], "drink")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# JSON schema validation (skipped gracefully if jsonschema not installed)
+# read_prompt / clear_prompt
 # ─────────────────────────────────────────────────────────────────────────────
 
-try:
-    import jsonschema as _jsonschema
-    _JSONSCHEMA_OK = True
-except ImportError:
-    _JSONSCHEMA_OK = False
+class TestPromptFile(unittest.TestCase):
 
-_SCHEMAS_DIR = pathlib.Path(__file__).parent.parent / "schemas"
+    def test_read_returns_content(self):
+        original = sidecar.PROMPT_FILE
+        try:
+            with tempfile.NamedTemporaryFile(
+                mode="w", suffix=".txt", delete=False, encoding="utf-8"
+            ) as f:
+                f.write("find a saw")
+                sidecar.PROMPT_FILE = pathlib.Path(f.name)
+            result = sidecar.read_prompt()
+            self.assertEqual(result, "find a saw")
+        finally:
+            sidecar.PROMPT_FILE = original
 
-_VALID_STATE = {
-    "health": 80, "endurance": 55, "negative_moodles": 1, "zombie_count_nearby": 0,
-    "has_food": True, "has_drink": False, "has_weapon": True, "has_readable": False,
-    "strength_level": 2, "fitness_level": 3, "is_outside": False,
-    "moodles": {
-        "hungry": 0, "thirsty": 2, "tired": 1, "panicked": 0,
-        "injured": 0, "sick": 0, "stressed": 0, "bored": 0, "sad": 0,
-    },
-}
+    def test_read_returns_none_for_missing(self):
+        original = sidecar.PROMPT_FILE
+        try:
+            sidecar.PROMPT_FILE = pathlib.Path("/nonexistent/prompt.txt")
+            self.assertIsNone(sidecar.read_prompt())
+        finally:
+            sidecar.PROMPT_FILE = original
 
-
-@unittest.skipUnless(_JSONSCHEMA_OK, "jsonschema not installed — pip install jsonschema")
-class TestStateSchema(unittest.TestCase):
-
-    def setUp(self):
-        self.schema = json.loads((_SCHEMAS_DIR / "state.schema.json").read_text())
-
-    def test_valid_state_passes(self):
-        _jsonschema.validate(_VALID_STATE, self.schema)  # must not raise
-
-    def test_health_over_100_fails(self):
-        bad = dict(_VALID_STATE, health=150)
-        with self.assertRaises(_jsonschema.ValidationError):
-            _jsonschema.validate(bad, self.schema)
-
-    def test_negative_endurance_fails(self):
-        bad = dict(_VALID_STATE, endurance=-1)
-        with self.assertRaises(_jsonschema.ValidationError):
-            _jsonschema.validate(bad, self.schema)
-
-    def test_moodle_level_5_fails(self):
-        bad_moodles = dict(_VALID_STATE["moodles"], hungry=5)
-        bad = dict(_VALID_STATE, moodles=bad_moodles)
-        with self.assertRaises(_jsonschema.ValidationError):
-            _jsonschema.validate(bad, self.schema)
-
-    def test_missing_required_field_fails(self):
-        bad = {k: v for k, v in _VALID_STATE.items() if k != "health"}
-        with self.assertRaises(_jsonschema.ValidationError):
-            _jsonschema.validate(bad, self.schema)
-
-    def test_extra_field_fails(self):
-        bad = dict(_VALID_STATE, unexpected_key="oops")
-        with self.assertRaises(_jsonschema.ValidationError):
-            _jsonschema.validate(bad, self.schema)
+    def test_read_returns_none_for_empty(self):
+        original = sidecar.PROMPT_FILE
+        try:
+            with tempfile.NamedTemporaryFile(
+                mode="w", suffix=".txt", delete=False, encoding="utf-8"
+            ) as f:
+                f.write("")
+                sidecar.PROMPT_FILE = pathlib.Path(f.name)
+            self.assertIsNone(sidecar.read_prompt())
+        finally:
+            sidecar.PROMPT_FILE = original
 
 
-@unittest.skipUnless(_JSONSCHEMA_OK, "jsonschema not installed — pip install jsonschema")
-class TestCmdSchema(unittest.TestCase):
+# ─────────────────────────────────────────────────────────────────────────────
+# PilotSession
+# ─────────────────────────────────────────────────────────────────────────────
 
-    def setUp(self):
-        self.schema = json.loads((_SCHEMAS_DIR / "cmd.schema.json").read_text())
+class TestPilotSession(unittest.TestCase):
 
-    def test_all_valid_actions_pass(self):
-        for action in ["eat", "drink", "sleep", "rest", "exercise", "outside", "fight", "flee", "idle"]:
-            with self.subTest(action=action):
-                _jsonschema.validate({"action": action, "reason": "test"}, self.schema)
+    def test_set_goal_resets_history(self):
+        session = sidecar.PilotSession()
+        session.history = [{"role": "user", "content": "old"}]
+        session.set_goal("new goal")
+        self.assertEqual(session.goal, "new goal")
+        self.assertEqual(session.history, [])
 
-    def test_unknown_action_fails(self):
-        with self.assertRaises(_jsonschema.ValidationError):
-            _jsonschema.validate({"action": "dance", "reason": "party"}, self.schema)
+    def test_same_goal_keeps_history(self):
+        session = sidecar.PilotSession()
+        session.set_goal("find a saw")
+        session.history = [{"role": "user", "content": "msg"}]
+        session.set_goal("find a saw")
+        self.assertEqual(len(session.history), 1)
 
-    def test_empty_reason_fails(self):
-        with self.assertRaises(_jsonschema.ValidationError):
-            _jsonschema.validate({"action": "eat", "reason": ""}, self.schema)
+    def test_history_trimmed_to_max(self):
+        session = sidecar.PilotSession()
+        session.goal = "test"
+        session.max_history = 4
+        session.history = [
+            {"role": "user", "content": f"msg{i}"}
+            for i in range(10)
+        ]
 
-    def test_missing_reason_fails(self):
-        with self.assertRaises(_jsonschema.ValidationError):
-            _jsonschema.validate({"action": "eat"}, self.schema)
+        # Mock the client
+        stream = MagicMock()
+        resp = _make_response(action="idle", reason="test")
+        stream.get_final_message.return_value = resp
+        ctx = MagicMock()
+        ctx.__enter__ = MagicMock(return_value=stream)
+        ctx.__exit__  = MagicMock(return_value=False)
+        client = MagicMock()
+        client.messages.stream.return_value = ctx
+
+        session.step(client, _BASE_STATE)
+        # History should be trimmed: kept max_history entries + new user + assistant
+        self.assertLessEqual(len(session.history), session.max_history + 2)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# System prompt coverage
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestSystemPrompts(unittest.TestCase):
+
+    def test_pilot_prompt_documents_pilot_actions(self):
+        for action in ["search_item", "loot_item", "place_item", "walk_to"]:
+            self.assertIn(action, sidecar.PILOT_SYSTEM,
+                          f"PILOT_SYSTEM missing '{action}'")
+
+    def test_exercise_prompt_non_empty(self):
+        self.assertGreater(len(sidecar.EXERCISE_SYSTEM.strip()), 100)
+
+    def test_pilot_prompt_mentions_json_format(self):
+        self.assertIn("JSON", sidecar.PILOT_SYSTEM)
+
+    def test_exercise_prompt_mentions_json_format(self):
+        self.assertIn("JSON", sidecar.EXERCISE_SYSTEM)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# State JSON round-trip
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestStateRoundTrip(unittest.TestCase):
+
+    def test_state_survives_json_serialization(self):
+        serialized = json.dumps(_BASE_STATE)
+        restored = json.loads(serialized)
+        self.assertEqual(restored, _BASE_STATE)
 
 
 if __name__ == "__main__":

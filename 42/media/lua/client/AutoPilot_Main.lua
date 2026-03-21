@@ -2,15 +2,18 @@
 -- Entry point. Registers the OnTick event and orchestrates all sub-modules.
 --
 -- Modes:
---   EXERCISE (F7) — fully autonomous: needs + exercise loop
---   PILOT    (F8) — command-driven: only executes commands from auto_pilot_cmd.json
---                    (threats and critical needs still handled automatically)
+--   EXERCISE (F7) — autonomous: survival needs + exercise when idle
+--   PILOT    (F8) — survival needs + LLM commands when idle (no exercise)
+--
+-- Both modes share identical survival logic (Needs.check).
+-- The only difference: exercise mode exercises when idle, pilot mode
+-- waits for LLM commands instead.
 --
 -- Execution order each cycle:
 --   1. LLM tick     — write state file, read any pending command
 --   2. Threat       — highest priority; interrupts queue if zombies nearby
---   3. LLM cmd      — apply any pending command (both modes)
---   4. Needs        — EXERCISE mode only: auto-handle needs + exercise
+--   3. Survival     — needs check (both modes, skip exercise in pilot)
+--   4. LLM cmd      — apply any pending command (both modes)
 
 AutoPilot = {}
 
@@ -183,21 +186,12 @@ local function onTick()
         end
     end
 
-    -- 5. Critical survival needs — runs in BOTH modes
-    --    Pilot mode delegates to the sidecar, but hunger/thirst/bleeding
-    --    can't wait for the next LLM cycle.
-    if mode == "pilot" then
-        if AutoPilot_Medical.hasCriticalWound(player) then
-            AutoPilot_Medical.check(player, true)
-            actionCooldown = ACTION_COOLDOWN_CYCLES
-            return
-        end
-        if AutoPilot_Needs.shouldInterrupt(player) then
-            AutoPilot_LLM.log("[Main] Pilot: handling urgent survival need.")
-            AutoPilot_Needs.check(player)
-            actionCooldown = ACTION_COOLDOWN_CYCLES
-            return
-        end
+    -- 5. Survival needs — runs in BOTH modes (identical logic).
+    --    In pilot mode, skipExercise=true so idle falls through to LLM commands.
+    local skipExercise = (mode == "pilot")
+    if AutoPilot_Needs.check(player, skipExercise) then
+        actionCooldown = ACTION_COOLDOWN_CYCLES
+        return
     end
 
     -- 6. LLM/piped command — runs in BOTH modes
@@ -206,14 +200,6 @@ local function onTick()
         applyLLMCommand(player, cmd)
         actionCooldown = ACTION_COOLDOWN_CYCLES
         return
-    end
-
-    -- 7. PILOT mode stops here — wait for next command
-    if mode == "pilot" then return end
-
-    -- 7. EXERCISE mode — autonomous needs state machine
-    if AutoPilot_Needs.check(player) then
-        actionCooldown = ACTION_COOLDOWN_CYCLES
     end
 end
 

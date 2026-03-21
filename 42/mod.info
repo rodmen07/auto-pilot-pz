@@ -3,5 +3,5 @@ poster=poster.png
 id=AutoPilot
 description=Keeps your character alive while AFK. Exercises to level Strength and Fitness evenly. Handles hunger, thirst (taps/sinks), sleep, boredom (reads/goes outside), exhaustion, and wounds (auto-bandage). Fights zombies; flees when bleeding or outnumbered. Optional Claude LLM sidecar.
 url=https://github.com/rodmen07/auto-pilot-pz
-modversion=1.1.0
+modversion=0.1.2
 pzversion=42.15.3

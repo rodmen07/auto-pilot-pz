@@ -123,7 +123,7 @@ Publish the mod for others to use.
 | Poster artwork | Pending | Finalize `poster.png` for Workshop listing |
 | In-game testing on fresh save | Pending | Full end-to-end validation on clean install (no leftover state) |
 | Multiplayer compatibility check | Pending | Verify mod behavior in MP (client-only, no server-side effects) |
-| Version tagging | Pending | Git tag releases (`v1.0.0`, `v1.1.0`, etc.) for traceability |
+| Version tagging | Pending | Git tag releases (`v0.1`, `v0.1.1`, `v0.1.2`, etc.) for traceability |
 
 ---
 

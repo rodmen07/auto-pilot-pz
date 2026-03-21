@@ -5,7 +5,8 @@ AutoPilot_Inventory = {}
 
 local LOOT_SEARCH_RADIUS = 80  -- tiles to search for containers
 
--- Returns the best non-rotten food item by calorie count.
+-- Returns the best safe-to-eat food item by calorie count.
+-- Skips: rotten, frozen, needs-cooking (raw dangerous), causes unhappiness/boredom.
 function AutoPilot_Inventory.getBestFood(player)
     local inv = player:getInventory()
     local items = inv:getItems()
@@ -15,10 +16,35 @@ function AutoPilot_Inventory.getBestFood(player)
     for i = 0, items:size() - 1 do
         local item = items:get(i)
         if item and item:isFood() and not item:isRotten() then
-            local cal = item:getCalories() or 0
-            if cal > bestCal then
-                bestCal = cal
-                best = item
+            -- Skip frozen food (needs thawing + cooking)
+            local frozen = false
+            pcall(function() frozen = item:isFrozen() end)
+            if not frozen then
+                -- Skip food that requires cooking (raw chicken, raw meat, etc.)
+                local needsCooking = false
+                pcall(function()
+                    needsCooking = item:isIsCookable()
+                        and not item:isCooked()
+                end)
+                if not needsCooking then
+                    -- Skip food that causes unhappiness
+                    local unhappy = 0
+                    pcall(function()
+                        unhappy = item:getUnhappyChange() or 0
+                    end)
+                    -- Skip food that causes boredom
+                    local boring = 0
+                    pcall(function()
+                        boring = item:getBoredomChange() or 0
+                    end)
+                    if unhappy <= 0 and boring <= 0 then
+                        local cal = item:getCalories() or 0
+                        if cal > bestCal then
+                            bestCal = cal
+                            best = item
+                        end
+                    end
+                end
             end
         end
     end
@@ -82,13 +108,26 @@ function AutoPilot_Inventory.getReadable(player)
                     uninteresting = item:hasTag(ItemTag.UNINTERESTING)
                 end)
                 if not uninteresting then
-                    -- Skip fully-read items (0 pages remaining)
-                    local pages = -1
-                    pcall(function() pages = item:getNumberOfPages() end)
-                    local readPages = 0
-                    pcall(function() readPages = item:getAlreadyReadPages() end)
-                    if pages ~= 0 and (pages < 0 or readPages < pages) then
-                        return item
+                    -- Skip notepads, journals, blank notebooks
+                    local name = ""
+                    pcall(function() name = item:getName():lower() end)
+                    local isBlank = name:find("notepad") or
+                                    name:find("notebook") or
+                                    name:find("journal") or
+                                    name:find("empty")
+                    if not isBlank then
+                        -- Skip fully-read items (0 pages remaining)
+                        local pages = -1
+                        pcall(function()
+                            pages = item:getNumberOfPages()
+                        end)
+                        local readPages = 0
+                        pcall(function()
+                            readPages = item:getAlreadyReadPages()
+                        end)
+                        if pages > 0 and readPages < pages then
+                            return item
+                        end
                     end
                 end
             end

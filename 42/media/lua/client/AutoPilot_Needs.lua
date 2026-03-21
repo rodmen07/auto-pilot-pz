@@ -99,10 +99,70 @@ local function doDrink(player)
     return false
 end
 
--- Rest in place: clear queue and let the engine recover endurance passively.
--- Uses a cooldown to prevent log spam (doRest has no timed action, so the
--- character appears "idle" immediately and check() would loop every tick).
+-- Rest on nearby furniture to recover endurance.
+-- Searches for bed > couch/sofa > chair within REST_SEARCH_DIST tiles.
+-- Falls back to resting in place if nothing found.
 local restCooldownMs = 0
+local REST_SEARCH_DIST = 30
+
+local function findRestFurniture(player)
+    local px, py, pz = player:getX(), player:getY(), player:getZ()
+    local bestObj  = nil
+    local bestDist = math.huge
+    local bestPriority = 99  -- lower = better (bed=1, sofa=2, chair=3)
+
+    for dx = -REST_SEARCH_DIST, REST_SEARCH_DIST do
+        for dy = -REST_SEARCH_DIST, REST_SEARCH_DIST do
+            local sq = getCell():getGridSquare(px + dx, py + dy, pz)
+            if sq then
+                for i = 0, sq:getObjects():size() - 1 do
+                    local obj = sq:getObjects():get(i)
+                    local priority = nil
+
+                    -- Check for bed
+                    local okB, isBed = pcall(function()
+                        return obj:getSprite()
+                            and obj:getSprite():getProperties()
+                                :has(IsoFlagType.bed)
+                    end)
+                    if okB and isBed then
+                        priority = 1
+                    end
+
+                    -- Check for chair/sofa by sprite name
+                    if not priority then
+                        local okN, spName = pcall(function()
+                            return obj:getSprite()
+                                and obj:getSprite():getName() or ""
+                        end)
+                        if okN and spName then
+                            local lower = spName:lower()
+                            if lower:find("sofa") or lower:find("couch") then
+                                priority = 2
+                            elseif lower:find("chair") then
+                                priority = 3
+                            end
+                        end
+                    end
+
+                    if priority then
+                        local dist = dx * dx + dy * dy
+                        -- Prefer better furniture, then closer distance
+                        if priority < bestPriority
+                            or (priority == bestPriority and dist < bestDist)
+                        then
+                            bestPriority = priority
+                            bestDist = dist
+                            bestObj = obj
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    return bestObj
+end
 
 local function doRest(player)
     local ok, now = pcall(function()
@@ -112,9 +172,31 @@ local function doRest(player)
 
     if ms < restCooldownMs then return true end  -- still resting, skip silently
 
-    AutoPilot_LLM.log("[Needs] Exhausted — resting.")
     ISTimedActionQueue.clear(player)
-    restCooldownMs = ms + 15000  -- rest 15 seconds of game time before re-evaluating
+
+    local furniture = findRestFurniture(player)
+    if furniture then
+        -- Use bed action for beds; walk-to for chairs/sofas
+        local okB, isBed = pcall(function()
+            return furniture:getSprite()
+                and furniture:getSprite():getProperties()
+                    :has(IsoFlagType.bed)
+        end)
+        if okB and isBed then
+            AutoPilot_LLM.log("[Needs] Exhausted — resting on bed.")
+            ISTimedActionQueue.add(ISGetOnBedAction:new(player, furniture))
+        else
+            AutoPilot_LLM.log("[Needs] Exhausted — resting on furniture.")
+            local sq = furniture:getSquare()
+            if sq then
+                ISTimedActionQueue.add(ISWalkToTimedAction:new(player, sq))
+            end
+        end
+    else
+        AutoPilot_LLM.log("[Needs] Exhausted — resting in place.")
+    end
+
+    restCooldownMs = ms + 15000
     return true
 end
 
@@ -340,7 +422,9 @@ function AutoPilot_Needs.shouldInterrupt(player)
     return false
 end
 
-function AutoPilot_Needs.check(player)
+--- Main survival needs check. Both modes call this.
+--- @param skipExercise boolean  If true, skip the idle→exercise step (pilot mode).
+function AutoPilot_Needs.check(player, skipExercise)
     -- 1. Bleeding — treat immediately (fatal if untreated)
     if AutoPilot_Medical.hasCriticalWound(player) then
         if AutoPilot_Medical.check(player, true) then return true end
@@ -374,11 +458,11 @@ function AutoPilot_Needs.check(player)
         return doSleep(player)
     end
 
-    -- 6. Exhausted (endurance: 1.0=full, 0.0=empty) — only if NOT tired enough to sleep
-    -- Rest cooldown prevents spam (doRest has no timed action, so the character
-    -- appears idle immediately — without the cooldown we'd loop every tick).
+    -- 6. Exhausted — check both raw endurance AND the exertion moodle.
+    -- The moodle can appear before the stat drops to REST_MIN.
     local endurance = safeStat(player, CharacterStat.ENDURANCE)
-    if endurance <= ENDURANCE_REST_MIN then
+    local enduranceMoodle = safeMoodleLevel(player, MoodleType.ENDURANCE)
+    if endurance <= ENDURANCE_REST_MIN or enduranceMoodle >= 1 then
         local cooldownOk, nowMs = pcall(function()
             return getGameTime():getCalender():getTimeInMillis()
         end)
@@ -397,7 +481,8 @@ function AutoPilot_Needs.check(player)
         end
     end
 
-    -- 8. Idle -> exercise
+    -- 8. Idle -> exercise (exercise mode only)
+    if skipExercise then return false end
     return doExercise(player)
 end
 
