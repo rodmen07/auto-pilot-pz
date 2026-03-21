@@ -2,7 +2,23 @@
 
 AFK auto-leveler for Strength and Fitness. Keeps your character alive through automated survival (eating, drinking, sleeping, wound treatment) while exercising to max both stats.
 
-Press **F7** in-game to toggle on/off.
+## Quick Start
+
+1. The mod is already installed at `~/Zomboid/mods/auto_pilot/`
+2. Launch Project Zomboid, enable **AutoPilot** in the mod list
+3. Load into a game and press **F7** to toggle on/off
+4. Watch the console (`ProjectZomboid64ShowConsole.bat`) for `[AutoPilot]` log messages
+
+### Optional: Run with AI sidecar
+
+```bash
+cd ~/Zomboid/mods/auto_pilot
+pip install anthropic
+set ANTHROPIC_API_KEY=sk-ant-...
+python auto_pilot_sidecar.py
+```
+
+The sidecar is **not required** — the mod runs fully autonomously without it. When running, the sidecar uses Claude to override the rule-based brain with AI-driven decisions.
 
 ## Architecture
 
