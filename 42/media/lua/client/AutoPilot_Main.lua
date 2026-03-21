@@ -134,6 +134,18 @@ local LLM_ACTION_MAP = {
             AutoPilot_LLM.log("[Main] walk_to: no walkable square near target.")
             return
         end
+        -- Clamp to home bounds (same as AutoPilot_Actions.handleWalkTo)
+        local clampedSq = AutoPilot_Home.clampSq(targetSq, p)
+        if not clampedSq then
+            AutoPilot_LLM.log("[Main] walk_to: target outside home bounds — no in-bounds square found.")
+            return
+        end
+        if clampedSq ~= targetSq then
+            AutoPilot_LLM.log(string.format(
+                "[Main] walk_to: clamped to home bounds (%d,%d → %d,%d).",
+                targetSq:getX(), targetSq:getY(), clampedSq:getX(), clampedSq:getY()))
+            targetSq = clampedSq
+        end
         -- Sprint to destination
         pcall(function() p:setSprinting(true) end)
         ISTimedActionQueue.add(ISWalkToTimedAction:new(p, targetSq))

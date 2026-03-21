@@ -187,13 +187,13 @@ local function doRest(player)
             end
         end, player, pathAction)
         pathAction:setOnFail(function(pl, obj, act)
-            -- Furniture unreachable; sit on ground near it instead
+            -- Furniture unreachable; walk adjacent then sit on ground near it
             local adjacent = AdjacentFreeTileFinder.Find(obj:getSquare(), pl, nil)
             act:setRunActionsAfterFailing(true)
-            act:addAfter(ISSitOnGround:new(pl, obj))
             if adjacent and adjacent ~= pl:getCurrentSquare() then
                 act:addAfter(ISWalkToTimedAction:new(pl, adjacent))
             end
+            act:addAfter(ISSitOnGround:new(pl, obj))
         end, player, furniture, pathAction)
         ISTimedActionQueue.add(pathAction)
     else
@@ -273,7 +273,7 @@ local function doSleep(player)
     local bestDist = math.huge
 
     for dz = 0, BED_SEARCH_FLOORS - 1 do
-        for _, z in ipairs({pz + dz, pz - dz}) do
+        for _, z in ipairs(dz == 0 and {pz} or {pz + dz, pz - dz}) do
             if z >= 0 then
                 for dx = -BED_SEARCH_DIST, BED_SEARCH_DIST do
                     for dy = -BED_SEARCH_DIST, BED_SEARCH_DIST do
@@ -465,9 +465,10 @@ function AutoPilot_Needs.shouldInterrupt(player)
     local hunger = safeStat(player, CharacterStat.HUNGER)
     if hunger >= HUNGER_STAT_THRESHOLD then return true end
 
-    -- Exhaustion interrupts
+    -- Exhaustion interrupts (stat threshold OR severe moodle — mirrors check())
     local endurance = safeStat(player, CharacterStat.ENDURANCE)
     if endurance <= ENDURANCE_REST_MIN then return true end
+    if safeMoodleLevel(player, MoodleType.ENDURANCE) >= 3 then return true end
 
     return false
 end

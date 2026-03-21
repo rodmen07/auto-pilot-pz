@@ -315,20 +315,29 @@ class PilotSession:
         # Trim history to prevent context overflow
         if len(self.history) > self.max_history:
             self.history = self.history[-self.max_history:]
+        # Ensure the conversation always starts with a user message
+        if self.history and self.history[0]["role"] != "user":
+            self.history = self.history[1:]
 
-        t0 = time.perf_counter()
-        with client.messages.stream(
-            model=MODEL, max_tokens=512,
-            system=PILOT_SYSTEM,
-            messages=self.history,
-        ) as stream:
-            response = stream.get_final_message()
-        elapsed = time.perf_counter() - t0
+        try:
+            t0 = time.perf_counter()
+            with client.messages.stream(
+                model=MODEL, max_tokens=512,
+                system=PILOT_SYSTEM,
+                messages=self.history,
+            ) as stream:
+                response = stream.get_final_message()
+            elapsed = time.perf_counter() - t0
 
-        usage = response.usage
-        log.info("Claude: %.1fs (in=%d out=%d)", elapsed, usage.input_tokens, usage.output_tokens)
+            usage = response.usage
+            log.info("Claude: %.1fs (in=%d out=%d)", elapsed, usage.input_tokens, usage.output_tokens)
 
-        cmd = parse_response(response)
+            cmd = parse_response(response)
+        except Exception:
+            # Remove the user message we just appended — on the next cycle a
+            # fresh user message will be added, keeping the role sequence valid.
+            self.history.pop()
+            raise
 
         # Add assistant response to history
         text = next((b.text for b in response.content if b.type == "text"), "")

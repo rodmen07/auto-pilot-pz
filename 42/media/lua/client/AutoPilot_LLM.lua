@@ -9,7 +9,9 @@
 
 AutoPilot_LLM = {}
 
-local LLM_WRITE_INTERVAL = 200  -- ticks between state writes (~10s at 20 ticks/s)
+-- llmTickCounter increments once per main-loop cycle (every TICK_INTERVAL=15 game ticks).
+-- 14 cycles × 15 game ticks = 210 game ticks ≈ 10.5 s at 20 ticks/s.
+local LLM_WRITE_INTERVAL = 14
 local llmTickCounter     = 0
 local pendingCommand     = nil   -- {action=string, reason=string}
 
@@ -23,7 +25,7 @@ end
 
 local function jsonVal(v)
     local t = type(v)
-    if t == "string"  then return '"' .. v:gsub('"', '\\"') .. '"' end
+    if t == "string"  then return '"' .. v:gsub("\\", "\\\\"):gsub('"', '\\"') .. '"' end
     if t == "number"  then return tostring(v) end
     if t == "boolean" then return v and "true" or "false" end
     if t == "nil"     then return "null" end
@@ -61,9 +63,14 @@ local function writeState(player)
     local hx, hy, hz, hr = AutoPilot_Home.getState()
     local homeSet = AutoPilot_Home.isSet()
 
+    local playerSq = player:getSquare()  -- may be nil during cell transitions
+
+    local _okHp,  _hp  = pcall(function() return player:getHealth() end)
+    local _okEnd, _end = pcall(function() return player:getStats():get(CharacterStat.ENDURANCE) end)
+
     local state = {
-        health              = math.floor((player:getHealth() or 1) * 100),
-        endurance           = math.floor((player:getStats():get(CharacterStat.ENDURANCE) or 0) * 100),
+        health              = math.floor(((_okHp  and _hp)  or 1) * 100),
+        endurance           = math.floor(((_okEnd and _end) or 0) * 100),
         negative_moodles    = negCount,
         zombie_count_nearby = #zombies,
         has_food            = foodCnt > 0,
@@ -73,7 +80,7 @@ local function writeState(player)
         has_water_source    = hasWater,
         strength_level      = player:getPerkLevel(Perks.Strength),
         fitness_level       = player:getPerkLevel(Perks.Fitness),
-        is_outside          = player:getSquare():isOutside(),
+        is_outside          = playerSq ~= nil and playerSq:isOutside() or false,
         home_set            = homeSet,
         home_x              = hx or 0,
         home_y              = hy or 0,

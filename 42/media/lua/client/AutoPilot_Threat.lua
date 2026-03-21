@@ -114,10 +114,13 @@ local function doFlee(player, zombies)
     if destSq then
         player:setRunning(true)
         ISTimedActionQueue.add(ISWalkToTimedAction:new(player, destSq))
+        AutoPilot_LLM.log("[Threat] FLEE — " .. #zombies .. " zombie(s), " ..
+            AutoPilot_Threat.countNegativeMoodles(player) .. " negative stats elevated.")
+        return true
     end
 
-    AutoPilot_LLM.log("[Threat] FLEE — " .. #zombies .. " zombie(s), " ..
-        AutoPilot_Threat.countNegativeMoodles(player) .. " negative stats elevated.")
+    AutoPilot_LLM.log("[Threat] FLEE failed — no reachable square; falling back to fight.")
+    return false
 end
 
 -- Fight the nearest zombie: equip best weapon, then walk toward it.
@@ -179,7 +182,7 @@ function AutoPilot_Threat.check(player)
     -- Always flee if critically wounded (actively bleeding)
     if AutoPilot_Medical.hasCriticalWound(player) then
         AutoPilot_LLM.log("[Threat] FLEE — critical wound (bleeding).")
-        doFlee(player, zombies)
+        if not doFlee(player, zombies) then doFight(player, zombies) end
         return true
     end
 
@@ -187,12 +190,12 @@ function AutoPilot_Threat.check(player)
     local weapon = AutoPilot_Inventory.getBestWeapon(player)
     if not weapon and #zombies > 1 then
         AutoPilot_LLM.log("[Threat] FLEE — unarmed and " .. #zombies .. " zombies.")
-        doFlee(player, zombies)
+        if not doFlee(player, zombies) then doFight(player, zombies) end
         return true
     end
 
     if AutoPilot_Threat.countNegativeMoodles(player) > FLEE_MOODLE_LIMIT then
-        doFlee(player, zombies)
+        if not doFlee(player, zombies) then doFight(player, zombies) end
     else
         doFight(player, zombies)
     end

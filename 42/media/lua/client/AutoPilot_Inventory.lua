@@ -390,9 +390,9 @@ function AutoPilot_Inventory.refillWaterContainer(player, waterObj)
             -- Check for FluidContainer-based items (B42 fluid system)
             local ok, fc = pcall(function() return item:getFluidContainer() end)
             if ok and fc then
-                local notFull = pcall(function() return not fc:isFull() end)
-                local canAddWater = pcall(function() return fc:canAddFluid(Fluid.Water) end)
-                if notFull and canAddWater then
+                local ok1, isNotFull  = pcall(function() return not fc:isFull() end)
+                local ok2, canAddWater = pcall(function() return fc:canAddFluid(Fluid.Water) end)
+                if ok1 and isNotFull and ok2 and canAddWater then
                     container = item
                     break
                 end

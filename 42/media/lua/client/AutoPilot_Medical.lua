@@ -83,8 +83,16 @@ local function lootNearbyBandage(player)
                                     if ok and canBandage then
                                         AutoPilot_LLM.log("[Medical] Looting bandage: " ..
                                             tostring(item:getName()))
-                                        container:Remove(item)
-                                        player:getInventory():AddItem(item)
+                                        local xferOk = pcall(function()
+                                            ISTimedActionQueue.add(
+                                                ISInventoryTransferAction:new(
+                                                    player, item, container,
+                                                    player:getInventory()))
+                                        end)
+                                        if not xferOk then
+                                            container:Remove(item)
+                                            player:getInventory():AddItem(item)
+                                        end
                                         return true
                                     end
                                 end
