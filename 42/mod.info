@@ -1,0 +1,7 @@
+name=AutoPilot
+poster=poster.png
+id=AutoPilot
+description=Keeps your character alive while AFK. Exercises to level Strength and Fitness evenly. Handles hunger, thirst, sleep, boredom (goes outside), and exhaustion. Fights zombies by default; flees when too many debuffs. Optional Claude LLM sidecar.
+url=
+modversion=1.0.0
+pzversion=42.15.3

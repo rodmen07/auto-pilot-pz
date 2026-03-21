@@ -1,0 +1,41 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "AutoPilot State",
+  "description": "Game-state snapshot written by AutoPilot_LLM.lua to Zomboid/Lua/auto_pilot_state.json every ~10 s.",
+  "type": "object",
+  "required": [
+    "health", "endurance", "negative_moodles", "zombie_count_nearby",
+    "has_food", "has_drink", "has_weapon", "has_readable",
+    "strength_level", "fitness_level", "is_outside", "moodles"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "health":              { "type": "integer", "minimum": 0, "maximum": 100 },
+    "endurance":           { "type": "integer", "minimum": 0, "maximum": 100 },
+    "negative_moodles":    { "type": "integer", "minimum": 0 },
+    "zombie_count_nearby": { "type": "integer", "minimum": 0 },
+    "has_food":            { "type": "boolean" },
+    "has_drink":           { "type": "boolean" },
+    "has_weapon":          { "type": "boolean" },
+    "has_readable":        { "type": "boolean" },
+    "strength_level":      { "type": "integer", "minimum": 0, "maximum": 10 },
+    "fitness_level":       { "type": "integer", "minimum": 0, "maximum": 10 },
+    "is_outside":          { "type": "boolean" },
+    "moodles": {
+      "type": "object",
+      "required": ["hungry", "thirsty", "tired", "panicked", "injured", "sick", "stressed", "bored", "sad"],
+      "additionalProperties": false,
+      "properties": {
+        "hungry":   { "type": "integer", "minimum": 0, "maximum": 4 },
+        "thirsty":  { "type": "integer", "minimum": 0, "maximum": 4 },
+        "tired":    { "type": "integer", "minimum": 0, "maximum": 4 },
+        "panicked": { "type": "integer", "minimum": 0, "maximum": 4 },
+        "injured":  { "type": "integer", "minimum": 0, "maximum": 4 },
+        "sick":     { "type": "integer", "minimum": 0, "maximum": 4 },
+        "stressed": { "type": "integer", "minimum": 0, "maximum": 4 },
+        "bored":    { "type": "integer", "minimum": 0, "maximum": 4 },
+        "sad":      { "type": "integer", "minimum": 0, "maximum": 4 }
+      }
+    }
+  }
+}
