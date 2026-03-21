@@ -58,6 +58,11 @@ globals = {
     "AutoPilot_Inventory",
     "AutoPilot_LLM",
     "AutoPilot_Medical",
+    "AutoPilot_Actions",
+    "AutoPilot_Home",
+
+    -- PZ B42 engine global for persistent mod storage
+    "ModData",
 }
 
 -- 211: unused local variable  — common in PZ boilerplate (loop indices, etc.)
