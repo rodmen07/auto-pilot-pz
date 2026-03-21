@@ -15,17 +15,19 @@ AutoPilot_Needs = {}
 
 -- ── Thresholds ────────────────────────────────────────────────────────────────
 
--- B42 Stats use direct getters: player:getStats():getHunger(), etc.
+-- B42 Stats: player:getStats():get(CharacterStat.HUNGER), etc.
 -- Hunger/Thirst/Fatigue: 0.0 = fine, ~1.0 = critical
 -- Boredom: 0-100 scale
 -- Endurance: 1.0 = full, 0.0 = empty
-local HUNGER_STAT_THRESHOLD  = 0.30
-local THIRST_STAT_THRESHOLD  = 0.25
+local HUNGER_STAT_THRESHOLD  = 0.20
+local THIRST_STAT_THRESHOLD  = 0.08   -- react at slight thirst
 local FATIGUE_STAT_THRESHOLD = 0.70
 local BOREDOM_STAT_THRESHOLD = 30
-local ENDURANCE_REST_MIN     = 0.15
+local SADNESS_STAT_THRESHOLD = 20
+local ENDURANCE_REST_MIN     = 0.30   -- rest before fully wiped
+local ENDURANCE_EXERCISE_MIN = 0.50   -- don't start exercise below this
 local EXERCISE_MINUTES       = 20
-local OUTDOOR_SEARCH_DIST    = 20
+local OUTDOOR_SEARCH_DIST    = 120
 
 -- ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -42,11 +44,11 @@ local function safeMoodleLevel(player, moodleType)
     return 0
 end
 
--- Safe stat getter — wraps individual Stats getter in pcall.
--- getter is a function: function(stats) return stats:getHunger() end
-local function safeStat(player, getter)
+-- Safe stat getter — B42 uses player:getStats():get(CharacterStat.XXX).
+-- Direct getters like :getHunger() were removed in B42.
+local function safeStat(player, charStat)
     local ok, val = pcall(function()
-        return getter(player:getStats())
+        return player:getStats():get(charStat)
     end)
     if ok and type(val) == "number" then
         return val
@@ -74,13 +76,14 @@ local function doEat(player)
 end
 
 local function doDrink(player)
-    -- Priority 1: Drink from a nearby water source (sink, rain barrel)
+    -- Priority 1: nearby water source — fill container first, then drink
     local waterObj = AutoPilot_Inventory.findWaterSource(player)
     if waterObj then
+        AutoPilot_Inventory.refillWaterContainer(player, waterObj)
         return AutoPilot_Inventory.drinkFromSource(player, waterObj)
     end
 
-    -- Priority 2: Drink from inventory
+    -- Priority 2: Drink from inventory (filled glass/bottle)
     local drink = AutoPilot_Inventory.getBestDrink(player)
     if drink then
         AutoPilot_LLM.log("[Needs] Drinking: " .. tostring(drink:getName()))
@@ -95,45 +98,76 @@ local function doDrink(player)
 end
 
 -- Rest in place: clear queue and let the engine recover endurance passively.
+-- Uses a cooldown to prevent log spam (doRest has no timed action, so the
+-- character appears "idle" immediately and check() would loop every tick).
+local restCooldownMs = 0
+
 local function doRest(player)
+    local ok, now = pcall(function()
+        return getGameTime():getCalender():getTimeInMillis()
+    end)
+    local ms = ok and now or 0
+
+    if ms < restCooldownMs then return true end  -- still resting, skip silently
+
     AutoPilot_LLM.log("[Needs] Exhausted — resting.")
     ISTimedActionQueue.clear(player)
-    local px, py, pz = player:getX(), player:getY(), player:getZ()
-    for dx = -3, 3 do
-        for dy = -3, 3 do
-            local sq = getCell():getGridSquare(px + dx, py + dy, pz)
-            if sq then
-                for i = 0, sq:getObjects():size() - 1 do
-                    local obj = sq:getObjects():get(i)
-                    if obj and obj:getProperties() and obj:getProperties():Is("IsSeat") then
-                        ISTimedActionQueue.add(ISWalkToTimedAction:new(player, sq))
-                        return true
-                    end
-                end
-            end
-        end
-    end
+    restCooldownMs = ms + 15000  -- rest 15 seconds of game time before re-evaluating
     return true
 end
+
+local BED_SEARCH_DIST = 100
+local BED_SEARCH_FLOORS = 3  -- check z, z+1, z-1 (ground floor + upstairs + basement)
 
 local function doSleep(player)
     AutoPilot_LLM.log("[Needs] Sleeping...")
     local px, py, pz = player:getX(), player:getY(), player:getZ()
 
-    for dx = -5, 5 do
-        for dy = -5, 5 do
-            local sq = getCell():getGridSquare(px + dx, py + dy, pz)
-            if sq then
-                for i = 0, sq:getObjects():size() - 1 do
-                    local obj = sq:getObjects():get(i)
-                    if obj and obj:getProperties() and obj:getProperties():Is("IsBed") then
-                        AutoPilot_LLM.log("[Needs] Found bed — getting on it.")
-                        ISTimedActionQueue.add(ISGetOnBedAction:new(player, obj, sq))
-                        return true
+    local bestObj  = nil
+    local bestDist = math.huge
+
+    for dz = 0, BED_SEARCH_FLOORS - 1 do
+        for _, z in ipairs({pz + dz, pz - dz}) do
+            if z >= 0 then
+                for dx = -BED_SEARCH_DIST, BED_SEARCH_DIST do
+                    for dy = -BED_SEARCH_DIST, BED_SEARCH_DIST do
+                        local sq = getCell():getGridSquare(px + dx, py + dy, z)
+                        if sq then
+                            for i = 0, sq:getObjects():size() - 1 do
+                                local obj = sq:getObjects():get(i)
+                                local ok, isBed = pcall(function()
+                                    return obj:getSprite()
+                                        and obj:getSprite():getProperties()
+                                            :has(IsoFlagType.bed)
+                                end)
+                                if ok and isBed then
+                                    -- Prefer same floor; penalize other floors
+                                    local floorPenalty = math.abs(z - pz) * 200
+                                    local dist = dx * dx + dy * dy + floorPenalty
+                                    if dist < bestDist then
+                                        bestDist = dist
+                                        bestObj  = obj
+                                    end
+                                end
+                            end
+                        end
                     end
                 end
             end
         end
+    end
+
+    if bestObj then
+        local bedSq = bestObj:getSquare()
+        local bedZ = bedSq and bedSq:getZ() or pz
+        if bedZ ~= pz then
+            AutoPilot_LLM.log(string.format(
+                "[Needs] Found bed on floor %d — walking there.", bedZ))
+        else
+            AutoPilot_LLM.log("[Needs] Found bed — getting on it.")
+        end
+        ISTimedActionQueue.add(ISGetOnBedAction:new(player, bestObj))
+        return true
     end
 
     AutoPilot_LLM.log("[Needs] No bed found — sleeping in place.")
@@ -182,7 +216,10 @@ end
 
 local function doRead(player)
     local book = AutoPilot_Inventory.getReadable(player)
-    if not book then return false end
+    if not book then
+        -- No readable in inventory — try looting one from nearby containers
+        return AutoPilot_Inventory.lootNearbyReadable(player)
+    end
 
     -- Check if too dark to read
     local ok, tooDark = pcall(function() return player:tooDarkToRead() end)
@@ -208,12 +245,26 @@ local FITNESS_EXERCISES  = {"situp",   "burpees"}
 
 local exerciseCycle = 1
 
+-- Log cooldown for "waiting for endurance" to prevent spam
+local exerciseWaitLogMs = 0
+
 local function doExercise(player)
-    -- Check endurance — B42 MoodleType uses PascalCase
-    local enduranceMoodle = safeMoodleLevel(player, MoodleType.Endurance)
-    if enduranceMoodle > 2 then
-        AutoPilot_LLM.log("[Needs] Too exhausted to exercise (endurance moodle=" .. enduranceMoodle .. "), resting.")
-        return doRest(player)
+    -- Don't start exercise if endurance is too low — just idle and let it recover
+    local endurance = safeStat(player, CharacterStat.ENDURANCE)
+    local enduranceMoodle = safeMoodleLevel(player, MoodleType.ENDURANCE)
+    if endurance < ENDURANCE_EXERCISE_MIN or enduranceMoodle > 2 then
+        -- Log once every 30s of game time, not every tick
+        local ok, now = pcall(function()
+            return getGameTime():getCalender():getTimeInMillis()
+        end)
+        local ms = ok and now or 0
+        if ms >= exerciseWaitLogMs then
+            AutoPilot_LLM.log(string.format(
+                "[Needs] Waiting for endurance to recover (%.0f%%) before exercising.",
+                endurance * 100))
+            exerciseWaitLogMs = ms + 30000
+        end
+        return false  -- no action queued; endurance recovers passively while idle
     end
 
     local strLevel = getPerkLevel(player, Perks.Strength)
@@ -243,6 +294,14 @@ local function doExercise(player)
         return false
     end
 
+    -- Pre-initialize the Java Fitness object so currentExe is set before
+    -- the action lifecycle starts (prevents exerciseRepeat NPE).
+    pcall(function()
+        local fitness = player:getFitness()
+        fitness:init()
+        fitness:setCurrentExercise(exeData.type)
+    end)
+
     local ok, action = pcall(function()
         return ISFitnessAction:new(player, exType, EXERCISE_MINUTES, exeData, exeData.type)
     end)
@@ -258,6 +317,27 @@ end
 
 -- ── Public API ──────────────────────────────────────────────────────────────
 
+--- Returns true if an urgent need should interrupt the current action (e.g. exercise).
+--- Called by Main before the isPlayerDoingAction guard.
+function AutoPilot_Needs.shouldInterrupt(player)
+    -- Bleeding always interrupts
+    if AutoPilot_Medical.hasCriticalWound(player) then return true end
+
+    -- Thirst interrupts at threshold
+    local thirst = safeStat(player, CharacterStat.THIRST)
+    if thirst >= THIRST_STAT_THRESHOLD then return true end
+
+    -- Hunger interrupts
+    local hunger = safeStat(player, CharacterStat.HUNGER)
+    if hunger >= HUNGER_STAT_THRESHOLD then return true end
+
+    -- Exhaustion interrupts
+    local endurance = safeStat(player, CharacterStat.ENDURANCE)
+    if endurance <= ENDURANCE_REST_MIN then return true end
+
+    return false
+end
+
 function AutoPilot_Needs.check(player)
     -- 1. Bleeding — treat immediately (fatal if untreated)
     if AutoPilot_Medical.hasCriticalWound(player) then
@@ -265,13 +345,13 @@ function AutoPilot_Needs.check(player)
     end
 
     -- 2. Thirst (0.0=hydrated, ~1.0=dying)
-    local thirst = safeStat(player, function(s) return s:getThirst() end)
+    local thirst = safeStat(player, CharacterStat.THIRST)
     if thirst >= THIRST_STAT_THRESHOLD then
         return doDrink(player)
     end
 
     -- 3. Hunger (0.0=full, ~1.0=starving)
-    local hunger = safeStat(player, function(s) return s:getHunger() end)
+    local hunger = safeStat(player, CharacterStat.HUNGER)
     if hunger >= HUNGER_STAT_THRESHOLD then
         return doEat(player)
     end
@@ -280,23 +360,32 @@ function AutoPilot_Needs.check(player)
     if AutoPilot_Medical.check(player, false) then return true end
 
     -- 5. Exhausted (endurance: 1.0=full, 0.0=empty)
-    local endurance = safeStat(player, function(s) return s:getEndurance() end)
+    -- Rest cooldown prevents spam (doRest has no timed action, so the character
+    -- appears idle immediately — without the cooldown we'd loop every tick).
+    local endurance = safeStat(player, CharacterStat.ENDURANCE)
     if endurance <= ENDURANCE_REST_MIN then
+        local cooldownOk, nowMs = pcall(function()
+            return getGameTime():getCalender():getTimeInMillis()
+        end)
+        if cooldownOk and nowMs < restCooldownMs then return true end
         return doRest(player)
     end
 
     -- 6. Tired (fatigue: 0.0=rested, ~1.0=exhausted)
-    local fatigue = safeStat(player, function(s) return s:getFatigue() end)
+    local fatigue = safeStat(player, CharacterStat.FATIGUE)
     if fatigue >= FATIGUE_STAT_THRESHOLD then
         return doSleep(player)
     end
 
-    -- 7. Bored -> read literature first, then go outside
-    local boredom = safeStat(player, function(s) return s:getBoredom() end)
-    if boredom >= BOREDOM_STAT_THRESHOLD then
+    -- 7. Bored or Sad -> read literature first, then go outside
+    local boredom = safeStat(player, CharacterStat.BOREDOM)
+    local sadness = safeStat(player, CharacterStat.SANITY)
+    if boredom >= BOREDOM_STAT_THRESHOLD or sadness >= SADNESS_STAT_THRESHOLD then
         if doRead(player) then return true end
-        local went = doGoOutside(player)
-        if went then return true end
+        if boredom >= BOREDOM_STAT_THRESHOLD then
+            local went = doGoOutside(player)
+            if went then return true end
+        end
     end
 
     -- 8. Idle -> exercise
@@ -304,17 +393,17 @@ function AutoPilot_Needs.check(player)
 end
 
 -- Returns a snapshot of current stat levels for LLM state reporting.
--- B42: Uses direct Stats getters (CharacterStat enum does not exist).
+-- B42: Uses player:getStats():get(CharacterStat.XXX) pattern.
 function AutoPilot_Needs.getMoodleSnapshot(player)
     return {
-        hungry   = math.floor(safeStat(player, function(s) return s:getHunger() end) * 100),
-        thirsty  = math.floor(safeStat(player, function(s) return s:getThirst() end) * 100),
-        tired    = math.floor(safeStat(player, function(s) return s:getFatigue() end) * 100),
-        panicked = math.floor(safeStat(player, function(s) return s:getPanic() end)),
-        injured  = safeMoodleLevel(player, MoodleType.Pain),
-        sick     = math.floor(safeStat(player, function(s) return s:getSickness() end)),
-        stressed = math.floor(safeStat(player, function(s) return s:getStress() end)),
-        bored    = math.floor(safeStat(player, function(s) return s:getBoredom() end)),
-        sad      = math.floor(safeStat(player, function(s) return s:getSanity() end)),
+        hungry   = math.floor(safeStat(player, CharacterStat.HUNGER) * 100),
+        thirsty  = math.floor(safeStat(player, CharacterStat.THIRST) * 100),
+        tired    = math.floor(safeStat(player, CharacterStat.FATIGUE) * 100),
+        panicked = math.floor(safeStat(player, CharacterStat.PANIC)),
+        injured  = safeMoodleLevel(player, MoodleType.PAIN),
+        sick     = math.floor(safeStat(player, CharacterStat.SICKNESS)),
+        stressed = math.floor(safeStat(player, CharacterStat.STRESS)),
+        bored    = math.floor(safeStat(player, CharacterStat.BOREDOM)),
+        sad      = math.floor(safeStat(player, CharacterStat.SANITY)),
     }
 end

@@ -3,6 +3,8 @@
 
 AutoPilot_Inventory = {}
 
+local LOOT_SEARCH_RADIUS = 80  -- tiles to search for containers
+
 -- Returns the best non-rotten food item by calorie count.
 function AutoPilot_Inventory.getBestFood(player)
     local inv = player:getInventory()
@@ -41,6 +43,7 @@ function AutoPilot_Inventory.getBestDrink(player)
 end
 
 -- Returns the highest-damage melee weapon in inventory.
+-- B42: instanceof avoids Java-level exceptions that pcall(isWeapon) still logs.
 function AutoPilot_Inventory.getBestWeapon(player)
     local inv = player:getInventory()
     local items = inv:getItems()
@@ -49,7 +52,7 @@ function AutoPilot_Inventory.getBestWeapon(player)
 
     for i = 0, items:size() - 1 do
         local item = items:get(i)
-        if item and item:isWeapon() then
+        if item and instanceof(item, "HandWeapon") then
             local dmg = item:getMaxDamage() or 0
             if dmg > bestDmg then
                 bestDmg = dmg
@@ -60,28 +63,96 @@ function AutoPilot_Inventory.getBestWeapon(player)
     return best
 end
 
--- Returns any readable item (book, magazine) from inventory.
+-- Returns any readable literature item from inventory.
+-- B42: ItemType.LITERATURE covers all books, magazines, newspapers, comics, novels.
+-- Skips uninteresting items (blank notebooks) and already-read items with no pages left.
 function AutoPilot_Inventory.getReadable(player)
     local inv = player:getInventory()
     local items = inv:getItems()
     for i = 0, items:size() - 1 do
         local item = items:get(i)
         if item then
-            local itemType = item:getType()
-            -- Literature covers books, magazines, newspapers
-            if itemType and string.find(itemType, "Book") or
-               itemType and string.find(itemType, "Magazine") or
-               itemType and string.find(itemType, "Newspaper") then
-                return item
+            local ok, isLit = pcall(function()
+                return item:getScriptItem():isItemType(ItemType.LITERATURE)
+            end)
+            if ok and isLit then
+                -- Skip blank/uninteresting items
+                local uninteresting = false
+                pcall(function()
+                    uninteresting = item:hasTag(ItemTag.UNINTERESTING)
+                end)
+                if not uninteresting then
+                    -- Skip fully-read items (0 pages remaining)
+                    local pages = -1
+                    pcall(function() pages = item:getNumberOfPages() end)
+                    local readPages = 0
+                    pcall(function() readPages = item:getAlreadyReadPages() end)
+                    if pages ~= 0 and (pages < 0 or readPages < pages) then
+                        return item
+                    end
+                end
             end
         end
     end
     return nil
 end
 
--- ── Auto-loot from nearby containers ────────────────────────────────────────
+-- Scans nearby containers for readable literature and transfers it to inventory.
+function AutoPilot_Inventory.lootNearbyReadable(player)
+    local px, py, pz = player:getX(), player:getY(), player:getZ()
 
-local LOOT_SEARCH_RADIUS = 8  -- tiles to search for containers
+    for dx = -LOOT_SEARCH_RADIUS, LOOT_SEARCH_RADIUS do
+        for dy = -LOOT_SEARCH_RADIUS, LOOT_SEARCH_RADIUS do
+            local sq = getCell():getGridSquare(px + dx, py + dy, pz)
+            if sq then
+                for i = 0, sq:getObjects():size() - 1 do
+                    local obj = sq:getObjects():get(i)
+                    if obj then
+                        local container = obj:getContainer()
+                        if container then
+                            local items = container:getItems()
+                            for j = 0, items:size() - 1 do
+                                local item = items:get(j)
+                                if item then
+                                    local ok, isLit = pcall(function()
+                                        return item:getScriptItem()
+                                            :isItemType(ItemType.LITERATURE)
+                                    end)
+                                    local uninteresting = false
+                                    if ok and isLit then
+                                        pcall(function()
+                                            uninteresting = item:hasTag(
+                                                ItemTag.UNINTERESTING)
+                                        end)
+                                    end
+                                    if ok and isLit and not uninteresting then
+                                        AutoPilot_LLM.log("[Inventory] Looting readable: "
+                                            .. tostring(item:getName()))
+                                        local xferOk = pcall(function()
+                                            ISTimedActionQueue.add(
+                                                ISInventoryTransferAction:new(
+                                                    player, item, container,
+                                                    player:getInventory()))
+                                        end)
+                                        if not xferOk then
+                                            container:Remove(item)
+                                            player:getInventory():AddItem(item)
+                                        end
+                                        return true
+                                    end
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+    AutoPilot_LLM.log("[Inventory] No readable items found in nearby containers.")
+    return false
+end
+
+-- ── Auto-loot from nearby containers ────────────────────────────────────────
 
 -- Scans nearby containers for food and transfers the best item to player inventory.
 function AutoPilot_Inventory.lootNearbyFood(player)
@@ -155,7 +226,10 @@ function AutoPilot_Inventory.lootNearbyDrink(player)
                                     if thirstChange and thirstChange < 0 then
                                         AutoPilot_LLM.log("[Inventory] Looting drink: " .. tostring(item:getName()))
                                         local ok, _ = pcall(function()
-                                            ISTimedActionQueue.add(ISInventoryTransferAction:new(player, item, container, player:getInventory()))
+                                            local inv = player:getInventory()
+                                            ISTimedActionQueue.add(
+                                                ISInventoryTransferAction:new(
+                                                    player, item, container, inv))
                                         end)
                                         if not ok then
                                             container:Remove(item)
@@ -201,7 +275,7 @@ end
 
 -- ── Water source management ────────────────────────────────────────────────
 
-local WATER_SEARCH_RADIUS = 10  -- tiles to scan for sinks/rain barrels
+local WATER_SEARCH_RADIUS = 80  -- tiles to scan for sinks/rain barrels
 
 -- Finds the nearest world object with fluid (sink, rain barrel, etc.).
 -- Returns the object and its square, or nil.
@@ -322,4 +396,124 @@ end
 -- Returns true if a water source is nearby.
 function AutoPilot_Inventory.hasNearbyWaterSource(player)
     return AutoPilot_Inventory.findWaterSource(player) ~= nil
+end
+
+-- ── Item search & loot (for Pilot mode) ──────────────────────────────────────
+
+-- Last search results — stored so state writer can report them to the sidecar.
+AutoPilot_Inventory._lastSearchResults = {}
+
+-- Search nearby containers for items whose name contains `keyword` (case-insensitive).
+-- Returns a list of {name, container, item, dist} tables, closest first.
+function AutoPilot_Inventory.searchItem(player, keyword)
+    local px, py, pz = player:getX(), player:getY(), player:getZ()
+    local kw = string.lower(keyword or "")
+    local results = {}
+
+    for dx = -LOOT_SEARCH_RADIUS, LOOT_SEARCH_RADIUS do
+        for dy = -LOOT_SEARCH_RADIUS, LOOT_SEARCH_RADIUS do
+            local sq = getCell():getGridSquare(px + dx, py + dy, pz)
+            if sq then
+                for i = 0, sq:getObjects():size() - 1 do
+                    local obj = sq:getObjects():get(i)
+                    if obj then
+                        local container = obj:getContainer()
+                        if container then
+                            local items = container:getItems()
+                            for j = 0, items:size() - 1 do
+                                local item = items:get(j)
+                                if item then
+                                    local ok, name = pcall(function()
+                                        return item:getName()
+                                    end)
+                                    if ok and name and string.find(
+                                            string.lower(name), kw, 1, true) then
+                                        table.insert(results, {
+                                            name = name,
+                                            container = container,
+                                            item = item,
+                                            dist = dx * dx + dy * dy,
+                                        })
+                                    end
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    -- Sort by distance
+    table.sort(results, function(a, b) return a.dist < b.dist end)
+
+    -- Store names for state reporting (max 10)
+    local names = {}
+    for i = 1, math.min(#results, 10) do
+        table.insert(names, results[i].name)
+    end
+    AutoPilot_Inventory._lastSearchResults = names
+
+    AutoPilot_LLM.log("[Inventory] Search '" .. keyword .. "': found "
+        .. #results .. " items")
+    return results
+end
+
+-- Loot the first item matching `keyword` from nearby containers.
+-- Returns true if a transfer was queued.
+function AutoPilot_Inventory.lootItem(player, keyword)
+    local results = AutoPilot_Inventory.searchItem(player, keyword)
+    if #results == 0 then
+        AutoPilot_LLM.log("[Inventory] Loot: nothing matching '" .. keyword .. "' found.")
+        return false
+    end
+
+    local best = results[1]
+    AutoPilot_LLM.log("[Inventory] Looting: " .. best.name)
+    local ok = pcall(function()
+        ISTimedActionQueue.add(ISInventoryTransferAction:new(
+            player, best.item, best.container, player:getInventory()))
+    end)
+    if not ok then
+        -- Fallback: direct transfer
+        best.container:Remove(best.item)
+        player:getInventory():AddItem(best.item)
+    end
+    return true
+end
+
+-- Returns search result names from the last searchItem call.
+function AutoPilot_Inventory.getLastSearchResults()
+    return AutoPilot_Inventory._lastSearchResults or {}
+end
+
+-- Returns a summary of the player's inventory (item names, max 20).
+function AutoPilot_Inventory.getInventorySummary(player)
+    local inv = player:getInventory()
+    local items = inv:getItems()
+    local names = {}
+    local seen = {}
+
+    for i = 0, items:size() - 1 do
+        local item = items:get(i)
+        if item then
+            local ok, name = pcall(function() return item:getName() end)
+            if ok and name then
+                if not seen[name] then
+                    seen[name] = 0
+                end
+                seen[name] = seen[name] + 1
+            end
+        end
+    end
+
+    for name, count in pairs(seen) do
+        if count > 1 then
+            table.insert(names, name .. " x" .. count)
+        else
+            table.insert(names, name)
+        end
+        if #names >= 20 then break end
+    end
+    return names
 end

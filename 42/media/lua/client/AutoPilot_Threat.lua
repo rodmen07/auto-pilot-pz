@@ -8,22 +8,22 @@ local FLEE_MOODLE_LIMIT  = 2    -- flee if *more than* this many negative stats 
 local FLEE_DISTANCE      = 20   -- tiles to run when fleeing
 
 -- Stat thresholds that count as "negative" for flee decision.
--- B42: Uses direct Stats getters (CharacterStat enum does not exist).
+-- B42: Uses player:getStats():get(CharacterStat.XXX) pattern.
 local NEGATIVE_STAT_CHECKS = {
-    { getter = function(s) return s:getHunger() end,   threshold = 0.40 },
-    { getter = function(s) return s:getThirst() end,   threshold = 0.40 },
-    { getter = function(s) return s:getFatigue() end,   threshold = 0.60 },
-    { getter = function(s) return s:getPanic() end,     threshold = 40   },
-    { getter = function(s) return s:getPain() end,      threshold = 30   },
-    { getter = function(s) return s:getSickness() end,  threshold = 20   },
-    { getter = function(s) return s:getStress() end,    threshold = 40   },
-    { getter = function(s) return s:getSanity() end,    threshold = 40   },
+    { stat = CharacterStat.HUNGER,   threshold = 0.40 },
+    { stat = CharacterStat.THIRST,   threshold = 0.40 },
+    { stat = CharacterStat.FATIGUE,  threshold = 0.60 },
+    { stat = CharacterStat.PANIC,    threshold = 40   },
+    { stat = CharacterStat.PAIN,     threshold = 30   },
+    { stat = CharacterStat.SICKNESS, threshold = 20   },
+    { stat = CharacterStat.STRESS,   threshold = 40   },
+    { stat = CharacterStat.SANITY,   threshold = 40   },
 }
 
--- Safe stat getter via direct getters.
-local function safeStat(player, getter)
+-- Safe stat getter — B42 uses player:getStats():get(CharacterStat.XXX).
+local function safeStat(player, charStat)
     local ok, val = pcall(function()
-        return getter(player:getStats())
+        return player:getStats():get(charStat)
     end)
     if ok and type(val) == "number" then return val end
     return 0
@@ -54,7 +54,7 @@ end
 function AutoPilot_Threat.countNegativeMoodles(player)
     local count = 0
     for _, check in ipairs(NEGATIVE_STAT_CHECKS) do
-        local val = safeStat(player, check.getter)
+        local val = safeStat(player, check.stat)
         if val >= check.threshold then
             count = count + 1
         end

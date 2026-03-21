@@ -55,9 +55,12 @@ local function writeState(player)
     local wounds = AutoPilot_Medical.getWoundSnapshot(player)
     local hasWater = AutoPilot_Inventory.hasNearbyWaterSource(player)
 
+    local invSummary    = AutoPilot_Inventory.getInventorySummary(player)
+    local searchResults = AutoPilot_Inventory.getLastSearchResults()
+
     local state = {
         health              = math.floor((player:getHealth() or 1) * 100),
-        endurance           = math.floor((player:getStats():getEndurance() or 0) * 100),
+        endurance           = math.floor((player:getStats():get(CharacterStat.ENDURANCE) or 0) * 100),
         negative_moodles    = negCount,
         zombie_count_nearby = #zombies,
         has_food            = foodCnt > 0,
@@ -70,6 +73,8 @@ local function writeState(player)
         is_outside          = player:getSquare():isOutside(),
         moodles             = moodles,
         wounds              = wounds,
+        inventory_summary   = invSummary,
+        search_results      = searchResults,
     }
 
     local json = jsonVal(state)

@@ -49,8 +49,8 @@ Six Lua modules in `42/media/lua/client/`:
 The mod works fully autonomously without the sidecar. Optionally, run the Python sidecar for Claude-driven decision making:
 
 ```bash
-pip install anthropic
-set ANTHROPIC_API_KEY=sk-ant-...
+# pip install anthropic
+# set ANTHROPIC_API_KEY=sk-ant-...    //only need to run these two initially
 python auto_pilot_sidecar.py
 ```
 

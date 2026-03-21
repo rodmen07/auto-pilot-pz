@@ -12,6 +12,7 @@ globals = {
     -- Core game accessors
     "getPlayer",
     "getCell",
+    "getGameTime",
     "getFileWriter",
     "getFileReader",
 
@@ -24,6 +25,11 @@ globals = {
     "Perks",
     "BodyPartType",
     "Fluid",
+    "CharacterStat",
+    "IsoFlagType",
+    "IsoDirections",
+    "ItemType",
+    "ItemTag",
 
     -- Utility modules
     "luautils",
