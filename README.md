@@ -88,18 +88,18 @@ Maximize XP gain per in-game day.
 | ✅ Daily set tracking (cap: 20/day) | Done | `_exerciseSetsToday` resets on day rollover; hard cap at `EXERCISE_DAILY_CAP` |
 | ✅ STR/FIT decay prevention | Done | `preferredExerciseType()` targets the lower perk to keep both stats progressing |
 
-### Phase 3: Sustained Survival (Weeks/Months) — NOT STARTED *(v0.1.3)*
+### Phase 3: Sustained Survival (Weeks/Months) — COMPLETE *(v0.1.3)*
 
 Handle resource depletion for long-term play.
 
 | Task | Status | Details |
 |------|--------|---------|
-| Extended foraging | Pending | Supply runs beyond 8-tile radius when containers empty |
-| Home base tracking | Pending | Record safe position, return after supply runs |
-| Visited building tracking | Pending | Avoid re-looting empty buildings |
-| Bulk looting | Pending | Transfer all useful items per trip (food, water, medical, equipment) |
-| Unhappiness management | Pending | Eat tasty food, read magazines for happiness |
-| Weight management | Pending | Calorie-aware food selection based on player weight |
+| ✅ Extended foraging | Done | `supplyRunLoot()` expands radius to 200 tiles after 5 empty loot cycles; resets depletion cache |
+| ✅ Home base tracking | Done | Home position established at enable time; supply runs ignore home bounds then return |
+| ✅ Visited building tracking | Done | `AutoPilot_Map` tracks depleted squares (empty containers); skipped on next scan |
+| ✅ Bulk looting | Done | `bulkLoot()` transfers all keyword-matched items per container; `bulk_loot` action added |
+| ✅ Unhappiness management | Done | Prefers boredom-reducing food when Unhappy moodle fires; falls back to reading |
+| ✅ Weight management | Done | `selectFoodByWeight()` scores food by calories vs. player weight (under/over thresholds) |
 
 ### Phase 4: Polish — NOT STARTED *(v0.2.1)*
 
