@@ -12,14 +12,32 @@ import sys
 import tempfile
 import types
 import unittest
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 # ── Mock 'anthropic' before the sidecar module loads it ───────────────────────
+# Force the mock even if the real package is installed, so tests are hermetic.
 
 _mock_anthropic = types.ModuleType("anthropic")
 _mock_anthropic.Anthropic = MagicMock
-_mock_anthropic.APIError  = Exception
-sys.modules.setdefault("anthropic", _mock_anthropic)
+
+
+class _MockAPIError(Exception):
+    """Mirrors anthropic.APIError — base for all Anthropic API exceptions."""
+
+
+class _MockOverloadedError(_MockAPIError):
+    """Mirrors anthropic.OverloadedError."""
+
+
+class _MockRateLimitError(_MockAPIError):
+    """Mirrors anthropic.RateLimitError."""
+
+
+_mock_anthropic.APIError        = _MockAPIError
+_mock_anthropic.OverloadedError = _MockOverloadedError
+_mock_anthropic.RateLimitError  = _MockRateLimitError
+
+sys.modules["anthropic"] = _mock_anthropic  # force-inject (not setdefault)
 
 # ── Load sidecar by file path (avoids package/sys.path gymnastics) ────────────
 
@@ -212,39 +230,29 @@ class TestParseResponse(unittest.TestCase):
 
 class TestWriteCommand(unittest.TestCase):
 
-    def _with_tmp_cmd_file(self):
-        """Redirect CMD_FILE to a temp path."""
-        import contextlib
-
-        @contextlib.contextmanager
-        def _ctx():
-            original = sidecar.CMD_FILE
-            with tempfile.TemporaryDirectory() as td:
-                tmp = pathlib.Path(td) / "auto_pilot_cmd.json"
-                sidecar.CMD_FILE = tmp
-                try:
-                    yield tmp
-                finally:
-                    sidecar.CMD_FILE = original
-        return _ctx()
-
     def test_writes_valid_json(self):
-        with self._with_tmp_cmd_file() as cmd_path:
-            sidecar.write_command({"action": "fight", "reason": "zombie"})
-            data = json.loads(cmd_path.read_text(encoding="utf-8"))
-            self.assertEqual(data["action"], "fight")
+        with tempfile.TemporaryDirectory() as td:
+            cmd_path = pathlib.Path(td) / "auto_pilot_cmd.json"
+            with patch.object(sidecar, "CMD_FILE", cmd_path):
+                sidecar.write_command({"action": "fight", "reason": "zombie"})
+                data = json.loads(cmd_path.read_text(encoding="utf-8"))
+                self.assertEqual(data["action"], "fight")
 
     def test_no_tmp_file_left(self):
-        with self._with_tmp_cmd_file() as cmd_path:
-            sidecar.write_command({"action": "idle", "reason": "waiting"})
-            self.assertFalse(cmd_path.with_suffix(".tmp").exists())
+        with tempfile.TemporaryDirectory() as td:
+            cmd_path = pathlib.Path(td) / "auto_pilot_cmd.json"
+            with patch.object(sidecar, "CMD_FILE", cmd_path):
+                sidecar.write_command({"action": "idle", "reason": "waiting"})
+                self.assertFalse(cmd_path.with_suffix(".tmp").exists())
 
     def test_overwrites_previous(self):
-        with self._with_tmp_cmd_file() as cmd_path:
-            sidecar.write_command({"action": "eat", "reason": "first"})
-            sidecar.write_command({"action": "drink", "reason": "second"})
-            data = json.loads(cmd_path.read_text(encoding="utf-8"))
-            self.assertEqual(data["action"], "drink")
+        with tempfile.TemporaryDirectory() as td:
+            cmd_path = pathlib.Path(td) / "auto_pilot_cmd.json"
+            with patch.object(sidecar, "CMD_FILE", cmd_path):
+                sidecar.write_command({"action": "eat", "reason": "first"})
+                sidecar.write_command({"action": "drink", "reason": "second"})
+                data = json.loads(cmd_path.read_text(encoding="utf-8"))
+                self.assertEqual(data["action"], "drink")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -254,37 +262,28 @@ class TestWriteCommand(unittest.TestCase):
 class TestPromptFile(unittest.TestCase):
 
     def test_read_returns_content(self):
-        original = sidecar.PROMPT_FILE
-        try:
-            with tempfile.NamedTemporaryFile(
-                mode="w", suffix=".txt", delete=False, encoding="utf-8"
-            ) as f:
-                f.write("find a saw")
-                sidecar.PROMPT_FILE = pathlib.Path(f.name)
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".txt", delete=False, encoding="utf-8"
+        ) as f:
+            f.write("find a saw")
+            prompt_path = pathlib.Path(f.name)
+        with patch.object(sidecar, "PROMPT_FILE", prompt_path):
             result = sidecar.read_prompt()
-            self.assertEqual(result, "find a saw")
-        finally:
-            sidecar.PROMPT_FILE = original
+        self.assertEqual(result, "find a saw")
 
     def test_read_returns_none_for_missing(self):
-        original = sidecar.PROMPT_FILE
-        try:
-            sidecar.PROMPT_FILE = pathlib.Path("/nonexistent/prompt.txt")
+        with patch.object(sidecar, "PROMPT_FILE",
+                          pathlib.Path("/nonexistent/prompt.txt")):
             self.assertIsNone(sidecar.read_prompt())
-        finally:
-            sidecar.PROMPT_FILE = original
 
     def test_read_returns_none_for_empty(self):
-        original = sidecar.PROMPT_FILE
-        try:
-            with tempfile.NamedTemporaryFile(
-                mode="w", suffix=".txt", delete=False, encoding="utf-8"
-            ) as f:
-                f.write("")
-                sidecar.PROMPT_FILE = pathlib.Path(f.name)
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".txt", delete=False, encoding="utf-8"
+        ) as f:
+            f.write("")
+            prompt_path = pathlib.Path(f.name)
+        with patch.object(sidecar, "PROMPT_FILE", prompt_path):
             self.assertIsNone(sidecar.read_prompt())
-        finally:
-            sidecar.PROMPT_FILE = original
 
 
 # ─────────────────────────────────────────────────────────────────────────────
