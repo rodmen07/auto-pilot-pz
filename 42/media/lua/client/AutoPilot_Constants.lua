@@ -153,3 +153,9 @@ AutoPilot_Constants.SUPPLY_RUN_TRIGGER = 5     -- consecutive empty loot cycles 
 -- Phase 4: Combat weapon management
 AutoPilot_Constants.WEAPON_CONDITION_MIN  = 0.25  -- swap weapon if condition drops below this (0.0–1.0)
 AutoPilot_Constants.WEAPON_SEARCH_RADIUS  = 20    -- tiles to search for a replacement weapon
+
+-- Phase 4: Temperature / clothing thresholds
+-- BodyStats temperature is roughly -100 (freezing) to +100 (boiling), 0 = comfortable
+AutoPilot_Constants.TEMP_TOO_COLD = -20   -- equip warmer clothing below this
+AutoPilot_Constants.TEMP_TOO_HOT  =  20   -- equip lighter clothing above this
+AutoPilot_Constants.CLOTHING_SEARCH_RADIUS = 30

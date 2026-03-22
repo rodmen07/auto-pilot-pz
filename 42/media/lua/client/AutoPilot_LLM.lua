@@ -112,6 +112,7 @@ local function _buildStateTable(player)
         empty_loot_cycles   = AutoPilot_Needs.getEmptyLootCycles and AutoPilot_Needs.getEmptyLootCycles() or 0,
         -- Phase 4: combat + environment
         weapon_condition    = AutoPilot_Inventory.equippedWeaponCondition(player),
+        body_temperature    = AutoPilot_Inventory.bodyTemperature(player),
     }
 end
 

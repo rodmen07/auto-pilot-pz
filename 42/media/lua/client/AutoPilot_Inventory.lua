@@ -855,6 +855,65 @@ function AutoPilot_Inventory.checkAndSwapWeapon(player)
     return false
 end
 
+-- ---------------------------------------------------------------------------
+-- Phase 4: Clothing / temperature helpers
+-- ---------------------------------------------------------------------------
+
+--- Return the player's current body temperature delta (from BodyStats).
+--- Positive = too hot, negative = too cold. Returns 0 if unavailable.
+function AutoPilot_Inventory.bodyTemperature(player)
+    local ok, temp = pcall(function()
+        return player:getBodyDamage():getTemperature()
+    end)
+    return ok and temp or 0
+end
+
+--- Scan inventory/nearby containers for clothing with highest insulation (cold)
+--- or lowest insulation (hot) depending on need. Returns item or nil.
+--- @param wantWarm boolean  true = find warm clothing, false = find cool clothing
+function AutoPilot_Inventory.findClothing(player, wantWarm)
+    local inv     = player:getInventory()
+    local best, bestVal = nil, nil
+    -- Check inventory first
+    for i = 0, inv:getItems():size() - 1 do
+        local item = inv:getItems():get(i)
+        local ok, insulation = pcall(function()
+            return item:getInsulation and item:getInsulation() or nil
+        end)
+        if ok and insulation ~= nil then
+            local score = wantWarm and insulation or -insulation
+            if bestVal == nil or score > bestVal then
+                best, bestVal = item, score
+            end
+        end
+    end
+    return best
+end
+
+--- Attempt to equip appropriate clothing for the current temperature.
+--- Returns true if an action was queued.
+function AutoPilot_Inventory.adjustClothing(player)
+    local temp = AutoPilot_Inventory.bodyTemperature(player)
+    if temp > AutoPilot_Constants.TEMP_TOO_HOT then
+        AutoPilot_LLM.log(("[Inv] Too hot (%.1f) — seeking cool clothing."):format(temp))
+        local item = AutoPilot_Inventory.findClothing(player, false)
+        if item then
+            ISTimedActionQueue.add(ISWearClothing:new(player, item, 50))
+            AutoPilot_LLM.log("[Inv] Queued: wear " .. item:getType())
+            return true
+        end
+    elseif temp < AutoPilot_Constants.TEMP_TOO_COLD then
+        AutoPilot_LLM.log(("[Inv] Too cold (%.1f) — seeking warm clothing."):format(temp))
+        local item = AutoPilot_Inventory.findClothing(player, true)
+        if item then
+            ISTimedActionQueue.add(ISWearClothing:new(player, item, 50))
+            AutoPilot_LLM.log("[Inv] Queued: wear " .. item:getType())
+            return true
+        end
+    end
+    return false
+end
+
 -- Returns search result names from the last searchItem call.
 function AutoPilot_Inventory.getLastSearchResults()
     return AutoPilot_Inventory._lastSearchResults or {}

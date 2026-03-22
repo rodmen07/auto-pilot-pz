@@ -48,6 +48,7 @@ globals = {
     "ISReadABook",
     "ISTakeWaterAction",
     "ISInventoryTransferAction",
+    "ISWearClothing",
 
     -- PZ engine utility functions
     "instanceof",
