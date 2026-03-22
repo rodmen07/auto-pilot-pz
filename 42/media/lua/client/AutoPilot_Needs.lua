@@ -21,6 +21,9 @@ AutoPilot_Needs = {}
 local _exerciseSetsToday = 0
 local _lastTrackedDay    = -1
 
+-- Phase 3: consecutive loot cycles with no food/drink found (triggers supply run)
+local _emptyLootCycles = 0
+
 -- ── Thresholds ────────────────────────────────────────────────────────────────
 
 -- B42 Stats: player:getStats():get(CharacterStat.HUNGER), etc.
@@ -63,9 +66,26 @@ local function doEat(player)
     local food = AutoPilot_Inventory.getBestFood(player)
     if not food then
         AutoPilot_LLM.log("[Needs] Hungry but no food in inventory — looting nearby.")
-        AutoPilot_Inventory.lootNearbyFood(player)
+        local found = AutoPilot_Inventory.lootNearbyFood(player)
+        if not found then
+            _emptyLootCycles = _emptyLootCycles + 1
+            AutoPilot_LLM.log(("[Needs] Empty loot cycle %d/%d."):format(
+                _emptyLootCycles, AutoPilot_Constants.SUPPLY_RUN_TRIGGER))
+            if _emptyLootCycles >= AutoPilot_Constants.SUPPLY_RUN_TRIGGER then
+                AutoPilot_LLM.log("[Needs] Supply run triggered — expanding food loot radius.")
+                local foodPred = function(item)
+                    return item:isFood() and not item:isRotten()
+                        and (item:getCalories() or 0) > 0
+                end
+                AutoPilot_Inventory.supplyRunLoot(player, foodPred)
+                _emptyLootCycles = 0
+            end
+        else
+            _emptyLootCycles = 0
+        end
         return false
     end
+    _emptyLootCycles = 0
     AutoPilot_LLM.log("[Needs] Best food: " .. tostring(food:getName())
         .. " (cal=" .. tostring(food:getCalories()) .. ")")
     AutoPilot_LLM.log("[Needs] Eating: " .. tostring(food:getName()))
@@ -77,6 +97,7 @@ local function doDrink(player)
     -- Priority 1: nearby water source — fill container first, then drink
     local waterObj = AutoPilot_Inventory.findWaterSource(player)
     if waterObj then
+        _emptyLootCycles = 0
         AutoPilot_Inventory.refillWaterContainer(player, waterObj)
         return AutoPilot_Inventory.drinkFromSource(player, waterObj)
     end
@@ -84,6 +105,7 @@ local function doDrink(player)
     -- Priority 2: Drink from inventory (filled glass/bottle)
     local drink = AutoPilot_Inventory.getBestDrink(player)
     if drink then
+        _emptyLootCycles = 0
         AutoPilot_LLM.log("[Needs] Drinking: " .. tostring(drink:getName()))
         ISTimedActionQueue.add(ISEatFoodAction:new(player, drink, 1))
         return true
@@ -91,7 +113,23 @@ local function doDrink(player)
 
     -- Priority 3: Loot a drink from nearby containers
     AutoPilot_LLM.log("[Needs] Thirsty but no drink — attempting to loot nearby.")
-    AutoPilot_Inventory.lootNearbyDrink(player)
+    local found = AutoPilot_Inventory.lootNearbyDrink(player)
+    if not found then
+        _emptyLootCycles = _emptyLootCycles + 1
+        AutoPilot_LLM.log(("[Needs] Empty loot cycle %d/%d."):format(
+            _emptyLootCycles, AutoPilot_Constants.SUPPLY_RUN_TRIGGER))
+        if _emptyLootCycles >= AutoPilot_Constants.SUPPLY_RUN_TRIGGER then
+            AutoPilot_LLM.log("[Needs] Supply run triggered — expanding drink loot radius.")
+            local drinkPred = function(item)
+                return item:isFood() and not item:isRotten()
+                    and item:getThirstChange() and item:getThirstChange() < 0
+            end
+            AutoPilot_Inventory.supplyRunLoot(player, drinkPred)
+            _emptyLootCycles = 0
+        end
+    else
+        _emptyLootCycles = 0
+    end
     return false
 end
 
@@ -564,6 +602,11 @@ end
 -- the full bed-search and outdoor-square-search logic.
 AutoPilot_Needs.trySleep    = doSleep
 AutoPilot_Needs.tryGoOutside = doGoOutside
+
+--- Return how many consecutive empty loot cycles have accumulated (Phase 3).
+function AutoPilot_Needs.getEmptyLootCycles()
+    return _emptyLootCycles
+end
 
 --- Return how many exercise sets have been performed today.
 function AutoPilot_Needs.getExerciseSetsToday()

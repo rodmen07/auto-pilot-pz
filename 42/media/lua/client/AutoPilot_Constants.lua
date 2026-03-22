@@ -135,3 +135,10 @@ AutoPilot_Constants.EXERCISE_ENDURANCE_RESUME = 0.70    -- resume exercise above
 
 -- Phase 2: Daily exercise cap (sets per in-game day)
 AutoPilot_Constants.EXERCISE_DAILY_CAP = 20
+
+-- ---------------------------------------------------------------------------
+-- Phase 3: Foraging / supply run radii
+-- ---------------------------------------------------------------------------
+AutoPilot_Constants.LOOT_RADIUS_HOME   = 80    -- normal home-area loot radius
+AutoPilot_Constants.LOOT_RADIUS_SUPPLY = 200   -- expanded radius for supply runs
+AutoPilot_Constants.SUPPLY_RUN_TRIGGER = 5     -- consecutive empty loot cycles before expanding radius

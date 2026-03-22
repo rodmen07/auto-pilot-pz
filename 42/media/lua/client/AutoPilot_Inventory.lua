@@ -199,6 +199,33 @@ end
 
 -- ── Auto-loot from nearby containers ─────────────────────────────────────────
 
+-- Phase 3: Generic predicate-based loot. Finds the first item matching predicate
+-- within radius. respectHome=false ignores home bounds (supply runs).
+-- Returns true if a transfer was queued.
+local function _lootNearbyByPredicate(player, predicate, radius, respectHome)
+    local found, foundContainer = nil, nil
+    _iterateContainersNearby(player, radius, function(item, container)
+        if predicate(item) then
+            found = item
+            foundContainer = container
+            return true  -- stop on first match
+        end
+        return false
+    end, not respectHome)
+    if found then
+        return _queueTransfer(player, found, foundContainer, "supply run")
+    end
+    return false
+end
+
+--- Loot food/drink in an expanded radius for supply runs.
+--- Clears the depletion cache first so previously-empty squares get re-checked.
+--- Returns true if any item was found and queued.
+function AutoPilot_Inventory.supplyRunLoot(player, predicate)
+    AutoPilot_Map.resetDepleted()
+    return _lootNearbyByPredicate(player, predicate, AutoPilot_Constants.LOOT_RADIUS_SUPPLY, false)
+end
+
 -- Scans nearby containers for readable literature and transfers it to inventory.
 function AutoPilot_Inventory.lootNearbyReadable(player)
     local found, foundContainer = nil, nil
