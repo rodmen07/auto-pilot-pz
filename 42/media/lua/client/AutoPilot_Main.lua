@@ -83,80 +83,9 @@ local LLM_ACTION_MAP = {
             AutoPilot_LLM.log("[Main] place_item: failed for '" .. keyword .. "'.")
         end
     end,
+    -- Delegate to AutoPilot_Actions — all walk_to logic lives there.
     walk_to = function(p, cmd)
-        local dest = cmd.reason or ""
-        if dest == "" then
-            AutoPilot_LLM.log("[Main] walk_to: no destination in reason field.")
-            return
-        end
-        AutoPilot_LLM.log("[Main] walk_to: heading " .. dest)
-        -- Parse "direction distance" e.g. "north 30"
-        local dir, dist = dest:match("^(%a+)%s+(%d+)$")
-        if not dir then
-            dir = dest:match("^(%a+)$")
-            dist = 20  -- default distance
-        else
-            dist = tonumber(dist)
-        end
-        if not dir then
-            AutoPilot_LLM.log("[Main] walk_to: could not parse '" .. dest .. "'.")
-            return
-        end
-        local dx, dy = 0, 0
-        dir = dir:lower()
-        if     dir == "north" or dir == "n"  then dy = -dist
-        elseif dir == "south" or dir == "s"  then dy =  dist
-        elseif dir == "east"  or dir == "e"  then dx =  dist
-        elseif dir == "west"  or dir == "w"  then dx = -dist
-        elseif dir == "ne" or dir == "northeast" then dx =  dist; dy = -dist
-        elseif dir == "nw" or dir == "northwest" then dx = -dist; dy = -dist
-        elseif dir == "se" or dir == "southeast" then dx =  dist; dy =  dist
-        elseif dir == "sw" or dir == "southwest" then dx = -dist; dy =  dist
-        else
-            AutoPilot_LLM.log("[Main] walk_to: unknown direction '" .. dir .. "'.")
-            return
-        end
-        local px = p:getX() + dx
-        local py = p:getY() + dy
-        local pz = p:getZ()
-        local cell = getCell()
-        if not cell then
-            AutoPilot_LLM.log("[Main] walk_to: cell not loaded yet — skipping.")
-            return
-        end
-        -- Find a walkable square near the target (avoid landing inside walls)
-        local targetSq = nil
-        for r = 0, 5 do
-            for ddx = -r, r do
-                for ddy = -r, r do
-                    local sq = cell:getGridSquare(px + ddx, py + ddy, pz)
-                    if sq and sq:isFree(false) then
-                        targetSq = sq
-                        break
-                    end
-                end
-                if targetSq then break end
-            end
-            if targetSq then break end
-        end
-        if not targetSq then
-            AutoPilot_LLM.log("[Main] walk_to: no walkable square near target.")
-            return
-        end
-        -- Clamp to home bounds (same as AutoPilot_Actions.handleWalkTo)
-        local clampedSq = AutoPilot_Home.clampSq(targetSq, p)
-        if not clampedSq then
-            AutoPilot_LLM.log("[Main] walk_to: target outside home bounds — no in-bounds square found.")
-            return
-        end
-        if clampedSq ~= targetSq then
-            AutoPilot_LLM.log(string.format(
-                "[Main] walk_to: clamped to home bounds (%d,%d → %d,%d).",
-                targetSq:getX(), targetSq:getY(), clampedSq:getX(), clampedSq:getY()))
-            targetSq = clampedSq
-        end
-        -- Let ISWalkToTimedAction handle movement speed internally (MP-safe).
-        ISTimedActionQueue.add(ISWalkToTimedAction:new(p, targetSq))
+        AutoPilot_Actions.execute(p, "walk_to", cmd.reason or "")
     end,
     stop     = function(p)
         ISTimedActionQueue.clear(p)
