@@ -85,6 +85,11 @@ local function _buildStateTable(player)
         fitness_level       = player:getPerkLevel(Perks.Fitness),
         is_outside          = playerSq ~= nil and playerSq:isOutside() or false,
         home_set            = homeSet,
+        -- Phase 2: exercise state
+        exercise_tier       = AutoPilot_Inventory.currentExerciseTier(player),
+        exercise_pref_type  = AutoPilot_Needs.preferredExerciseType(player),
+        exercise_sets_today = AutoPilot_Needs.getExerciseSetsToday(),
+        exercise_daily_cap  = AutoPilot_Constants.EXERCISE_DAILY_CAP,
         home_x              = hx or 0,
         home_y              = hy or 0,
         home_r              = hr or 0,
