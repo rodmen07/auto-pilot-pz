@@ -93,6 +93,13 @@ AutoPilot_Constants.ENDURANCE_REST_MIN = 0.30
 -- Do not start a new exercise set below 50% endurance; let it recover passively.
 AutoPilot_Constants.ENDURANCE_EXERCISE_MIN = 0.50
 
+-- Hysteresis gate for exercise scheduling.
+-- When endurance falls below MIN, exercise is paused and will not restart until
+-- endurance climbs back above RESUME.  The gap between the two thresholds
+-- prevents the rapid start/stop oscillation that a single threshold causes.
+AutoPilot_Constants.EXERCISE_ENDURANCE_MIN    = 0.30  -- pause exercise below this
+AutoPilot_Constants.EXERCISE_ENDURANCE_RESUME = 0.70  -- resume exercise above this
+
 -- ── Timing ───────────────────────────────────────────────────────────────────
 -- PZ runs at ~20 game ticks per real second.
 

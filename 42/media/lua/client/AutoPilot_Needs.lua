@@ -357,15 +357,25 @@ local FITNESS_EXERCISES  = {"situp",   "burpees"}
 
 local exerciseCycle = 1
 
--- Log cooldown for "waiting for endurance" to prevent spam
+-- Log cooldown for "waiting for endurance" to prevent spam.
 local exerciseWaitLogMs = 0
 
+-- Hysteresis flag: true while endurance is in the recovery band.
+-- Set when endurance drops below EXERCISE_ENDURANCE_MIN; cleared only when
+-- it climbs back above EXERCISE_ENDURANCE_RESUME (prevents start/stop loops).
+local _exercisePaused = false
+
 local function doExercise(player)
-    -- Don't start exercise if endurance is too low — just idle and let it recover
+    -- Endurance hysteresis gate — update the paused flag first, then check it.
     local endurance = AutoPilot_Utils.safeStat(player, CharacterStat.ENDURANCE)
     local enduranceMoodle = safeMoodleLevel(player, MoodleType.ENDURANCE)
-    if endurance < ENDURANCE_EXERCISE_MIN or enduranceMoodle > 2 then
-        -- Log once every 30s of game time, not every tick
+    if endurance < AutoPilot_Constants.EXERCISE_ENDURANCE_MIN then
+        _exercisePaused = true
+    elseif endurance >= AutoPilot_Constants.EXERCISE_ENDURANCE_RESUME then
+        _exercisePaused = false
+    end
+    -- Also gate on a severe exertion moodle (level 3+) regardless of stat value.
+    if _exercisePaused or enduranceMoodle > 2 then
         local ok, now = pcall(function()
             return getGameTime():getCalender():getTimeInMillis()
         end)
@@ -376,7 +386,7 @@ local function doExercise(player)
                 endurance * 100))
             exerciseWaitLogMs = ms + 30000
         end
-        return false  -- no action queued; endurance recovers passively while idle
+        return false  -- rest handled by step 6 of the needs chain
     end
 
     local strLevel = getPerkLevel(player, Perks.Strength)
