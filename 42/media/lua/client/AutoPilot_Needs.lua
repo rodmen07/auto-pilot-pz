@@ -361,22 +361,34 @@ local exerciseCycle = 1
 local exerciseWaitLogMs = 0
 
 local function doExercise(player)
-    -- Don't start exercise if endurance is too low — just idle and let it recover
+    -- Phase 2: gate on endurance (hysteresis: skip <30%, resume >70%)
     local endurance = AutoPilot_Utils.safeStat(player, CharacterStat.ENDURANCE)
     local enduranceMoodle = safeMoodleLevel(player, MoodleType.ENDURANCE)
-    if endurance < ENDURANCE_EXERCISE_MIN or enduranceMoodle > 2 then
+    if endurance < AutoPilot_Constants.EXERCISE_ENDURANCE_MIN or enduranceMoodle > 2 then
         -- Log once every 30s of game time, not every tick
         local ok, now = pcall(function()
             return getGameTime():getCalender():getTimeInMillis()
         end)
         local ms = ok and now or 0
         if ms >= exerciseWaitLogMs then
-            AutoPilot_LLM.log(string.format(
-                "[Needs] Waiting for endurance to recover (%.0f%%) before exercising.",
-                endurance * 100))
+            AutoPilot_LLM.log(("[Needs] Endurance %.2f < %.2f — skipping exercise, resting."):format(
+                endurance, AutoPilot_Constants.EXERCISE_ENDURANCE_MIN))
             exerciseWaitLogMs = ms + 30000
         end
         return false  -- no action queued; endurance recovers passively while idle
+    end
+    if endurance < AutoPilot_Constants.EXERCISE_ENDURANCE_RESUME then
+        -- Endurance is between MIN and RESUME — wait for full recovery before next set
+        local ok, now = pcall(function()
+            return getGameTime():getCalender():getTimeInMillis()
+        end)
+        local ms = ok and now or 0
+        if ms >= exerciseWaitLogMs then
+            AutoPilot_LLM.log(("[Needs] Endurance %.2f < %.2f resume threshold — waiting."):format(
+                endurance, AutoPilot_Constants.EXERCISE_ENDURANCE_RESUME))
+            exerciseWaitLogMs = ms + 30000
+        end
+        return false
     end
 
     local strLevel = getPerkLevel(player, Perks.Strength)
