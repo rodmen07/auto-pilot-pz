@@ -106,14 +106,29 @@ end
 
 -- ── Command reader ────────────────────────────────────────────────────────────
 
--- Minimal JSON string/bool extractor — only needs to parse {"action":"...","reason":"..."}
+-- Minimal JSON extractor — only needs to parse flat objects like
+-- {"action":"walk_to","reason":"north 30","steps":"walk_to:north 30|eat"}.
+-- Handles string values, boolean values (two separate passes, no | needed),
+-- and integer/float number values.  Does not handle nested objects or arrays.
 local function parseSimpleJson(s)
     local result = {}
+    -- String values: "key": "value"
     for key, val in s:gmatch('"([^"]+)"%s*:%s*"([^"]*)"') do
         result[key] = val
     end
-    for key, val in s:gmatch('"([^"]+)"%s*:%s*(true|false)') do
-        result[key] = val == "true"
+    -- Boolean values: "key": true  /  "key": false  (separate patterns — Lua
+    -- patterns do not support alternation with |)
+    for key in s:gmatch('"([^"]+)"%s*:%s*true') do
+        result[key] = true
+    end
+    for key in s:gmatch('"([^"]+)"%s*:%s*false') do
+        result[key] = false
+    end
+    -- Numeric values: "key": 42  /  "key": 3.14  (skip if already set as string)
+    for key, val in s:gmatch('"([^"]+)"%s*:%s*(%-?%d+%.?%d*)') do
+        if result[key] == nil then
+            result[key] = tonumber(val)
+        end
     end
     return result
 end
