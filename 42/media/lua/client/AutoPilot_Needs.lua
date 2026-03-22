@@ -17,6 +17,10 @@
 
 AutoPilot_Needs = {}
 
+-- Phase 2: Daily exercise tracking
+local _exerciseSetsToday = 0
+local _lastTrackedDay     = -1
+
 -- ── Thresholds ────────────────────────────────────────────────────────────────
 
 -- B42 Stats: player:getStats():get(CharacterStat.HUNGER), etc.
@@ -361,6 +365,18 @@ local exerciseCycle = 1
 local exerciseWaitLogMs = 0
 
 local function doExercise(player)
+    -- Phase 2: day-rollover reset for exercise counter
+    local currentDay = GameTime.getInstance() and GameTime.getInstance():getDay() or 0
+    if currentDay ~= _lastTrackedDay then
+        _exerciseSetsToday = 0
+        _lastTrackedDay    = currentDay
+    end
+    -- Phase 2: gate on daily cap
+    if _exerciseSetsToday >= AutoPilot_Constants.EXERCISE_DAILY_CAP then
+        AutoPilot_LLM.log(("[Needs] Daily exercise cap %d reached — skipping."):format(
+            AutoPilot_Constants.EXERCISE_DAILY_CAP))
+        return false
+    end
     -- Phase 2: gate on endurance (hysteresis: skip <30%, resume >70%)
     local endurance = AutoPilot_Utils.safeStat(player, CharacterStat.ENDURANCE)
     local enduranceMoodle = safeMoodleLevel(player, MoodleType.ENDURANCE)
@@ -437,6 +453,7 @@ local function doExercise(player)
 
     if ok and action then
         ISTimedActionQueue.addGetUpAndThen(player, action)
+        _exerciseSetsToday = _exerciseSetsToday + 1
         return true
     else
         AutoPilot_LLM.log("[Needs] ISFitnessAction failed for: " .. exType .. " — " .. tostring(action))
