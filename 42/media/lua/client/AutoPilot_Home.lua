@@ -32,10 +32,17 @@ local function loadFromModData(player)
         return player:getModData()[PLAYER_MODDATA_KEY]
     end)
     if ok and data and data.x then
+        local px = math.floor(player:getX())
+        local py = math.floor(player:getY())
+        local dist2 = (data.x - px)^2 + (data.y - py)^2
+        if dist2 > 300 * 300 then
+            AutoPilot_LLM.log("[Home] ModData home rejected: too far from current position.")
+            return false
+        end
         home_x = data.x
         home_y = data.y
         home_z = data.z
-        home_r = data.r or HOME_DEFAULT_RADIUS
+        home_r = math.min(data.r or HOME_DEFAULT_RADIUS, 50)
         return true
     end
     return false
