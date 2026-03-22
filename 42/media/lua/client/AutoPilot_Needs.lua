@@ -17,6 +17,10 @@
 
 AutoPilot_Needs = {}
 
+-- Phase 2: daily exercise tracking (resets on day rollover)
+local _exerciseSetsToday = 0
+local _lastTrackedDay    = -1
+
 -- ── Thresholds ────────────────────────────────────────────────────────────────
 
 -- B42 Stats: player:getStats():get(CharacterStat.HUNGER), etc.
@@ -361,6 +365,26 @@ local exerciseCycle = 1
 local exerciseWaitLogMs = 0
 
 local function doExercise(player)
+    -- Phase 2: day-rollover reset
+    local _gameTime = GameTime.getInstance()
+    local _today    = _gameTime and _gameTime:getDay() or 0
+    if _today ~= _lastTrackedDay then
+        _exerciseSetsToday = 0
+        _lastTrackedDay    = _today
+    end
+    -- Phase 2: daily cap gate
+    if _exerciseSetsToday >= AutoPilot_Constants.EXERCISE_DAILY_CAP then
+        AutoPilot_LLM.log(("[Needs] Daily exercise cap %d reached — resting."):format(
+            AutoPilot_Constants.EXERCISE_DAILY_CAP))
+        return false
+    end
+    -- Phase 2: endurance gate
+    local _endurance = AutoPilot_Utils.safeStat(player, CharacterStat.ENDURANCE)
+    if _endurance < AutoPilot_Constants.EXERCISE_ENDURANCE_MIN then
+        AutoPilot_LLM.log(("[Needs] Endurance %.2f < %.2f — skipping exercise."):format(
+            _endurance, AutoPilot_Constants.EXERCISE_ENDURANCE_MIN))
+        return false
+    end
     -- Don't start exercise if endurance is too low — just idle and let it recover
     local endurance = AutoPilot_Utils.safeStat(player, CharacterStat.ENDURANCE)
     local enduranceMoodle = safeMoodleLevel(player, MoodleType.ENDURANCE)
@@ -428,6 +452,9 @@ local function doExercise(player)
         local _tier = AutoPilot_Inventory.equipBestExerciseItem(player)
         AutoPilot_LLM.log(("[Needs] Exercise tier: %s"):format(_tier))
         ISTimedActionQueue.addGetUpAndThen(player, action)
+        _exerciseSetsToday = _exerciseSetsToday + 1
+        AutoPilot_LLM.log(("[Needs] Exercise set %d/%d queued."):format(
+            _exerciseSetsToday, AutoPilot_Constants.EXERCISE_DAILY_CAP))
         return true
     else
         AutoPilot_LLM.log("[Needs] ISFitnessAction failed for: " .. exType .. " — " .. tostring(action))
@@ -537,6 +564,29 @@ end
 -- the full bed-search and outdoor-square-search logic.
 AutoPilot_Needs.trySleep    = doSleep
 AutoPilot_Needs.tryGoOutside = doGoOutside
+
+--- Return how many exercise sets have been performed today.
+function AutoPilot_Needs.getExerciseSetsToday()
+    return _exerciseSetsToday
+end
+
+--- Return preferred exercise type based on STR vs FIT perk level.
+--- Returns "strength", "fitness", or "either".
+function AutoPilot_Needs.preferredExerciseType(player)
+    local ok, strLvl, fitLvl = pcall(function()
+        return player:getPerkLevel(Perks.Strength),
+               player:getPerkLevel(Perks.Fitness)
+    end)
+    if not ok or strLvl == nil or fitLvl == nil then return "either" end
+    if strLvl < fitLvl then
+        AutoPilot_LLM.log(("[Needs] STR %d < FIT %d — preferring strength."):format(strLvl, fitLvl))
+        return "strength"
+    elseif fitLvl < strLvl then
+        AutoPilot_LLM.log(("[Needs] FIT %d < STR %d — preferring fitness."):format(fitLvl, strLvl))
+        return "fitness"
+    end
+    return "either"
+end
 
 -- Returns a snapshot of current stat levels for LLM state reporting.
 -- B42: Uses player:getStats():get(CharacterStat.XXX) pattern.
