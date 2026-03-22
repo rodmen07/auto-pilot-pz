@@ -60,7 +60,7 @@ CMD_FILE:        pathlib.Path = ZOMBOID_LUA_DIR / "auto_pilot_cmd.json"
 PROMPT_FILE:     pathlib.Path = ZOMBOID_LUA_DIR / "auto_pilot_prompt.txt"
 LOG_FILE:        pathlib.Path = ZOMBOID_LUA_DIR / "auto_pilot_sidecar.log"
 POLL_INTERVAL   = 2.0
-MODEL           = "claude-sonnet-4-6"
+MODEL           = os.environ.get("AUTOPILOT_MODEL", "claude-opus-4-6")
 
 
 def _apply_lua_dir(lua_dir: pathlib.Path) -> None:
@@ -106,14 +106,16 @@ EXERCISE_SYSTEM = """\
 You are the autonomous decision-making brain of an AFK survival bot in Project Zomboid.
 Given the player's current game state, choose the single best action to take right now.
 
+Stats are reported as percentages (0%=fine, 100%=critical).
+
 Priority order (highest → lowest):
 1. Bleeding wounds → bandage immediately
 2. Zombies nearby  → fight (if healthy, well-rested, few debuffs) or flee (2+ active negative moodles or bleeding)
-3. Health/thirst/hunger — eat or drink when moodle level ≥ 2
+3. Thirst/hunger — drink when thirsty ≥ 40%, eat when hungry ≥ 40%. Do NOT react to low values like 1-10%.
 4. Non-bleeding wounds → bandage scratches, bites, deep wounds
-5. Exhausted (endurance critically low, ~15%) → rest
-6. Very tired (tired moodle ≥ 3) → sleep
-7. Bored (bored moodle ≥ 3) → outside (go outdoors) or read if already outside
+5. Exhausted (endurance ≤ 15%) → rest
+6. Very tired (tired ≥ 70%) → sleep
+7. Bored (bored ≥ 30%) → outside (go outdoors) or read if already outside
 8. Nothing urgent → exercise (Strength if STR ≤ FIT, else Fitness) or idle
 
 Respond with a JSON object and nothing else — no markdown fences, no extra text:
@@ -200,15 +202,15 @@ def build_state_message(state: dict) -> str:
         f"deep_wounded={w.get('deep_wounded', 0)} "
         f"bitten={w.get('bitten', False)} "
         f"burnt={w.get('burnt', 0)}",
-        f"Moodles — hungry={m.get('hungry', 0)} "
-        f"thirsty={m.get('thirsty', 0)} "
-        f"tired={m.get('tired', 0)} "
-        f"panicked={m.get('panicked', 0)} "
+        f"Stats (0%=fine, 100%=critical) — hungry={m.get('hungry', 0)}% "
+        f"thirsty={m.get('thirsty', 0)}% "
+        f"tired={m.get('tired', 0)}% "
+        f"panicked={m.get('panicked', 0)}% "
         f"injured={m.get('injured', 0)} "
-        f"sick={m.get('sick', 0)} "
-        f"stressed={m.get('stressed', 0)} "
-        f"bored={m.get('bored', 0)} "
-        f"sad={m.get('sad', 0)}",
+        f"sick={m.get('sick', 0)}% "
+        f"stressed={m.get('stressed', 0)}% "
+        f"bored={m.get('bored', 0)}% "
+        f"sad={m.get('sad', 0)}%",
     ]
 
     if player_inv:
@@ -244,17 +246,21 @@ def parse_response(response) -> dict:
         text = "\n".join(lines[1:-1] if lines[-1] == "```" else lines[1:])
         text = text.strip()
 
-    # Try to extract JSON from mixed text (model sometimes adds commentary)
-    if not text.startswith("{"):
+    # Try direct parse; fall back to extracting the outermost JSON object.
+    try:
+        cmd = json.loads(text)
+    except json.JSONDecodeError:
         import re
-        match = re.search(r'\{[^{}]*"action"[^{}]*\}', text)
+        match = re.search(r'\{.*\}', text, re.DOTALL)
         if match:
-            text = match.group(0)
+            try:
+                cmd = json.loads(match.group(0))
+            except json.JSONDecodeError:
+                log.warning("No valid JSON in response: %s", text[:200])
+                return {"action": "idle", "reason": "could not parse model response"}
         else:
             log.warning("No JSON found in response: %s", text[:200])
             return {"action": "idle", "reason": "could not parse model response"}
-
-    cmd = json.loads(text)
     action = cmd.get("action", "")
     if action not in VALID_ACTIONS:
         raise ValueError(f"Invalid action: {action!r}")
@@ -292,8 +298,8 @@ def clear_prompt() -> None:
     """Clear the prompt file after reading."""
     try:
         PROMPT_FILE.write_text("", encoding="utf-8")
-    except OSError:
-        pass
+    except OSError as exc:
+        log.warning("Could not clear prompt file: %s", exc)
 
 
 # ── Exercise mode (original) ─────────────────────────────────────────────────
@@ -342,38 +348,34 @@ class PilotSession:
             f"What is the next single action to take?"
         )
 
-        self.history.append({"role": "user", "content": user_content})
+        # Build on a temp copy — self.history is only updated on success,
+        # so a mid-stream exception never leaves history in a broken state.
+        temp_history = self.history + [{"role": "user", "content": user_content}]
 
         # Trim history to prevent context overflow
-        if len(self.history) > self.max_history:
-            self.history = self.history[-self.max_history:]
+        if len(temp_history) > self.max_history:
+            temp_history = temp_history[-self.max_history:]
         # Ensure the conversation always starts with a user message
-        if self.history and self.history[0]["role"] != "user":
-            self.history = self.history[1:]
+        if temp_history and temp_history[0]["role"] != "user":
+            temp_history = temp_history[1:]
 
-        try:
-            t0 = time.perf_counter()
-            with client.messages.stream(
-                model=MODEL, max_tokens=512,
-                system=PILOT_SYSTEM,
-                messages=self.history,
-            ) as stream:
-                response = stream.get_final_message()
-            elapsed = time.perf_counter() - t0
+        t0 = time.perf_counter()
+        with client.messages.stream(
+            model=MODEL, max_tokens=512,
+            system=PILOT_SYSTEM,
+            messages=temp_history,
+        ) as stream:
+            response = stream.get_final_message()
+        elapsed = time.perf_counter() - t0
 
-            usage = response.usage
-            log.info("Claude: %.1fs (in=%d out=%d)", elapsed, usage.input_tokens, usage.output_tokens)
+        usage = response.usage
+        log.info("Claude: %.1fs (in=%d out=%d)", elapsed, usage.input_tokens, usage.output_tokens)
 
-            cmd = parse_response(response)
-        except Exception:
-            # Remove the user message we just appended — on the next cycle a
-            # fresh user message will be added, keeping the role sequence valid.
-            self.history.pop()
-            raise
+        cmd = parse_response(response)
 
-        # Add assistant response to history
+        # Commit: add the assistant reply and promote temp_history to self.history
         text = next((b.text for b in response.content if b.type == "text"), "")
-        self.history.append({"role": "assistant", "content": text.strip()})
+        self.history = temp_history + [{"role": "assistant", "content": text.strip()}]
 
         return cmd
 
@@ -394,10 +396,22 @@ def main() -> None:
             "where the Lua dir differs from the default."
         ),
     )
+    parser.add_argument(
+        "--model", default=None,
+        metavar="MODEL_ID",
+        help=(
+            "Claude model ID to use. "
+            "Default: $AUTOPILOT_MODEL env var, or claude-opus-4-6."
+        ),
+    )
     args = parser.parse_args()
 
     if args.lua_dir is not None:
         _apply_lua_dir(args.lua_dir.expanduser().resolve())
+
+    if args.model is not None:
+        global MODEL
+        MODEL = args.model
 
     ZOMBOID_LUA_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -423,6 +437,7 @@ def main() -> None:
     pilot = PilotSession()
     last_mtime: float = 0.0
     cycle = 0
+    retry_delay = 2.0  # exponential backoff: 2→4→8→…→60s
 
     while True:
         try:
@@ -452,14 +467,19 @@ def main() -> None:
                 last_mtime = mtime
 
             cycle += 1
-            state = json.loads(STATE_FILE.read_text(encoding="utf-8"))
+            try:
+                state = json.loads(STATE_FILE.read_text(encoding="utf-8"))
+            except OSError as exc:
+                log.warning("Could not read state file: %s", exc)
+                time.sleep(POLL_INTERVAL)
+                continue
 
             # Compact state summary
             m = state.get("moodles", {})
             w = state.get("wounds", {})
             log.info(
                 "[#%d] State: HP=%s%% End=%s%% Zom=%s | "
-                "hungry=%s thirsty=%s tired=%s | "
+                "hungry=%s%% thirsty=%s%% tired=%s%% | "
                 "bleed=%s scratch=%s",
                 cycle,
                 state.get("health", "?"), state.get("endurance", "?"),
@@ -498,16 +518,19 @@ def main() -> None:
                     "[#%d] >>> %s — %s",
                     cycle, cmd["action"].upper(), cmd.get("reason", ""),
                 )
+            retry_delay = 2.0  # reset backoff after a successful cycle
 
         except json.JSONDecodeError as exc:
             log.error("JSON parse error: %s", exc)
         except anthropic.OverloadedError:
-            log.warning("API overloaded — retrying in 10s")
-            time.sleep(10)
+            log.warning("API overloaded — retrying in %.0fs", retry_delay)
+            time.sleep(retry_delay)
+            retry_delay = min(retry_delay * 2, 60)
             continue
         except anthropic.RateLimitError:
-            log.warning("Rate limited — retrying in 30s")
-            time.sleep(30)
+            log.warning("Rate limited — retrying in %.0fs", retry_delay)
+            time.sleep(retry_delay)
+            retry_delay = min(retry_delay * 2, 60)
             continue
         except anthropic.APIError as exc:
             log.error("Anthropic API error: %s", exc)
