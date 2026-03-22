@@ -129,6 +129,12 @@ AutoPilot_Constants.SEARCH_RESULTS_MAX = 10
 -- Max inventory item names included in the LLM state snapshot.
 AutoPilot_Constants.INVENTORY_SUMMARY_MAX = 20
 
+-- ── STR / FIT balance ────────────────────────────────────────────────────────
+-- B42 perk access: player:getPerkLevel(Perks.Strength) / Perks.Fitness (0-10).
+-- When the gap between the two stats exceeds this threshold the bot strongly
+-- favours the lagging stat to prevent XP-timer decay on the lower skill.
+AutoPilot_Constants.STR_FIT_GAP_THRESHOLD = 1
+
 -- ── Exercise equipment ────────────────────────────────────────────────────────
 -- B42 canonical full-type IDs for exercise equipment and their XP multiplier tiers.
 --   "dumbbell" → 1.8× XP  (dumbbellpress, bicepscurl)

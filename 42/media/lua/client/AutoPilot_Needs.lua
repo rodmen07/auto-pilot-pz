@@ -350,10 +350,22 @@ end
 -- ── Exercise ────────────────────────────────────────────────────────────────
 -- B42: ISFitnessAction:new(character, exercise, timeToExe, exeData, exeDataType)
 -- Exercise data comes from FitnessExercises.exercisesType table.
--- Strength: pushups, squats   |   Fitness: situp, burpees
+--
+-- Equipment-aware exercise lists (highest-XP first within each tier):
+--   Dumbbell (1.8×): dumbbellpress, bicepscurl — both train Strength
+--   Barbell  (1.2×): barbellcurl               — trains Strength
+--   Bodyweight STR : pushups, squats
+--   Bodyweight FIT : situp, burpees
+local STRENGTH_EXERCISES          = {"pushups",       "squats"}
+local STRENGTH_EXERCISES_DUMBBELL = {"dumbbellpress", "bicepscurl"}
+local STRENGTH_EXERCISES_BARBELL  = {"barbellcurl"}
+local FITNESS_EXERCISES           = {"situp",         "burpees"}
 
-local STRENGTH_EXERCISES = {"pushups", "squats"}
-local FITNESS_EXERCISES  = {"situp",   "burpees"}
+-- Cooldown (real-time ms) for the expensive container scan used to locate
+-- exercise equipment when none is in inventory.  Two minutes is enough to
+-- avoid hammering the scan every tick when equipment is absent.
+local _equipScanMs       = 0
+local EQUIP_SCAN_COOLDOWN = 120000  -- 2 minutes
 
 local exerciseCycle = 1
 
@@ -418,19 +430,57 @@ local function doExercise(player)
         return false
     end
 
+    -- Equipment check: fast inventory scan first; container scan only when needed.
+    local equipTier, _ = AutoPilot_Inventory.getExerciseEquipmentTier(player)
+    if equipTier == "none" then
+        local okMs, nowMs = pcall(function()
+            return getGameTime():getCalender():getTimeInMillis()
+        end)
+        local ms = okMs and nowMs or 0
+        if ms >= _equipScanMs then
+            _equipScanMs = ms + EQUIP_SCAN_COOLDOWN
+            if AutoPilot_Inventory.equipBestExerciseItem(player) then
+                -- Transfer action queued; exercise on the next cycle once the
+                -- item lands in inventory.
+                return true
+            end
+        end
+    end
+
+    -- STR/FIT gap-aware exercise selection.
+    -- gap > 0  → FIT is ahead; gap < 0 → STR is ahead.
     local strLevel = getPerkLevel(player, Perks.Strength)
     local fitLevel = getPerkLevel(player, Perks.Fitness)
+    local gap      = fitLevel - strLevel
+    local gapThreshold = AutoPilot_Constants.STR_FIT_GAP_THRESHOLD
 
-    local exercises
-    if strLevel <= fitLevel then
-        exercises = STRENGTH_EXERCISES
-        AutoPilot_LLM.log(string.format("[Needs] Exercise — training Strength (STR %d / FIT %d)",
-            strLevel, fitLevel))
-    else
+    local exercises, focus
+    if gap > gapThreshold then
+        -- FIT is significantly ahead: prioritise STR with best available equipment.
+        focus     = "Strength"
+        exercises = (equipTier == "dumbbell" and STRENGTH_EXERCISES_DUMBBELL)
+                 or (equipTier == "barbell"  and STRENGTH_EXERCISES_BARBELL)
+                 or STRENGTH_EXERCISES
+    elseif gap < -gapThreshold then
+        -- STR is significantly ahead: prioritise FIT (bodyweight only — no
+        -- dumbbell/barbell exercises target Fitness in B42).
+        focus     = "Fitness"
         exercises = FITNESS_EXERCISES
-        AutoPilot_LLM.log(string.format("[Needs] Exercise — training Fitness (STR %d / FIT %d)",
-            strLevel, fitLevel))
+    elseif strLevel <= fitLevel then
+        -- Balanced or STR == FIT: train STR with best available equipment.
+        focus     = "Strength"
+        exercises = (equipTier == "dumbbell" and STRENGTH_EXERCISES_DUMBBELL)
+                 or (equipTier == "barbell"  and STRENGTH_EXERCISES_BARBELL)
+                 or STRENGTH_EXERCISES
+    else
+        -- Balanced but FIT slightly ahead after accounting for gap: train FIT.
+        focus     = "Fitness"
+        exercises = FITNESS_EXERCISES
     end
+
+    AutoPilot_LLM.log(string.format(
+        "[Needs] Exercise — training %s (STR %d / FIT %d, gap=%+d, equip=%s)",
+        focus, strLevel, fitLevel, gap, equipTier))
 
     -- Guard: exercises table must be non-empty before indexing.
     if #exercises == 0 then
