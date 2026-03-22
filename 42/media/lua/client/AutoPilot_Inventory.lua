@@ -146,25 +146,33 @@ end
 -- ── Container iteration helpers ───────────────────────────────────────────────
 
 -- Iterates every item in every container on every in-bounds square within
--- `radius` tiles of the player.  Calls callback(item, container) for each
+-- `radius` tiles of the player.  Calls callback(item, container, sq) for each
 -- non-nil item.  If the callback returns true, iteration stops early (use for
 -- first-match searches).  Returns true if the callback ever stopped early.
-local function _iterateContainersNearby(player, radius, callback)
+-- ignoreHome: when true, skips the AutoPilot_Home.isInside check (supply runs).
+-- Phase 3: skips squares marked depleted by AutoPilot_Map; marks empty containers.
+local function _iterateContainersNearby(player, radius, callback, ignoreHome)
     local px, py, pz = player:getX(), player:getY(), player:getZ()
     local stopped = false
     AutoPilot_Utils.iterateNearbySquares(px, py, pz, radius, function(sq)
-        if not AutoPilot_Home.isInside(sq) then return false end
+        if not ignoreHome and not AutoPilot_Home.isInside(sq) then return false end
+        if AutoPilot_Map.isDepleted(sq) then return false end
         for i = 0, sq:getObjects():size() - 1 do
             local obj = sq:getObjects():get(i)
             if obj then
                 local container = obj:getContainer()
                 if container then
                     local items = container:getItems()
-                    for j = 0, items:size() - 1 do
-                        local item = items:get(j)
-                        if item and callback(item, container) then
-                            stopped = true
-                            return true  -- stop iterateNearbySquares
+                    if items:size() == 0 then
+                        -- Empty container — mark square as depleted
+                        AutoPilot_Map.markDepleted(sq)
+                    else
+                        for j = 0, items:size() - 1 do
+                            local item = items:get(j)
+                            if item and callback(item, container, sq) then
+                                stopped = true
+                                return true  -- stop iterateNearbySquares
+                            end
                         end
                     end
                 end

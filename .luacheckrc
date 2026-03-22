@@ -65,6 +65,7 @@ globals = {
     "AutoPilot_Medical",
     "AutoPilot_Actions",
     "AutoPilot_Home",
+    "AutoPilot_Map",
 
     -- PZ B42 engine global for persistent mod storage
     "ModData",

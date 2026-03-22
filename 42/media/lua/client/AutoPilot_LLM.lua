@@ -98,6 +98,8 @@ local function _buildStateTable(player)
         inventory_summary   = invSummary,
         search_results      = searchResults,
         available_actions   = AutoPilot_Actions.getSchemaNames(),
+        -- Phase 3: map / depletion state
+        depleted_squares    = AutoPilot_Map.getStats().depleted_squares,
     }
 end
 
