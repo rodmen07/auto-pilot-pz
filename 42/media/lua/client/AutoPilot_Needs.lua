@@ -448,6 +448,9 @@ local function doExercise(player)
     end)
 
     if ok and action then
+        -- Phase 2: equip best available exercise gear before starting
+        local _tier = AutoPilot_Inventory.equipBestExerciseItem(player)
+        AutoPilot_LLM.log(("[Needs] Exercise tier: %s"):format(_tier))
         ISTimedActionQueue.addGetUpAndThen(player, action)
         _exerciseSetsToday = _exerciseSetsToday + 1
         AutoPilot_LLM.log(("[Needs] Exercise set %d/%d queued."):format(
