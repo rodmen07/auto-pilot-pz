@@ -2,6 +2,9 @@
 
 AFK auto-leveler for Strength and Fitness. Keeps your character alive through automated survival (eating, drinking, sleeping, wound treatment) while exercising to max both stats.
 
+> **Status:** All 4 feature phases complete (v0.2.1). Pending Steam Workshop upload (V1.0).
+> See [WORKSHOP.md](WORKSHOP.md) for the Workshop description and [TESTING.md](TESTING.md) for the pre-release test checklist.
+
 ## Quick Start
 
 1. The mod is already installed at `~/Zomboid/mods/auto_pilot/`
@@ -111,18 +114,18 @@ Edge cases and minor optimizations.
 | ✅ Temperature/clothing | Done | `adjustClothing()` — equips warm/cool gear based on body temperature delta |
 | ✅ Safehouse barricading | Done | `AutoPilot_Barricade` — one-time window barricading on home set (ModData flag) |
 
-### Phase 5: Deployment — NOT STARTED *(v0.2.2 / V1.0 release milestone)*
+### Phase 5: Deployment — IN PROGRESS *(v0.2.2 / V1.0 release milestone)*
 
 Publish the mod for others to use. Completing this phase marks the **V1.0** public release.
 
 | Task | Status | Details |
 |------|--------|---------|
-| Steam Workshop upload | Pending | Publish via PZ's built-in Workshop uploader or `steamcmd` |
-| Workshop description & tags | Pending | Write Steam Workshop page with feature list, screenshots, usage instructions |
-| Poster artwork | Pending | Finalize `poster.png` for Workshop listing |
-| In-game testing on fresh save | Pending | Full end-to-end validation on clean install (no leftover state) |
-| Multiplayer compatibility check | Pending | Verify mod behavior in MP (client-only, no server-side effects) |
-| Version tagging | Pending | Minor/patch releases use lowercase `v` (e.g. `v0.1`, `v0.1.2`); major releases use capital `V` (e.g. `V1.0`) |
+| Steam Workshop upload | 🔲 Pending | Publish via PZ's built-in Workshop uploader or `steamcmd` |
+| Workshop description & tags | ✅ Done | `WORKSHOP.md` — full BB-code description ready to paste |
+| Poster artwork | 🔲 Pending | Finalize `poster.png` for Workshop listing |
+| In-game testing on fresh save | 🔲 Pending | Full end-to-end validation on clean install — see `TESTING.md` |
+| Multiplayer compatibility check | ✅ Done | Security audit complete — client-only; no cross-player actions; safe for private servers |
+| Version tagging | 🔲 Pending | Minor/patch releases use lowercase `v` (e.g. `v0.1`, `v0.1.2`); major releases use capital `V` (e.g. `V1.0`) |
 
 ---
 
