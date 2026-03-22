@@ -679,6 +679,46 @@ function AutoPilot_Inventory.currentExerciseTier(player)
     return "none"
 end
 
+-- ---------------------------------------------------------------------------
+-- Phase 3: Bulk looting
+-- ---------------------------------------------------------------------------
+
+-- Default keyword list for bulk looting (food, water, medical, equipment).
+AutoPilot_Inventory.BULK_LOOT_KEYWORDS = {
+    "food", "can", "soup", "beans", "water", "bottle", "bandage",
+    "disinfectant", "painkillers", "splint", "magazine", "book",
+    "dumbbells", "barbell", "weightbar",
+}
+
+--- Bulk loot a container: transfer ALL items matching any keyword in the list.
+--- Returns the count of items transferred.
+function AutoPilot_Inventory.bulkLoot(player, container, keywords)
+    if not container then return 0 end
+    local inv   = player:getInventory()
+    local count = 0
+    for i = 0, container:getItems():size() - 1 do
+        local item = container:getItems():get(i)
+        if item then
+            local name = ""
+            pcall(function() name = item:getType():lower() end)
+            for _, kw in ipairs(keywords) do
+                if name:find(kw:lower(), 1, true) then
+                    local ok = pcall(function()
+                        ISTimedActionQueue.add(ISInventoryTransferAction:new(
+                            player, item, container, inv))
+                    end)
+                    if ok then count = count + 1 end
+                    break
+                end
+            end
+        end
+    end
+    if count > 0 then
+        AutoPilot_LLM.log(("[Inv] Bulk looted %d items from container."):format(count))
+    end
+    return count
+end
+
 -- Returns search result names from the last searchItem call.
 function AutoPilot_Inventory.getLastSearchResults()
     return AutoPilot_Inventory._lastSearchResults or {}

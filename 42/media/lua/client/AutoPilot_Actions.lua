@@ -42,6 +42,8 @@ AutoPilot_Actions.SCHEMA = {
       desc = "Apply bandages or treat wounds from inventory" },
     { name = "stop",        param = "",
       desc = "Clear the action queue" },
+    { name = "bulk_loot",   param = "",
+      desc = "Transfer all useful items from the nearest container" },
 }
 
 -- ── Helpers ───────────────────────────────────────────────────────────────────
@@ -202,6 +204,37 @@ local HANDLERS = {
     stop = function(player, _)
         ISTimedActionQueue.clear(player)
         return true
+    end,
+
+    -- Phase 3: Bulk loot nearest accessible container with default keyword list.
+    bulk_loot = function(player, _)
+        local px, py, pz = player:getX(), player:getY(), player:getZ()
+        local bestContainer = nil
+        local bestDist = math.huge
+        AutoPilot_Utils.iterateNearbySquares(px, py, pz, 20, function(sq, dx, dy)
+            if AutoPilot_Home.isSet(player) and not AutoPilot_Home.isInside(sq) then
+                return false
+            end
+            for i = 0, sq:getObjects():size() - 1 do
+                local obj = sq:getObjects():get(i)
+                local ok, ctr = pcall(function() return obj:getContainer() end)
+                if ok and ctr then
+                    local dist = dx * dx + dy * dy
+                    if dist < bestDist then
+                        bestDist = dist
+                        bestContainer = ctr
+                    end
+                end
+            end
+            return false
+        end)
+        if not bestContainer then
+            AutoPilot_LLM.log("[Actions] bulk_loot: no container found nearby.")
+            return false
+        end
+        local count = AutoPilot_Inventory.bulkLoot(
+            player, bestContainer, AutoPilot_Inventory.BULK_LOOT_KEYWORDS)
+        return count > 0
     end,
 }
 
