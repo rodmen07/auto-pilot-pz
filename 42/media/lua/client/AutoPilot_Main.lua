@@ -1,6 +1,10 @@
 -- AutoPilot_Main.lua
 -- Entry point. Registers the OnTick event and orchestrates all sub-modules.
 --
+-- SPLITSCREEN NOTE: Module-level variables (mode, tickCounter, actionCooldown)
+-- are shared across all local players.  Splitscreen is NOT supported — the mod
+-- targets a single local player (getPlayer() / player index 0) only.
+--
 -- Modes:
 --   EXERCISE (F7) — autonomous: survival needs + exercise when idle
 --   PILOT    (F8) — survival needs + LLM commands when idle (no exercise)
@@ -115,12 +119,17 @@ local LLM_ACTION_MAP = {
         local px = p:getX() + dx
         local py = p:getY() + dy
         local pz = p:getZ()
+        local cell = getCell()
+        if not cell then
+            AutoPilot_LLM.log("[Main] walk_to: cell not loaded yet — skipping.")
+            return
+        end
         -- Find a walkable square near the target (avoid landing inside walls)
         local targetSq = nil
         for r = 0, 5 do
             for ddx = -r, r do
                 for ddy = -r, r do
-                    local sq = getCell():getGridSquare(px + ddx, py + ddy, pz)
+                    local sq = cell:getGridSquare(px + ddx, py + ddy, pz)
                     if sq and sq:isFree(false) then
                         targetSq = sq
                         break
@@ -146,8 +155,7 @@ local LLM_ACTION_MAP = {
                 targetSq:getX(), targetSq:getY(), clampedSq:getX(), clampedSq:getY()))
             targetSq = clampedSq
         end
-        -- Sprint to destination
-        pcall(function() p:setSprinting(true) end)
+        -- Let ISWalkToTimedAction handle movement speed internally (MP-safe).
         ISTimedActionQueue.add(ISWalkToTimedAction:new(p, targetSq))
     end,
     stop     = function(p)
@@ -185,10 +193,19 @@ end
 local function onTick()
     if mode == "off" then return end
 
+    -- Safety: all files live in /client/, but guard defensively in case any
+    -- code is ever loaded from /shared/.  getPlayer() returns nil server-side.
+    if not isClient() then return end
+
+    -- Guard: module state is not splitscreen-safe; disable in splitscreen.
+    if getPlayerCount and getPlayerCount() > 1 then return end
+
     tickCounter = tickCounter + 1
     if tickCounter < TICK_INTERVAL then return end
     tickCounter = 0
 
+    -- getPlayer() returns player index 0 only; splitscreen player 1+ is not
+    -- supported.  All automation targets the single local player.
     local player = getPlayer()
     if not player or player:isDead() then return end
 
@@ -245,9 +262,9 @@ end
 -- F7: cycle off → exercise → off
 -- F8: cycle off → pilot → off   (or switch between exercise/pilot if already on)
 
-local function sayMode(player)
+local function sayMode(_player)
     local label = mode:upper()
-    if player then player:Say("AutoPilot: " .. label) end
+    -- Use print() only — player:Say() is world-visible in MP and reveals AFK status.
     AutoPilot_LLM.log("[Main] Mode: " .. label)
 end
 
@@ -260,7 +277,7 @@ local function onKeyPressed(key)
         else
             mode = "exercise"
             -- Auto-set home on first enable if not already set
-            if not AutoPilot_Home.isSet() then
+            if not AutoPilot_Home.isSet(player) then
                 AutoPilot_Home.set(player)
                 AutoPilot_LLM.log("[Main] AutoPilot enabled — home auto-set to current position.")
             end
@@ -273,7 +290,7 @@ local function onKeyPressed(key)
         else
             mode = "pilot"
             -- Auto-set home on first enable if not already set
-            if not AutoPilot_Home.isSet() then
+            if not AutoPilot_Home.isSet(player) then
                 AutoPilot_Home.set(player)
                 AutoPilot_LLM.log("[Main] AutoPilot enabled — home auto-set to current position.")
             end

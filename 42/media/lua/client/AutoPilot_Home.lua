@@ -4,13 +4,14 @@
 -- The "Goldilocks" system ensures the player never wanders outside their
 -- safehouse bounds during automated exercise or pilot mode.
 --
--- Home position persists via ModData so it survives save/load.
--- ModData key: "AutoPilot_Home" → {x, y, z, r}
+-- Home position persists via player:getModData() so it survives save/load
+-- and is scoped per-player (no cross-player key collision in MP).
+-- ModData key (within player's table): "AutoPilot_Home" → {x, y, z, r}
 
 AutoPilot_Home = {}
 
 local HOME_DEFAULT_RADIUS = 15
-local MODDATA_KEY = "AutoPilot_Home"
+local PLAYER_MODDATA_KEY  = "AutoPilot_Home"
 
 -- In-memory cache (populated on set or first load from ModData)
 local home_x = nil
@@ -20,9 +21,12 @@ local home_r = HOME_DEFAULT_RADIUS
 
 -- ── Persistence helpers ───────────────────────────────────────────────────────
 
-local function loadFromModData()
+-- Loads home from the player's own ModData table.
+-- Returns true if valid data was found and cached.
+local function loadFromModData(player)
+    if not player then return false end
     local ok, data = pcall(function()
-        return ModData.getOrCreate(MODDATA_KEY)
+        return player:getModData()[PLAYER_MODDATA_KEY]
     end)
     if ok and data and data.x then
         home_x = data.x
@@ -34,14 +38,19 @@ local function loadFromModData()
     return false
 end
 
-local function saveToModData()
+-- Saves home into the player's own ModData and transmits to the server.
+-- Uses player:transmitModData() — the server expects clients to own their
+-- own player ModData, so this is the MP-safe pattern (no global ModData.transmit).
+local function saveToModData(player)
+    if not player then return end
     pcall(function()
-        local data = ModData.getOrCreate(MODDATA_KEY)
-        data.x = home_x
-        data.y = home_y
-        data.z = home_z
-        data.r = home_r
-        ModData.transmit(MODDATA_KEY)
+        player:getModData()[PLAYER_MODDATA_KEY] = {
+            x = home_x,
+            y = home_y,
+            z = home_z,
+            r = home_r,
+        }
+        player:transmitModData()
     end)
 end
 
@@ -53,18 +62,19 @@ function AutoPilot_Home.set(player)
     home_y = math.floor(player:getY())
     home_z = player:getZ()
     home_r = HOME_DEFAULT_RADIUS
-    saveToModData()
+    saveToModData(player)
+    -- Use log only — player:Say() is world-visible in MP and reveals AFK status.
     AutoPilot_LLM.log(string.format(
         "[Home] Home set at %d, %d (z=%d, r=%d).", home_x, home_y, home_z, home_r))
-    if player then
-        player:Say(string.format("Home set at %d, %d", home_x, home_y))
-    end
 end
 
---- Returns true if a home position has been registered (checks ModData if not cached).
-function AutoPilot_Home.isSet()
+--- Returns true if a home position has been registered.
+--- Accepts an optional player to load from their ModData on a cache miss.
+--- Call sites that have no player context (e.g. isInside) pass nil and rely
+--- on the in-memory cache that was populated earlier in the session.
+function AutoPilot_Home.isSet(player)
     if home_x then return true end
-    return loadFromModData()
+    return loadFromModData(player)
 end
 
 --- Returns true if the given IsoSquare is within home bounds.
@@ -82,7 +92,7 @@ end
 --- Returns targetSq unchanged if it is already inside.
 --- Returns nil if no suitable square is found near the edge.
 function AutoPilot_Home.clampSq(targetSq, player)
-    if not AutoPilot_Home.isSet() then return targetSq end
+    if not AutoPilot_Home.isSet(player) then return targetSq end
     if not targetSq then return nil end
     if AutoPilot_Home.isInside(targetSq) then return targetSq end
 
@@ -102,10 +112,12 @@ function AutoPilot_Home.clampSq(targetSq, player)
     end
 
     -- Search near the projected edge point for a free walkable square inside bounds
+    local cell = getCell()
+    if not cell then return nil end
     for r = 0, 5 do
         for ddx = -r, r do
             for ddy = -r, r do
-                local sq = getCell():getGridSquare(edgeX + ddx, edgeY + ddy, home_z)
+                local sq = cell:getGridSquare(edgeX + ddx, edgeY + ddy, home_z)
                 if sq and sq:isFree(false) and AutoPilot_Home.isInside(sq) then
                     return sq
                 end
@@ -121,17 +133,19 @@ end
 --- predicate: function(sq) -> boolean
 --- radius: optional search radius cap (capped to home_r)
 function AutoPilot_Home.getNearestInside(player, predicate, radius)
-    if not AutoPilot_Home.isSet() then return nil end
+    if not AutoPilot_Home.isSet(player) then return nil end
 
     local searchR = math.min(radius or home_r, home_r)
     local bestSq   = nil
     local bestDist = math.huge
 
+    local cell = getCell()
+    if not cell then return nil end
     for dx = -searchR, searchR do
         for dy = -searchR, searchR do
             -- Skip corners outside the circular radius
             if dx * dx + dy * dy <= home_r * home_r then
-                local sq = getCell():getGridSquare(home_x + dx, home_y + dy, home_z)
+                local sq = cell:getGridSquare(home_x + dx, home_y + dy, home_z)
                 if sq then
                     local ok, match = pcall(predicate, sq)
                     if ok and match then
@@ -152,6 +166,6 @@ end
 --- Returns the current home values for LLM state JSON.
 --- All values may be nil if home has not been set.
 function AutoPilot_Home.getState()
-    AutoPilot_Home.isSet()  -- trigger ModData load if not yet cached
+    AutoPilot_Home.isSet(nil)  -- cache-only check; player not available here
     return home_x, home_y, home_z, home_r
 end

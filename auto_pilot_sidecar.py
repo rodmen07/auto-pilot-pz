@@ -7,17 +7,27 @@ Two operating modes (match Lua mod's F7/F8):
   PILOT     — goal-driven: reads natural-language prompts from the user,
               plans multi-step tasks, and executes them via the command pipe
 
-File locations: %USERPROFILE%/Zomboid/Lua/
+File locations (default: platform-detected, override with --lua-dir):
+  Windows : %USERPROFILE%\\Zomboid\\Lua\\
+  Linux   : ~/Zomboid/Lua/   (clients) or ~/.pzserver/Lua/ (dedicated servers)
   - auto_pilot_state.json   (written by AutoPilot_LLM.lua)
   - auto_pilot_cmd.json     (read by AutoPilot_LLM.lua)
   - auto_pilot_prompt.txt   (written by user or helper script)
   - auto_pilot_sidecar.log  (debug log)
 
+LINUX / DEDICATED SERVER NOTE:
+  PZ can be launched with -homedir <path>, which redirects the Lua directory
+  to a custom location.  The auto-detected default will be wrong in that case.
+  Always pass --lua-dir explicitly when using -homedir or running on a Linux
+  dedicated server:
+    python auto_pilot_sidecar.py --lua-dir /path/to/Zomboid/Lua
+
 Usage:
   pip install anthropic
   set ANTHROPIC_API_KEY=sk-ant-...
-  python auto_pilot_sidecar.py            # exercise mode (default)
-  python auto_pilot_sidecar.py --pilot    # pilot mode (goal-driven)
+  python auto_pilot_sidecar.py                          # exercise mode (default)
+  python auto_pilot_sidecar.py --pilot                  # pilot mode (goal-driven)
+  python auto_pilot_sidecar.py --lua-dir ~/Zomboid/Lua  # custom Lua directory
 """
 
 import argparse
@@ -32,13 +42,35 @@ import anthropic
 
 # ── Configuration ─────────────────────────────────────────────────────────────
 
-ZOMBOID_LUA_DIR = pathlib.Path.home() / "Zomboid" / "Lua"
-STATE_FILE      = ZOMBOID_LUA_DIR / "auto_pilot_state.json"
-CMD_FILE        = ZOMBOID_LUA_DIR / "auto_pilot_cmd.json"
-PROMPT_FILE     = ZOMBOID_LUA_DIR / "auto_pilot_prompt.txt"
-LOG_FILE        = ZOMBOID_LUA_DIR / "auto_pilot_sidecar.log"
+def _default_lua_dir() -> pathlib.Path:
+    """Return the platform-appropriate default Lua directory.
+
+    This matches PZ's default save location when *not* using -homedir:
+      Windows : %USERPROFILE%/Zomboid/Lua
+      Linux   : ~/Zomboid/Lua  (client install)
+                ~/.pzserver/Lua is common for dedicated servers but varies;
+                use --lua-dir to override when the default is wrong.
+    """
+    return pathlib.Path.home() / "Zomboid" / "Lua"
+
+# Populated from CLI args in main(); module-level names kept for convenience.
+ZOMBOID_LUA_DIR: pathlib.Path = _default_lua_dir()
+STATE_FILE:      pathlib.Path = ZOMBOID_LUA_DIR / "auto_pilot_state.json"
+CMD_FILE:        pathlib.Path = ZOMBOID_LUA_DIR / "auto_pilot_cmd.json"
+PROMPT_FILE:     pathlib.Path = ZOMBOID_LUA_DIR / "auto_pilot_prompt.txt"
+LOG_FILE:        pathlib.Path = ZOMBOID_LUA_DIR / "auto_pilot_sidecar.log"
 POLL_INTERVAL   = 2.0
 MODEL           = "claude-sonnet-4-6"
+
+
+def _apply_lua_dir(lua_dir: pathlib.Path) -> None:
+    """Overwrite module-level path constants with a user-supplied Lua dir."""
+    global ZOMBOID_LUA_DIR, STATE_FILE, CMD_FILE, PROMPT_FILE, LOG_FILE
+    ZOMBOID_LUA_DIR = lua_dir
+    STATE_FILE      = lua_dir / "auto_pilot_state.json"
+    CMD_FILE        = lua_dir / "auto_pilot_cmd.json"
+    PROMPT_FILE     = lua_dir / "auto_pilot_prompt.txt"
+    LOG_FILE        = lua_dir / "auto_pilot_sidecar.log"
 
 # ── Logging ──────────────────────────────────────────────────────────────────
 
@@ -352,7 +384,20 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="AutoPilot LLM sidecar")
     parser.add_argument("--pilot", action="store_true",
                         help="Start in pilot mode (goal-driven, reads prompt file)")
+    parser.add_argument(
+        "--lua-dir", type=pathlib.Path, default=None,
+        metavar="PATH",
+        help=(
+            "Path to the PZ Lua directory containing auto_pilot_*.json files. "
+            "Defaults to ~/Zomboid/Lua (Windows/Linux client). "
+            "Required when PZ is launched with -homedir or on a dedicated server "
+            "where the Lua dir differs from the default."
+        ),
+    )
     args = parser.parse_args()
+
+    if args.lua_dir is not None:
+        _apply_lua_dir(args.lua_dir.expanduser().resolve())
 
     ZOMBOID_LUA_DIR.mkdir(parents=True, exist_ok=True)
 

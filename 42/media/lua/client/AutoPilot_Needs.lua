@@ -1,6 +1,10 @@
 -- AutoPilot_Needs.lua
 -- Handles survival needs and idle behaviour.
 --
+-- SPLITSCREEN NOTE: Module-level variables (restCooldownMs, sleepCooldownMs,
+-- exerciseCycle, exerciseWaitLogMs) are shared across all local players.
+-- Splitscreen is NOT supported.
+--
 -- Priority order (highest -> lowest):
 --   1. Bleeding      -> bandage immediately (fatal if untreated)
 --   2. Thirst        -> drink from tap/sink, then inventory, then loot
@@ -249,7 +253,7 @@ local function doSleep(player)
     ISTimedActionQueue.clear(player)
 
     -- Home set: restrict search to home bounds only
-    if AutoPilot_Home.isSet() then
+    if AutoPilot_Home.isSet(player) then
         local bedSq = AutoPilot_Home.getNearestInside(player, hasBedOnSquare)
         if bedSq then
             local bedObj = getBedObjectOnSquare(bedSq)
@@ -260,11 +264,10 @@ local function doSleep(player)
                 return true
             end
         end
-        AutoPilot_LLM.log("[Needs] No bed found inside home bounds — sleeping in place.")
-        player:setAsleep(true)
-        player:setAsleepTime(0.0)
-        sleepCooldownMs = ms + 15000
-        return true
+        -- No bed in home bounds and no fallback sleep in MP (setAsleep is client-only,
+        -- the server never learns of the sleep state → fatigue desync).
+        AutoPilot_LLM.log("[Needs] No bed found inside home bounds — cannot force sleep (MP-unsafe); will retry.")
+        return false
     end
 
     -- No home set: wide search across floors
@@ -309,18 +312,20 @@ local function doSleep(player)
         return true
     end
 
-    AutoPilot_LLM.log("[Needs] No bed found — sleeping in place.")
-    player:setAsleep(true)
-    player:setAsleepTime(0.0)
-    sleepCooldownMs = ms + 15000
-    return true
+    -- No bed found anywhere — do not force sleep directly (MP-unsafe; server
+    -- never learns of the state change → fatigue desync).  Return false so
+    -- the next cycle retries the bed search.
+    AutoPilot_LLM.log("[Needs] No bed found — cannot force sleep (MP-unsafe); will retry.")
+    return false
 end
 
 -- Walk to the nearest outdoor square to relieve boredom.
 local function doGoOutside(player)
     local px, py, pz = player:getX(), player:getY(), player:getZ()
 
-    local curSq = getCell():getGridSquare(px, py, pz)
+    local cell = getCell()
+    if not cell then return false end
+    local curSq = cell:getGridSquare(px, py, pz)
     if curSq and curSq:isOutside() then
         AutoPilot_LLM.log("[Needs] Already outside — boredom will decrease naturally.")
         return false
@@ -329,7 +334,7 @@ local function doGoOutside(player)
     AutoPilot_LLM.log("[Needs] Bored — finding outdoor square.")
 
     -- Home set: only search within home bounds
-    if AutoPilot_Home.isSet() then
+    if AutoPilot_Home.isSet(player) then
         local outsideSq = AutoPilot_Home.getNearestInside(player, function(sq)
             return sq:isOutside() and sq:isFree(false)
         end)

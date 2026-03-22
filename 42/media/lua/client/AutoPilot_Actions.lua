@@ -48,7 +48,7 @@ AutoPilot_Actions.SCHEMA = {
 
 local function handleWalkTo(player, param)
     -- Guard: if home is not set, block all walking (exercise in-place only)
-    if not AutoPilot_Home.isSet() then
+    if not AutoPilot_Home.isSet(player) then
         AutoPilot_LLM.log("[Actions] walk_to: blocked — home not set.")
         return false
     end
@@ -85,12 +85,18 @@ local function handleWalkTo(player, param)
     local py = player:getY() + dy
     local pz = player:getZ()
 
+    local cell = getCell()
+    if not cell then
+        AutoPilot_LLM.log("[Actions] walk_to: cell not loaded yet — skipping.")
+        return false
+    end
+
     -- Find a walkable square near the target (avoid walls)
     local targetSq = nil
     for r = 0, 5 do
         for ddx = -r, r do
             for ddy = -r, r do
-                local sq = getCell():getGridSquare(
+                local sq = cell:getGridSquare(
                     px + ddx, py + ddy, pz)
                 if sq and sq:isFree(false) then
                     targetSq = sq
@@ -121,7 +127,7 @@ local function handleWalkTo(player, param)
         targetSq = clampedSq
     end
 
-    pcall(function() player:setSprinting(true) end)
+    -- Let ISWalkToTimedAction handle movement speed internally (MP-safe).
     ISTimedActionQueue.add(ISWalkToTimedAction:new(player, targetSq))
     return true
 end

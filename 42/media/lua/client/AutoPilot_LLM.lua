@@ -61,7 +61,7 @@ local function writeState(player)
     local searchResults = AutoPilot_Inventory.getLastSearchResults()
 
     local hx, hy, hz, hr = AutoPilot_Home.getState()
-    local homeSet = AutoPilot_Home.isSet()
+    local homeSet = AutoPilot_Home.isSet(player)
 
     local playerSq = player:getSquare()  -- may be nil during cell transitions
 
@@ -129,6 +129,10 @@ local function readCommand()
 
     local cmd = parseSimpleJson(line)
     if cmd.action and cmd.action ~= "" then
+        -- Overwrite with empty sentinel so the same command is not re-executed
+        -- on the next LLM tick if the sidecar hasn't written a new command yet.
+        local fw = getFileWriter("auto_pilot_cmd.json", false, false)
+        if fw then fw:write("{}") fw:close() end
         return cmd
     end
     return nil

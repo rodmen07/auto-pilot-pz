@@ -1,5 +1,8 @@
 -- AutoPilot_Inventory.lua
 -- Utility functions for scanning and selecting items from player inventory.
+--
+-- SPLITSCREEN NOTE: _lastSearchResults is a module-level variable shared
+-- across all local players.  Splitscreen is NOT supported.
 
 AutoPilot_Inventory = {}
 
@@ -167,15 +170,15 @@ function AutoPilot_Inventory.lootNearbyReadable(player)
                                     if ok and isLit and not uninteresting then
                                         AutoPilot_LLM.log("[Inventory] Looting readable: "
                                             .. tostring(item:getName()))
-                                        local xferOk = pcall(function()
+                                                                        local xferOk = pcall(function()
                                             ISTimedActionQueue.add(
                                                 ISInventoryTransferAction:new(
                                                     player, item, container,
                                                     player:getInventory()))
                                         end)
                                         if not xferOk then
-                                            container:Remove(item)
-                                            player:getInventory():AddItem(item)
+                                            AutoPilot_LLM.log("[Inventory] ISInventoryTransferAction failed for readable — skipping direct transfer (MP-unsafe).")
+                                            return false
                                         end
                                         return true
                                     end
@@ -234,9 +237,8 @@ function AutoPilot_Inventory.lootNearbyFood(player)
             ISTimedActionQueue.add(ISInventoryTransferAction:new(player, best, bestContainer, player:getInventory()))
         end)
         if not ok then
-            -- Fallback: direct transfer
-            bestContainer:Remove(best)
-            player:getInventory():AddItem(best)
+            AutoPilot_LLM.log("[Inventory] ISInventoryTransferAction failed for food — skipping direct transfer (MP-unsafe).")
+            return false
         end
         return true
     end
@@ -271,8 +273,8 @@ function AutoPilot_Inventory.lootNearbyDrink(player)
                                                     player, item, container, inv))
                                         end)
                                         if not ok then
-                                            container:Remove(item)
-                                            player:getInventory():AddItem(item)
+                                            AutoPilot_LLM.log("[Inventory] ISInventoryTransferAction failed for drink — skipping direct transfer (MP-unsafe).")
+                                            return false
                                         end
                                         return true
                                     end
@@ -514,9 +516,8 @@ function AutoPilot_Inventory.lootItem(player, keyword)
             player, best.item, best.container, player:getInventory()))
     end)
     if not ok then
-        -- Fallback: direct transfer
-        best.container:Remove(best.item)
-        player:getInventory():AddItem(best.item)
+        AutoPilot_LLM.log("[Inventory] ISInventoryTransferAction failed for loot — skipping direct transfer (MP-unsafe).")
+        return false
     end
     return true
 end
@@ -604,13 +605,9 @@ function AutoPilot_Inventory.placeItem(player, keyword)
             player, target, inv, bestContainer))
     end)
     if not ok then
-        AutoPilot_LLM.log("[Inventory] placeItem transfer error: "
-            .. tostring(err))
-        -- Fallback: direct transfer
-        pcall(function()
-            inv:Remove(target)
-            bestContainer:AddItem(target)
-        end)
+        AutoPilot_LLM.log("[Inventory] ISInventoryTransferAction failed for placeItem: "
+            .. tostring(err) .. " — skipping direct transfer (MP-unsafe).")
+        return false
     end
     return true
 end

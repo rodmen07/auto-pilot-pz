@@ -66,7 +66,7 @@ end
 local function doFlee(player, zombies)
     local destSq = nil
 
-    if AutoPilot_Home.isSet() then
+    if AutoPilot_Home.isSet(player) then
         -- Safehouse mode: flee toward home center
         local hx, hy, hz = AutoPilot_Home.getState()
         local homeZ = hz or player:getZ()
@@ -112,7 +112,7 @@ local function doFlee(player, zombies)
     end
 
     if destSq then
-        player:setRunning(true)
+        -- Let ISWalkToTimedAction handle movement speed internally (MP-safe).
         ISTimedActionQueue.add(ISWalkToTimedAction:new(player, destSq))
         AutoPilot_LLM.log("[Threat] FLEE — " .. #zombies .. " zombie(s), " ..
             AutoPilot_Threat.countNegativeMoodles(player) .. " negative stats elevated.")
@@ -126,7 +126,7 @@ end
 -- Fight the nearest zombie: equip best weapon, then walk toward it.
 -- In safehouse mode (home set), always flee instead of fighting.
 local function doFight(player, zombies)
-    if AutoPilot_Home.isSet() then
+    if AutoPilot_Home.isSet(player) then
         AutoPilot_LLM.log("[Threat] Safehouse mode — redirecting FIGHT to FLEE.")
         doFlee(player, zombies)
         return
