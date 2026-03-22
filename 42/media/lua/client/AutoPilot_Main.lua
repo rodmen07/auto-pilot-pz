@@ -255,6 +255,8 @@ local function onKeyPressed(key)
             if not AutoPilot_Home.isSet(player) then
                 AutoPilot_Home.set(player)
                 AutoPilot_LLM.log("[Main] AutoPilot enabled — home auto-set to current position.")
+                -- Phase 4: trigger one-time barricade check after home is set
+                AutoPilot_Barricade.doBarricade(player)
             end
         end
         sayMode(player)

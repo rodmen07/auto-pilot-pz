@@ -159,3 +159,6 @@ AutoPilot_Constants.WEAPON_SEARCH_RADIUS  = 20    -- tiles to search for a repla
 AutoPilot_Constants.TEMP_TOO_COLD = -20   -- equip warmer clothing below this
 AutoPilot_Constants.TEMP_TOO_HOT  =  20   -- equip lighter clothing above this
 AutoPilot_Constants.CLOTHING_SEARCH_RADIUS = 30
+
+-- Phase 4: Barricading
+AutoPilot_Constants.BARRICADE_SEARCH_RADIUS = 15  -- only barricade windows/doors within home radius
