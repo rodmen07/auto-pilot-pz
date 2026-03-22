@@ -34,6 +34,7 @@ globals = {
     -- Utility modules
     "luautils",
     "FitnessExercises",
+    "GameTime",
 
     -- Timed-action queue and action constructors used by this mod
     "ISTimedActionQueue",
