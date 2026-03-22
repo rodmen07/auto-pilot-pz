@@ -602,3 +602,79 @@ function AutoPilot_Inventory.getInventorySummary(player)
     end
     return names
 end
+
+-- ---------------------------------------------------------------------------
+-- Phase 2: Exercise equipment helpers
+-- ---------------------------------------------------------------------------
+
+--- Scan containers in home bounds for exercise equipment.
+--- Returns best item found and its tier string, or nil, nil.
+local function _findExerciseEquipment(player)
+    local bestItem, bestMult, bestTier = nil, 0, nil
+    local px = math.floor(player:getX())
+    local py = math.floor(player:getY())
+    local pz = math.floor(player:getZ())
+    AutoPilot_Utils.iterateNearbySquares(px, py, pz,
+        AutoPilot_Constants.EXERCISE_EQUIP_SEARCH_RADIUS,
+        function(sq)
+            if AutoPilot_Home.isSet(player) and not AutoPilot_Home.isInside(sq) then
+                return false
+            end
+            for oi = 0, sq:getObjects():size() - 1 do
+                local obj = sq:getObjects():get(oi)
+                local container = obj:getContainer()
+                if container then
+                    for i = 0, container:getItems():size() - 1 do
+                        local item = container:getItems():get(i)
+                        local name = item:getType()
+                        for _, entry in ipairs(AutoPilot_Constants.EXERCISE_EQUIPMENT) do
+                            if name:find(entry.keyword) and entry.multiplier > bestMult then
+                                bestItem = item
+                                bestMult = entry.multiplier
+                                bestTier = entry.tier
+                            end
+                        end
+                    end
+                end
+            end
+        end)
+    return bestItem, bestTier
+end
+
+--- Transfer the best available exercise equipment into the player's inventory.
+--- Returns the tier string ("dumbbell" | "barbell" | "none").
+function AutoPilot_Inventory.equipBestExerciseItem(player)
+    local inv = player:getInventory()
+    for _, entry in ipairs(AutoPilot_Constants.EXERCISE_EQUIPMENT) do
+        if inv:getFirstTypeRecurse(entry.keyword) then
+            AutoPilot_LLM.log("[Inv] Already holding " .. entry.keyword)
+            return entry.tier
+        end
+    end
+    local item, tier = _findExerciseEquipment(player)
+    if not item then
+        AutoPilot_LLM.log("[Inv] No exercise equipment found in home area.")
+        return "none"
+    end
+    local srcContainer = item:getContainer()
+    if not srcContainer then
+        AutoPilot_LLM.log("[Inv] Exercise item has no container — skipping transfer.")
+        return "none"
+    end
+    ISTimedActionQueue.add(ISInventoryTransferAction:new(
+        player, item, srcContainer, inv))
+    AutoPilot_LLM.log("[Inv] Queued transfer of " .. item:getType()
+        .. " (" .. (tier or "?") .. ")")
+    return tier or "none"
+end
+
+--- Return the XP-multiplier tier the player is currently holding, or "none".
+function AutoPilot_Inventory.currentExerciseTier(player)
+    local inv = player:getInventory()
+    for _, entry in ipairs(AutoPilot_Constants.EXERCISE_EQUIPMENT) do
+        if inv:getFirstTypeRecurse(entry.keyword) then
+            return entry.tier
+        end
+    end
+    return "none"
+end
