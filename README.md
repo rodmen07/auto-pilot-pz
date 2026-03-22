@@ -7,7 +7,7 @@ AFK auto-leveler for Strength and Fitness. Keeps your character alive through au
 
 ## Quick Start
 
-1. The mod is already installed at `~/Zomboid/mods/auto_pilot/`
+1. Prerequisite: The mod is already installed at `~/Zomboid/mods/auto_pilot/`
 2. Launch Project Zomboid, enable **AutoPilot** in the mod list
 3. Load into a game and press **F7** to toggle on/off
 4. Watch the console (`ProjectZomboid64ShowConsole.bat`) for `[AutoPilot]` log messages
