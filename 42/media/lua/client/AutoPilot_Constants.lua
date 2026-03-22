@@ -118,6 +118,11 @@ AutoPilot_Constants.LLM_WRITE_INTERVAL = 14
 -- Exercise set duration sent to ISFitnessAction (game minutes).
 AutoPilot_Constants.EXERCISE_MINUTES = 20
 
+-- Maximum exercise sets allowed per in-game day.
+-- At 20 min/set this equals 400 game minutes of active training.
+-- Exceeding this cap skips exercise for the remainder of the day.
+AutoPilot_Constants.EXERCISE_DAILY_CAP = 20
+
 -- Max search results stored for LLM state reporting after searchItem.
 AutoPilot_Constants.SEARCH_RESULTS_MAX = 10
 

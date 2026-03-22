@@ -365,6 +365,18 @@ local exerciseWaitLogMs = 0
 -- it climbs back above EXERCISE_ENDURANCE_RESUME (prevents start/stop loops).
 local _exercisePaused = false
 
+-- Daily set counter — resets when the in-game day rolls over.
+local exerciseSetsToday = 0
+local _lastKnownDay     = -1
+
+-- Returns the current in-game day index (0-based, ever-increasing from game
+-- start) via getGameTime():getDay().  Returns -1 on any error so the caller
+-- can safely compare without crashing.
+local function _getCurrentDay()
+    local ok, d = pcall(function() return getGameTime():getDay() end)
+    return (ok and type(d) == "number") and d or -1
+end
+
 local function doExercise(player)
     -- Endurance hysteresis gate — update the paused flag first, then check it.
     local endurance = AutoPilot_Utils.safeStat(player, CharacterStat.ENDURANCE)
@@ -387,6 +399,23 @@ local function doExercise(player)
             exerciseWaitLogMs = ms + 30000
         end
         return false  -- rest handled by step 6 of the needs chain
+    end
+
+    -- Daily set counter — detect day rollover and reset.
+    local today = _getCurrentDay()
+    if today ~= _lastKnownDay and _lastKnownDay ~= -1 then
+        AutoPilot_LLM.log(string.format(
+            "[Needs] New in-game day — resetting exercise counter (was %d sets).",
+            exerciseSetsToday))
+        exerciseSetsToday = 0
+    end
+    _lastKnownDay = today
+
+    if exerciseSetsToday >= AutoPilot_Constants.EXERCISE_DAILY_CAP then
+        AutoPilot_LLM.log(string.format(
+            "[Needs] Daily exercise cap reached (%d/%d) — resting for the day.",
+            exerciseSetsToday, AutoPilot_Constants.EXERCISE_DAILY_CAP))
+        return false
     end
 
     local strLevel = getPerkLevel(player, Perks.Strength)
@@ -435,6 +464,10 @@ local function doExercise(player)
 
     if ok and action then
         ISTimedActionQueue.addGetUpAndThen(player, action)
+        exerciseSetsToday = exerciseSetsToday + 1
+        AutoPilot_LLM.log(string.format(
+            "[Needs] Set %d/%d queued (%s).",
+            exerciseSetsToday, AutoPilot_Constants.EXERCISE_DAILY_CAP, exType))
         return true
     else
         AutoPilot_LLM.log("[Needs] ISFitnessAction failed for: " .. exType .. " — " .. tostring(action))
