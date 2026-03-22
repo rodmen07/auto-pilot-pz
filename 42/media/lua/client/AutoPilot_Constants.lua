@@ -116,3 +116,22 @@ AutoPilot_Constants.SEARCH_RESULTS_MAX = 10
 
 -- Max inventory item names included in the LLM state snapshot.
 AutoPilot_Constants.INVENTORY_SUMMARY_MAX = 20
+
+-- ---------------------------------------------------------------------------
+-- Phase 2: Exercise equipment
+-- ---------------------------------------------------------------------------
+-- XP multipliers are approximate relative values used for preference scoring.
+-- keyword = substring to match against item:getType()
+AutoPilot_Constants.EXERCISE_EQUIPMENT = {
+    { keyword = "Dumbbells",  tier = "dumbbell", multiplier = 1.8 },
+    { keyword = "Barbell",    tier = "barbell",  multiplier = 1.2 },
+    { keyword = "WeightBar",  tier = "barbell",  multiplier = 1.2 },
+}
+AutoPilot_Constants.EXERCISE_EQUIP_SEARCH_RADIUS = 30   -- tiles
+
+-- Phase 2: Endurance gating thresholds (0.0–1.0)
+AutoPilot_Constants.EXERCISE_ENDURANCE_MIN    = 0.30    -- skip exercise below this
+AutoPilot_Constants.EXERCISE_ENDURANCE_RESUME = 0.70    -- resume exercise above this
+
+-- Phase 2: Daily exercise cap (sets per in-game day)
+AutoPilot_Constants.EXERCISE_DAILY_CAP = 20
