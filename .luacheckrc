@@ -65,6 +65,9 @@ globals = {
     "AutoPilot_Actions",
     "AutoPilot_Home",
 
+    -- Phase 2: day tracking
+    "GameTime",
+
     -- PZ B42 engine global for persistent mod storage
     "ModData",
 
