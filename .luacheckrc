@@ -53,6 +53,8 @@ globals = {
 
     -- AutoPilot module tables (each defined in its own file, referenced across all)
     "AutoPilot",
+    "AutoPilot_Constants",
+    "AutoPilot_Utils",
     "AutoPilot_Needs",
     "AutoPilot_Threat",
     "AutoPilot_Inventory",

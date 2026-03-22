@@ -48,18 +48,6 @@ local function safeMoodleLevel(player, moodleType)
     return 0
 end
 
--- Safe stat getter — B42 uses player:getStats():get(CharacterStat.XXX).
--- Direct getters like :getHunger() were removed in B42.
-local function safeStat(player, charStat)
-    local ok, val = pcall(function()
-        return player:getStats():get(charStat)
-    end)
-    if ok and type(val) == "number" then
-        return val
-    end
-    return 0
-end
-
 -- Returns current perk level (0-10) for the given PerkList entry.
 local function getPerkLevel(player, perk)
     return player:getPerkLevel(perk)
@@ -389,7 +377,7 @@ local exerciseWaitLogMs = 0
 
 local function doExercise(player)
     -- Don't start exercise if endurance is too low — just idle and let it recover
-    local endurance = safeStat(player, CharacterStat.ENDURANCE)
+    local endurance = AutoPilot_Utils.safeStat(player, CharacterStat.ENDURANCE)
     local enduranceMoodle = safeMoodleLevel(player, MoodleType.ENDURANCE)
     if endurance < ENDURANCE_EXERCISE_MIN or enduranceMoodle > 2 then
         -- Log once every 30s of game time, not every tick
@@ -463,15 +451,15 @@ function AutoPilot_Needs.shouldInterrupt(player)
     if AutoPilot_Medical.hasCriticalWound(player) then return true end
 
     -- Thirst interrupts at threshold
-    local thirst = safeStat(player, CharacterStat.THIRST)
+    local thirst = AutoPilot_Utils.safeStat(player, CharacterStat.THIRST)
     if thirst >= THIRST_STAT_THRESHOLD then return true end
 
     -- Hunger interrupts
-    local hunger = safeStat(player, CharacterStat.HUNGER)
+    local hunger = AutoPilot_Utils.safeStat(player, CharacterStat.HUNGER)
     if hunger >= HUNGER_STAT_THRESHOLD then return true end
 
     -- Exhaustion interrupts (stat threshold OR severe moodle — mirrors check())
-    local endurance = safeStat(player, CharacterStat.ENDURANCE)
+    local endurance = AutoPilot_Utils.safeStat(player, CharacterStat.ENDURANCE)
     if endurance <= ENDURANCE_REST_MIN then return true end
     if safeMoodleLevel(player, MoodleType.ENDURANCE) >= 3 then return true end
 
@@ -498,13 +486,13 @@ function AutoPilot_Needs.check(player, skipExercise)
     end
 
     -- 2. Thirst (0.0=hydrated, ~1.0=dying)
-    local thirst = safeStat(player, CharacterStat.THIRST)
+    local thirst = AutoPilot_Utils.safeStat(player, CharacterStat.THIRST)
     if thirst >= THIRST_STAT_THRESHOLD then
         return doDrink(player)
     end
 
     -- 3. Hunger (0.0=full, ~1.0=starving)
-    local hunger = safeStat(player, CharacterStat.HUNGER)
+    local hunger = AutoPilot_Utils.safeStat(player, CharacterStat.HUNGER)
     if hunger >= HUNGER_STAT_THRESHOLD then
         AutoPilot_LLM.log(string.format(
             "[Needs] Hunger triggered (%.0f%%). Attempting to eat.", hunger * 100))
@@ -520,7 +508,7 @@ function AutoPilot_Needs.check(player, skipExercise)
 
     -- 5. Tired (fatigue: 0.0=rested, ~1.0=exhausted) — checked BEFORE endurance
     -- because sleep recovers both fatigue AND endurance.
-    local fatigue = safeStat(player, CharacterStat.FATIGUE)
+    local fatigue = AutoPilot_Utils.safeStat(player, CharacterStat.FATIGUE)
     if fatigue >= FATIGUE_STAT_THRESHOLD then
         return doSleep(player)
     end
@@ -529,15 +517,15 @@ function AutoPilot_Needs.check(player, skipExercise)
     -- or the exertion moodle is severe (level 3+).  Moodle level 1-2 is mild
     -- exertion that recovers on its own; reacting to it causes a sit-stand loop.
     -- (Rest cooldown is already enforced at the top of check().)
-    local endurance = safeStat(player, CharacterStat.ENDURANCE)
+    local endurance = AutoPilot_Utils.safeStat(player, CharacterStat.ENDURANCE)
     local enduranceMoodle = safeMoodleLevel(player, MoodleType.ENDURANCE)
     if endurance <= ENDURANCE_REST_MIN or enduranceMoodle >= 3 then
         return doRest(player)
     end
 
     -- 7. Bored or Sad -> read literature first, then go outside
-    local boredom = safeStat(player, CharacterStat.BOREDOM)
-    local sadness = safeStat(player, CharacterStat.SANITY)
+    local boredom = AutoPilot_Utils.safeStat(player, CharacterStat.BOREDOM)
+    local sadness = AutoPilot_Utils.safeStat(player, CharacterStat.SANITY)
     if boredom >= BOREDOM_STAT_THRESHOLD or sadness >= SADNESS_STAT_THRESHOLD then
         if doRead(player) then return true end
         if boredom >= BOREDOM_STAT_THRESHOLD then
@@ -561,14 +549,14 @@ AutoPilot_Needs.tryGoOutside = doGoOutside
 -- B42: Uses player:getStats():get(CharacterStat.XXX) pattern.
 function AutoPilot_Needs.getMoodleSnapshot(player)
     return {
-        hungry   = math.floor(safeStat(player, CharacterStat.HUNGER) * 100),
-        thirsty  = math.floor(safeStat(player, CharacterStat.THIRST) * 100),
-        tired    = math.floor(safeStat(player, CharacterStat.FATIGUE) * 100),
-        panicked = math.floor(safeStat(player, CharacterStat.PANIC)),
+        hungry   = math.floor(AutoPilot_Utils.safeStat(player, CharacterStat.HUNGER) * 100),
+        thirsty  = math.floor(AutoPilot_Utils.safeStat(player, CharacterStat.THIRST) * 100),
+        tired    = math.floor(AutoPilot_Utils.safeStat(player, CharacterStat.FATIGUE) * 100),
+        panicked = math.floor(AutoPilot_Utils.safeStat(player, CharacterStat.PANIC)),
         injured  = safeMoodleLevel(player, MoodleType.PAIN),
-        sick     = math.floor(safeStat(player, CharacterStat.SICKNESS)),
-        stressed = math.floor(safeStat(player, CharacterStat.STRESS)),
-        bored    = math.floor(safeStat(player, CharacterStat.BOREDOM)),
-        sad      = math.floor(safeStat(player, CharacterStat.SANITY)),
+        sick     = math.floor(AutoPilot_Utils.safeStat(player, CharacterStat.SICKNESS)),
+        stressed = math.floor(AutoPilot_Utils.safeStat(player, CharacterStat.STRESS)),
+        bored    = math.floor(AutoPilot_Utils.safeStat(player, CharacterStat.BOREDOM)),
+        sad      = math.floor(AutoPilot_Utils.safeStat(player, CharacterStat.SANITY)),
     }
 end

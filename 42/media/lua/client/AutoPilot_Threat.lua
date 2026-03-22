@@ -20,15 +20,6 @@ local NEGATIVE_STAT_CHECKS = {
     { stat = CharacterStat.SANITY,   threshold = 40   },
 }
 
--- Safe stat getter — B42 uses player:getStats():get(CharacterStat.XXX).
-local function safeStat(player, charStat)
-    local ok, val = pcall(function()
-        return player:getStats():get(charStat)
-    end)
-    if ok and type(val) == "number" then return val end
-    return 0
-end
-
 -- Returns a list of living zombies within DETECTION_RADIUS tiles.
 function AutoPilot_Threat.getNearbyZombies(player)
     local zombies = {}
@@ -54,7 +45,7 @@ end
 function AutoPilot_Threat.countNegativeMoodles(player)
     local count = 0
     for _, check in ipairs(NEGATIVE_STAT_CHECKS) do
-        local val = safeStat(player, check.stat)
+        local val = AutoPilot_Utils.safeStat(player, check.stat)
         if val >= check.threshold then
             count = count + 1
         end
