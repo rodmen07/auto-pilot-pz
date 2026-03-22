@@ -519,6 +519,9 @@ function AutoPilot_Inventory.placeItem(player, keyword)
     local bestDist = math.huge
 
     AutoPilot_Utils.iterateNearbySquares(px, py, pz, PLACE_SEARCH_DIST, function(sq, dx, dy)
+        if AutoPilot_Home.isSet(player) and not AutoPilot_Home.isInside(sq) then
+            return false
+        end
         for i = 0, sq:getObjects():size() - 1 do
             local obj = sq:getObjects():get(i)
             local ok, ctr = pcall(function() return obj:getContainer() end)
