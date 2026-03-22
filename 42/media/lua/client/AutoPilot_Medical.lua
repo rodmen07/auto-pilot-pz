@@ -63,46 +63,46 @@ local MEDICAL_LOOT_RADIUS = 8
 
 local function lootNearbyBandage(player)
     local px, py, pz = player:getX(), player:getY(), player:getZ()
+    local result = false
 
-    for dx = -MEDICAL_LOOT_RADIUS, MEDICAL_LOOT_RADIUS do
-        for dy = -MEDICAL_LOOT_RADIUS, MEDICAL_LOOT_RADIUS do
-            local sq = getCell():getGridSquare(px + dx, py + dy, pz)
-            if sq then
-                for i = 0, sq:getObjects():size() - 1 do
-                    local obj = sq:getObjects():get(i)
-                    if obj then
-                        local container = obj:getContainer()
-                        if container then
-                            local items = container:getItems()
-                            for j = 0, items:size() - 1 do
-                                local item = items:get(j)
-                                if item then
-                                    local ok, canBandage = pcall(function()
-                                        return item:isCanBandage()
-                                    end)
-                                    if ok and canBandage then
-                                        AutoPilot_LLM.log("[Medical] Looting bandage: " ..
-                                            tostring(item:getName()))
-                                        local xferOk = pcall(function()
-                                            ISTimedActionQueue.add(
-                                                ISInventoryTransferAction:new(
-                                                    player, item, container,
-                                                    player:getInventory()))
-                                        end)
-                                        if not xferOk then
-                                            AutoPilot_LLM.log("[Medical] ISInventoryTransferAction failed for bandage — skipping direct transfer (MP-unsafe).")
-                                            return false
-                                        end
-                                        return true
-                                    end
+    AutoPilot_Utils.iterateNearbySquares(px, py, pz, MEDICAL_LOOT_RADIUS, function(sq)
+        for i = 0, sq:getObjects():size() - 1 do
+            local obj = sq:getObjects():get(i)
+            if obj then
+                local container = obj:getContainer()
+                if container then
+                    local items = container:getItems()
+                    for j = 0, items:size() - 1 do
+                        local item = items:get(j)
+                        if item then
+                            local ok, canBandage = pcall(function()
+                                return item:isCanBandage()
+                            end)
+                            if ok and canBandage then
+                                AutoPilot_LLM.log("[Medical] Looting bandage: " ..
+                                    tostring(item:getName()))
+                                local xferOk = pcall(function()
+                                    ISTimedActionQueue.add(
+                                        ISInventoryTransferAction:new(
+                                            player, item, container,
+                                            player:getInventory()))
+                                end)
+                                if not xferOk then
+                                    AutoPilot_LLM.log("[Medical] ISInventoryTransferAction failed for bandage — skipping direct transfer (MP-unsafe).")
+                                else
+                                    result = true
                                 end
+                                return true  -- stop iterating (found a bandage)
                             end
                         end
                     end
                 end
             end
         end
-    end
+        return false
+    end)
+
+    if result then return true end
     AutoPilot_LLM.log("[Medical] No bandages found in nearby containers.")
     return false
 end

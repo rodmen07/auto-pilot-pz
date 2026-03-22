@@ -147,31 +147,28 @@ end
 -- first-match searches).  Returns true if the callback ever stopped early.
 local function _iterateContainersNearby(player, radius, callback)
     local px, py, pz = player:getX(), player:getY(), player:getZ()
-    local cell = getCell()
-    if not cell then return false end
-    for dx = -radius, radius do
-        for dy = -radius, radius do
-            local sq = cell:getGridSquare(px + dx, py + dy, pz)
-            if sq and AutoPilot_Home.isInside(sq) then
-                for i = 0, sq:getObjects():size() - 1 do
-                    local obj = sq:getObjects():get(i)
-                    if obj then
-                        local container = obj:getContainer()
-                        if container then
-                            local items = container:getItems()
-                            for j = 0, items:size() - 1 do
-                                local item = items:get(j)
-                                if item and callback(item, container) then
-                                    return true
-                                end
-                            end
+    local stopped = false
+    AutoPilot_Utils.iterateNearbySquares(px, py, pz, radius, function(sq)
+        if not AutoPilot_Home.isInside(sq) then return false end
+        for i = 0, sq:getObjects():size() - 1 do
+            local obj = sq:getObjects():get(i)
+            if obj then
+                local container = obj:getContainer()
+                if container then
+                    local items = container:getItems()
+                    for j = 0, items:size() - 1 do
+                        local item = items:get(j)
+                        if item and callback(item, container) then
+                            stopped = true
+                            return true  -- stop iterateNearbySquares
                         end
                     end
                 end
             end
         end
-    end
-    return false
+        return false
+    end)
+    return stopped
 end
 
 -- Queue an ISInventoryTransferAction and log the result.
@@ -295,26 +292,22 @@ function AutoPilot_Inventory.findWaterSource(player)
     local bestObj  = nil
     local bestDist = math.huge
 
-    for dx = -WATER_SEARCH_RADIUS, WATER_SEARCH_RADIUS do
-        for dy = -WATER_SEARCH_RADIUS, WATER_SEARCH_RADIUS do
-            local sq = getCell():getGridSquare(px + dx, py + dy, pz)
-            if sq then
-                for i = 0, sq:getObjects():size() - 1 do
-                    local obj = sq:getObjects():get(i)
-                    if obj then
-                        local ok, hasFluid = pcall(function() return obj:hasFluid() end)
-                        if ok and hasFluid then
-                            local dist = dx * dx + dy * dy
-                            if dist < bestDist then
-                                bestDist = dist
-                                bestObj  = obj
-                            end
-                        end
+    AutoPilot_Utils.iterateNearbySquares(px, py, pz, WATER_SEARCH_RADIUS, function(sq, dx, dy)
+        for i = 0, sq:getObjects():size() - 1 do
+            local obj = sq:getObjects():get(i)
+            if obj then
+                local ok, hasFluid = pcall(function() return obj:hasFluid() end)
+                if ok and hasFluid then
+                    local dist = dx * dx + dy * dy
+                    if dist < bestDist then
+                        bestDist = dist
+                        bestObj  = obj
                     end
                 end
             end
         end
-    end
+        return false  -- always scan all squares to find the nearest
+    end)
     return bestObj
 end
 
@@ -421,39 +414,33 @@ function AutoPilot_Inventory.searchItem(player, keyword)
     local kw = string.lower(keyword or "")
     local results = {}
 
-    for dx = -LOOT_SEARCH_RADIUS, LOOT_SEARCH_RADIUS do
-        for dy = -LOOT_SEARCH_RADIUS, LOOT_SEARCH_RADIUS do
-            local sq = getCell():getGridSquare(px + dx, py + dy, pz)
-            if sq and AutoPilot_Home.isInside(sq) then
-                for i = 0, sq:getObjects():size() - 1 do
-                    local obj = sq:getObjects():get(i)
-                    if obj then
-                        local container = obj:getContainer()
-                        if container then
-                            local items = container:getItems()
-                            for j = 0, items:size() - 1 do
-                                local item = items:get(j)
-                                if item then
-                                    local ok, name = pcall(function()
-                                        return item:getName()
-                                    end)
-                                    if ok and name and string.find(
-                                            string.lower(name), kw, 1, true) then
-                                        table.insert(results, {
-                                            name = name,
-                                            container = container,
-                                            item = item,
-                                            dist = dx * dx + dy * dy,
-                                        })
-                                    end
-                                end
+    AutoPilot_Utils.iterateNearbySquares(px, py, pz, LOOT_SEARCH_RADIUS, function(sq, dx, dy)
+        if not AutoPilot_Home.isInside(sq) then return false end
+        for i = 0, sq:getObjects():size() - 1 do
+            local obj = sq:getObjects():get(i)
+            if obj then
+                local container = obj:getContainer()
+                if container then
+                    local items = container:getItems()
+                    for j = 0, items:size() - 1 do
+                        local item = items:get(j)
+                        if item then
+                            local ok, name = pcall(function() return item:getName() end)
+                            if ok and name and string.find(string.lower(name), kw, 1, true) then
+                                table.insert(results, {
+                                    name      = name,
+                                    container = container,
+                                    item      = item,
+                                    dist      = dx * dx + dy * dy,
+                                })
                             end
                         end
                     end
                 end
             end
         end
-    end
+        return false  -- always scan all squares
+    end)
 
     -- Sort by distance
     table.sort(results, function(a, b) return a.dist < b.dist end)
@@ -523,34 +510,27 @@ function AutoPilot_Inventory.placeItem(player, keyword)
         return false
     end
 
-    -- Find nearest container on nearby tiles
+    -- Find the nearest container on nearby tiles
     local px, py, pz = player:getX(), player:getY(), player:getZ()
     local bestContainer = nil
     local bestObj = nil
     local bestDist = math.huge
-    local PLACE_SEARCH_DIST = 20
 
-    for dx = -PLACE_SEARCH_DIST, PLACE_SEARCH_DIST do
-        for dy = -PLACE_SEARCH_DIST, PLACE_SEARCH_DIST do
-            local sq = getCell():getGridSquare(px + dx, py + dy, pz)
-            if sq then
-                for i = 0, sq:getObjects():size() - 1 do
-                    local obj = sq:getObjects():get(i)
-                    local ok, ctr = pcall(function()
-                        return obj:getContainer()
-                    end)
-                    if ok and ctr then
-                        local dist = dx * dx + dy * dy
-                        if dist < bestDist then
-                            bestDist = dist
-                            bestContainer = ctr
-                            bestObj = obj
-                        end
-                    end
+    AutoPilot_Utils.iterateNearbySquares(px, py, pz, PLACE_SEARCH_DIST, function(sq, dx, dy)
+        for i = 0, sq:getObjects():size() - 1 do
+            local obj = sq:getObjects():get(i)
+            local ok, ctr = pcall(function() return obj:getContainer() end)
+            if ok and ctr then
+                local dist = dx * dx + dy * dy
+                if dist < bestDist then
+                    bestDist      = dist
+                    bestContainer = ctr
+                    bestObj       = obj
                 end
             end
         end
-    end
+        return false  -- scan all to find nearest
+    end)
 
     if not bestContainer then
         AutoPilot_LLM.log("[Inventory] placeItem: no container found nearby.")

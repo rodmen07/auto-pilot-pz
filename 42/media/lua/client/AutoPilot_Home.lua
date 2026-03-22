@@ -111,19 +111,11 @@ function AutoPilot_Home.clampSq(targetSq, player)
         edgeY = math.floor(home_y + (dy / len) * (home_r - 1))
     end
 
-    -- Search near the projected edge point for a free walkable square inside bounds
-    local cell = getCell()
-    if not cell then return nil end
-    for r = 0, 5 do
-        for ddx = -r, r do
-            for ddy = -r, r do
-                local sq = cell:getGridSquare(edgeX + ddx, edgeY + ddy, home_z)
-                if sq and sq:isFree(false) and AutoPilot_Home.isInside(sq) then
-                    return sq
-                end
-            end
-        end
-    end
+    -- Search near the projected edge point for a free walkable in-bounds square.
+    local sq = AutoPilot_Utils.findNearestSquare(edgeX, edgeY, home_z, 5, function(s)
+        return s:isFree(false) and AutoPilot_Home.isInside(s)
+    end)
+    if sq then return sq end
 
     AutoPilot_LLM.log("[Home] clampSq: no free in-bounds square found near edge.")
     return nil

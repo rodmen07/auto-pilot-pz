@@ -102,22 +102,10 @@ local function handleWalkTo(player, param)
         return false
     end
 
-    -- Find a walkable square near the target (avoid walls)
-    local targetSq = nil
-    for r = 0, 5 do
-        for ddx = -r, r do
-            for ddy = -r, r do
-                local sq = cell:getGridSquare(px + ddx, py + ddy, pz)
-                if sq and sq:isFree(false) then
-                    targetSq = sq
-                    break
-                end
-            end
-            if targetSq then break end
-        end
-        if targetSq then break end
-    end
-
+    -- Find the nearest walkable square to the target (avoid landing inside walls).
+    local targetSq = AutoPilot_Utils.findNearestSquare(px, py, pz, 5, function(sq)
+        return sq:isFree(false)
+    end)
     if not targetSq then
         AutoPilot_LLM.log("[Actions] walk_to: no walkable square near target.")
         return false

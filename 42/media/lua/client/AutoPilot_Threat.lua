@@ -58,26 +58,17 @@ local function doFlee(player, zombies)
     local destSq = nil
 
     if AutoPilot_Home.isSet(player) then
-        -- Safehouse mode: flee toward home center
+        -- Safehouse mode: flee toward home center; find nearest free in-bounds square.
         local hx, hy, hz = AutoPilot_Home.getState()
         local homeZ = hz or player:getZ()
-        local found = false
-        for r = 0, 5 do
-            for ddx = -r, r do
-                for ddy = -r, r do
-                    local sq = getCell():getGridSquare(hx + ddx, hy + ddy, homeZ)
-                    if sq and sq:isFree(false) and AutoPilot_Home.isInside(sq) then
-                        destSq = sq
-                        found  = true
-                        break
-                    end
-                end
-                if found then break end
-            end
-            if found then break end
-        end
+        destSq = AutoPilot_Utils.findNearestSquare(hx, hy, homeZ, 5, function(sq)
+            return sq:isFree(false) and AutoPilot_Home.isInside(sq)
+        end)
     else
-        -- No home: flee away from zombie centroid
+        -- No home: flee away from zombie centroid.
+        -- Guard: requires at least one zombie to compute centroid.
+        if #zombies == 0 then return false end
+
         local cx, cy = 0, 0
         for _, z in ipairs(zombies) do
             cx = cx + z:getX()
@@ -89,13 +80,14 @@ local function doFlee(player, zombies)
         local dx = player:getX() - cx
         local dy = player:getY() - cy
         local len = math.sqrt(dx * dx + dy * dy)
-        if len < 0.001 then dx, dy = 1, 0 else dx, dy = dx / len, dy / len end
+        if len < AutoPilot_Utils.EPSILON then dx, dy = 1, 0 else dx, dy = dx / len, dy / len end
 
         local targetX = math.floor(player:getX() + dx * FLEE_DISTANCE)
         local targetY = math.floor(player:getY() + dy * FLEE_DISTANCE)
         local targetZ = player:getZ()
 
         local cell = getCell()
+        if not cell then return false end
         targetX = math.max(0, math.min(targetX, cell:getWidth()  - 1))
         targetY = math.max(0, math.min(targetY, cell:getHeight() - 1))
 

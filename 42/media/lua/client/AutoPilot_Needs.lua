@@ -103,55 +103,52 @@ local function findRestFurniture(player)
     local bestDist = math.huge
     local bestPriority = 99  -- lower = better (bed=1, sofa=2, chair=3)
 
-    for dx = -REST_SEARCH_DIST, REST_SEARCH_DIST do
-        for dy = -REST_SEARCH_DIST, REST_SEARCH_DIST do
-            local sq = getCell():getGridSquare(px + dx, py + dy, pz)
-            if sq and AutoPilot_Home.isInside(sq) then
-                for i = 0, sq:getObjects():size() - 1 do
-                    local obj = sq:getObjects():get(i)
-                    local priority = nil
+    AutoPilot_Utils.iterateNearbySquares(px, py, pz, REST_SEARCH_DIST, function(sq, dx, dy)
+        if not AutoPilot_Home.isInside(sq) then return false end
+        for i = 0, sq:getObjects():size() - 1 do
+            local obj = sq:getObjects():get(i)
+            local priority = nil
 
-                    -- Check for bed
-                    local okB, isBed = pcall(function()
-                        return obj:getSprite()
-                            and obj:getSprite():getProperties()
-                                :has(IsoFlagType.bed)
-                    end)
-                    if okB and isBed then
-                        priority = 1
-                    end
+            -- Check for bed
+            local okB, isBed = pcall(function()
+                return obj:getSprite()
+                    and obj:getSprite():getProperties()
+                        :has(IsoFlagType.bed)
+            end)
+            if okB and isBed then
+                priority = 1
+            end
 
-                    -- Check for chair/sofa by sprite name
-                    if not priority then
-                        local okN, spName = pcall(function()
-                            return obj:getSprite()
-                                and obj:getSprite():getName() or ""
-                        end)
-                        if okN and spName then
-                            local lower = spName:lower()
-                            if lower:find("sofa") or lower:find("couch") then
-                                priority = 2
-                            elseif lower:find("chair") then
-                                priority = 3
-                            end
-                        end
-                    end
-
-                    if priority then
-                        local dist = dx * dx + dy * dy
-                        -- Prefer better furniture, then closer distance
-                        if priority < bestPriority
-                            or (priority == bestPriority and dist < bestDist)
-                        then
-                            bestPriority = priority
-                            bestDist = dist
-                            bestObj = obj
-                        end
+            -- Check for chair/sofa by sprite name
+            if not priority then
+                local okN, spName = pcall(function()
+                    return obj:getSprite()
+                        and obj:getSprite():getName() or ""
+                end)
+                if okN and spName then
+                    local lower = spName:lower()
+                    if lower:find("sofa") or lower:find("couch") then
+                        priority = 2
+                    elseif lower:find("chair") then
+                        priority = 3
                     end
                 end
             end
+
+            if priority then
+                local dist = dx * dx + dy * dy
+                -- Prefer better furniture, then closer distance
+                if priority < bestPriority
+                    or (priority == bestPriority and dist < bestDist)
+                then
+                    bestPriority = priority
+                    bestDist = dist
+                    bestObj = obj
+                end
+            end
         end
-    end
+        return false  -- always continue: want best furniture, not first
+    end)
 
     return bestObj
 end
@@ -396,6 +393,11 @@ local function doExercise(player)
             strLevel, fitLevel))
     end
 
+    -- Guard: exercises table must be non-empty before indexing.
+    if #exercises == 0 then
+        AutoPilot_LLM.log("[Needs] No exercises defined for current focus — skipping.")
+        return false
+    end
     local exType = exercises[((exerciseCycle - 1) % #exercises) + 1]
     exerciseCycle = exerciseCycle + 1
 
