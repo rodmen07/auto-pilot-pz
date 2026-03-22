@@ -6,7 +6,11 @@
 
 AutoPilot_Inventory = {}
 
-local LOOT_SEARCH_RADIUS = 80  -- tiles to search for containers
+local LOOT_SEARCH_RADIUS   = 80  -- tiles to search for loot containers
+local WATER_SEARCH_RADIUS  = 80  -- tiles to scan for sinks / rain barrels (mirrors above)
+local PLACE_SEARCH_DIST    = 20  -- tiles to find a container for placeItem
+local SEARCH_RESULTS_MAX   = 10  -- max items returned by searchItem
+local INVENTORY_SUMMARY_MAX = 20 -- max unique item names in inventory snapshot
 
 -- Returns the best safe-to-eat food item by calorie count.
 -- Skips: rotten, frozen, needs-cooking (raw dangerous), causes unhappiness/boredom.
@@ -283,8 +287,6 @@ end
 
 -- ── Water source management ────────────────────────────────────────────────
 
-local WATER_SEARCH_RADIUS = 80  -- tiles to scan for sinks/rain barrels
-
 -- Finds the nearest world object with fluid (sink, rain barrel, etc.).
 -- Returns the object and its square, or nil.
 function AutoPilot_Inventory.findWaterSource(player)
@@ -445,9 +447,9 @@ function AutoPilot_Inventory.searchItem(player, keyword)
     -- Sort by distance
     table.sort(results, function(a, b) return a.dist < b.dist end)
 
-    -- Store names for state reporting (max 10)
+    -- Store names for state reporting (capped at SEARCH_RESULTS_MAX)
     local names = {}
-    for i = 1, math.min(#results, 10) do
+    for i = 1, math.min(#results, SEARCH_RESULTS_MAX) do
         table.insert(names, results[i].name)
     end
     AutoPilot_Inventory._lastSearchResults = names
@@ -593,7 +595,7 @@ function AutoPilot_Inventory.getInventorySummary(player)
         else
             table.insert(names, name)
         end
-        if #names >= 20 then break end
+        if #names >= INVENTORY_SUMMARY_MAX then break end
     end
     return names
 end

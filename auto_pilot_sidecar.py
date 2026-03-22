@@ -231,7 +231,7 @@ def build_state_message(state: dict) -> str:
     return "\n".join(lines)
 
 
-def parse_response(response) -> dict:
+def parse_response(response: object) -> dict:
     """Extract and validate JSON command from Claude's response."""
     text = next((b.text for b in response.content if b.type == "text"), "")
     text = text.strip()

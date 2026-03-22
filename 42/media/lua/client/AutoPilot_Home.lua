@@ -7,6 +7,9 @@
 -- Home position persists via player:getModData() so it survives save/load
 -- and is scoped per-player (no cross-player key collision in MP).
 -- ModData key (within player's table): "AutoPilot_Home" → {x, y, z, r}
+--
+-- SPLITSCREEN NOTE: Module-level cache (home_x/y/z/r) is shared across all
+-- local players.  Splitscreen is NOT supported.
 
 AutoPilot_Home = {}
 

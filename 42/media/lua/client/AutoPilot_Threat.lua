@@ -9,15 +9,17 @@ local FLEE_DISTANCE      = 20   -- tiles to run when fleeing
 
 -- Stat thresholds that count as "negative" for flee decision.
 -- B42: Uses player:getStats():get(CharacterStat.XXX) pattern.
+-- NOTE: mixed units — HUNGER/THIRST/FATIGUE are 0.0–1.0 (normalized);
+--       PANIC/PAIN/SICKNESS/STRESS/SANITY are 0–100 integer scale.
 local NEGATIVE_STAT_CHECKS = {
-    { stat = CharacterStat.HUNGER,   threshold = 0.40 },
-    { stat = CharacterStat.THIRST,   threshold = 0.40 },
-    { stat = CharacterStat.FATIGUE,  threshold = 0.60 },
-    { stat = CharacterStat.PANIC,    threshold = 40   },
-    { stat = CharacterStat.PAIN,     threshold = 30   },
-    { stat = CharacterStat.SICKNESS, threshold = 20   },
-    { stat = CharacterStat.STRESS,   threshold = 40   },
-    { stat = CharacterStat.SANITY,   threshold = 40   },
+    { stat = CharacterStat.HUNGER,   threshold = 0.40 },  -- 0-1 scale
+    { stat = CharacterStat.THIRST,   threshold = 0.40 },  -- 0-1 scale
+    { stat = CharacterStat.FATIGUE,  threshold = 0.60 },  -- 0-1 scale
+    { stat = CharacterStat.PANIC,    threshold = 40   },  -- 0-100 scale
+    { stat = CharacterStat.PAIN,     threshold = 30   },  -- 0-100 scale
+    { stat = CharacterStat.SICKNESS, threshold = 20   },  -- 0-100 scale
+    { stat = CharacterStat.STRESS,   threshold = 40   },  -- 0-100 scale
+    { stat = CharacterStat.SANITY,   threshold = 40   },  -- 0-100 scale
 }
 
 -- Returns a list of living zombies within DETECTION_RADIUS tiles.

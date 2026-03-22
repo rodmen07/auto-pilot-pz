@@ -24,12 +24,13 @@ AutoPilot = {}
 -- How often the main loop runs (in game ticks).
 -- PZ runs at ~20 ticks/second; 15 ticks ≈ 0.75s between evaluations.
 local TICK_INTERVAL = 15
-local tickCounter   = 0
+local tickCounter   = 0  -- counts OnTick calls; resets to 0 every TICK_INTERVAL ticks
 
 -- Modes: "off", "exercise", "pilot"
 local mode = "off"
 local actionCooldown = 0
-local ACTION_COOLDOWN_CYCLES = 4  -- ~3s at default tick rate
+-- 4 cycles × 15 ticks/cycle ÷ 20 ticks/s ≈ 3 s between consecutive actions.
+local ACTION_COOLDOWN_CYCLES = 4
 
 -- ── LLM command handlers ──────────────────────────────────────────────────────
 -- Named functions instead of inline lambdas so stack traces name the handler.
