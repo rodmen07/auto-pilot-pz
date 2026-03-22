@@ -579,3 +579,32 @@ function AutoPilot_Needs.getMoodleSnapshot(player)
         sad      = math.floor(AutoPilot_Utils.safeStat(player, CharacterStat.SANITY)),
     }
 end
+
+-- ---------------------------------------------------------------------------
+-- Phase 2: STR/FIT decay awareness
+-- ---------------------------------------------------------------------------
+
+--- Return the preferred exercise type based on current STR vs FIT perk levels.
+--- "strength" if STR < FIT, "fitness" if FIT < STR, "either" if equal.
+function AutoPilot_Needs.preferredExerciseType(player)
+    local ok, strLvl, fitLvl = pcall(function()
+        return player:getPerkLevel(Perks.Strength),
+               player:getPerkLevel(Perks.Fitness)
+    end)
+    if not ok or strLvl == nil or fitLvl == nil then
+        return "either"
+    end
+    if strLvl < fitLvl then
+        AutoPilot_LLM.log(("[Needs] STR %d < FIT %d — preferring strength exercises."):format(strLvl, fitLvl))
+        return "strength"
+    elseif fitLvl < strLvl then
+        AutoPilot_LLM.log(("[Needs] FIT %d < STR %d — preferring fitness exercises."):format(fitLvl, strLvl))
+        return "fitness"
+    end
+    return "either"
+end
+
+--- Return the number of exercise sets queued today (resets at day rollover).
+function AutoPilot_Needs.getExerciseSetsToday()
+    return _exerciseSetsToday
+end
