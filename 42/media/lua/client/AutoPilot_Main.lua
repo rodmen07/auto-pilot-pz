@@ -31,79 +31,106 @@ local mode = "off"
 local actionCooldown = 0
 local ACTION_COOLDOWN_CYCLES = 4  -- ~3s at default tick rate
 
+-- ── LLM command handlers ──────────────────────────────────────────────────────
+-- Named functions instead of inline lambdas so stack traces name the handler.
+
+local function _llmEat(p)      AutoPilot_Needs.check(p) end
+local function _llmDrink(p)    AutoPilot_Needs.check(p) end
+local function _llmSleep(p)    AutoPilot_Needs.check(p) end
+local function _llmRest(p)     ISTimedActionQueue.clear(p) end
+local function _llmExercise(p) AutoPilot_Needs.check(p) end
+local function _llmOutside(p)  AutoPilot_Needs.check(p) end
+local function _llmFight(p)    AutoPilot_Threat.forceFight(p) end
+local function _llmFlee(p)     AutoPilot_Threat.forceFlee(p) end
+local function _llmBandage(p)  AutoPilot_Medical.check(p, false) end
+local function _llmIdle(p)     AutoPilot_Needs.check(p) end
+
+local function _llmSearchItem(p, cmd)
+    local keyword = cmd.reason or ""
+    if keyword == "" then
+        AutoPilot_LLM.log("[Main] search_item: no keyword in reason field.")
+        return
+    end
+    local results = AutoPilot_Inventory.searchItem(p, keyword)
+    if results and #results > 0 then
+        AutoPilot_LLM.log("[Main] search_item: found " .. #results
+            .. " result(s) for '" .. keyword .. "'.")
+    else
+        AutoPilot_LLM.log("[Main] search_item: nothing found for '" .. keyword .. "'.")
+    end
+end
+
+local function _llmLootItem(p, cmd)
+    local keyword = cmd.reason or ""
+    if keyword == "" then
+        AutoPilot_LLM.log("[Main] loot_item: no keyword in reason field.")
+        return
+    end
+    if AutoPilot_Inventory.lootItem(p, keyword) then
+        AutoPilot_LLM.log("[Main] loot_item: looting '" .. keyword .. "'.")
+    else
+        AutoPilot_LLM.log("[Main] loot_item: could not find '" .. keyword .. "' nearby.")
+    end
+end
+
+local function _llmPlaceItem(p, cmd)
+    local keyword = cmd.reason or ""
+    if keyword == "" then
+        AutoPilot_LLM.log("[Main] place_item: no keyword in reason field.")
+        return
+    end
+    if AutoPilot_Inventory.placeItem(p, keyword) then
+        AutoPilot_LLM.log("[Main] place_item: placing '" .. keyword .. "'.")
+    else
+        AutoPilot_LLM.log("[Main] place_item: failed for '" .. keyword .. "'.")
+    end
+end
+
+-- Delegate to AutoPilot_Actions — all walk_to logic lives there.
+local function _llmWalkTo(p, cmd)
+    AutoPilot_Actions.execute(p, "walk_to", cmd.reason or "")
+end
+
+local function _llmStop(p)
+    ISTimedActionQueue.clear(p)
+    AutoPilot_LLM.log("[Main] Stopped — queue cleared.")
+end
+
+local function _llmChain(p, cmd)
+    local steps = cmd.steps or ""
+    AutoPilot_LLM.log("[Main] Chain received: " .. steps)
+    AutoPilot_Actions.executeChain(p, steps)
+end
+
+local function _llmStatus(p)
+    local snap = AutoPilot_Needs.getMoodleSnapshot(p)
+    local parts = {}
+    for k, v in pairs(snap) do
+        table.insert(parts, k .. "=" .. tostring(v))
+    end
+    AutoPilot_LLM.log("[Main] Status: " .. table.concat(parts, " "))
+end
+
 -- ── LLM command executor ──────────────────────────────────────────────────────
 
 local LLM_ACTION_MAP = {
-    eat      = function(p) AutoPilot_Needs.check(p) end,
-    drink    = function(p) AutoPilot_Needs.check(p) end,
-    sleep    = function(p) AutoPilot_Needs.check(p) end,
-    rest     = function(p)
-        ISTimedActionQueue.clear(p)
-    end,
-    exercise = function(p) AutoPilot_Needs.check(p) end,
-    outside  = function(p) AutoPilot_Needs.check(p) end,
-    fight    = function(p) AutoPilot_Threat.forceFight(p) end,
-    flee     = function(p) AutoPilot_Threat.forceFlee(p) end,
-    bandage  = function(p) AutoPilot_Medical.check(p, false) end,
-    idle     = function(p) AutoPilot_Needs.check(p) end,
-    search_item = function(p, cmd)
-        local keyword = cmd.reason or ""
-        if keyword == "" then
-            AutoPilot_LLM.log("[Main] search_item: no keyword in reason field.")
-            return
-        end
-        local results = AutoPilot_Inventory.searchItem(p, keyword)
-        if results and #results > 0 then
-            AutoPilot_LLM.log("[Main] search_item: found " .. #results .. " result(s) for '" .. keyword .. "'.")
-        else
-            AutoPilot_LLM.log("[Main] search_item: nothing found for '" .. keyword .. "'.")
-        end
-    end,
-    loot_item = function(p, cmd)
-        local keyword = cmd.reason or ""
-        if keyword == "" then
-            AutoPilot_LLM.log("[Main] loot_item: no keyword in reason field.")
-            return
-        end
-        if AutoPilot_Inventory.lootItem(p, keyword) then
-            AutoPilot_LLM.log("[Main] loot_item: looting '" .. keyword .. "'.")
-        else
-            AutoPilot_LLM.log("[Main] loot_item: could not find '" .. keyword .. "' nearby.")
-        end
-    end,
-    place_item = function(p, cmd)
-        local keyword = cmd.reason or ""
-        if keyword == "" then
-            AutoPilot_LLM.log("[Main] place_item: no keyword in reason field.")
-            return
-        end
-        if AutoPilot_Inventory.placeItem(p, keyword) then
-            AutoPilot_LLM.log("[Main] place_item: placing '" .. keyword .. "'.")
-        else
-            AutoPilot_LLM.log("[Main] place_item: failed for '" .. keyword .. "'.")
-        end
-    end,
-    -- Delegate to AutoPilot_Actions — all walk_to logic lives there.
-    walk_to = function(p, cmd)
-        AutoPilot_Actions.execute(p, "walk_to", cmd.reason or "")
-    end,
-    stop     = function(p)
-        ISTimedActionQueue.clear(p)
-        AutoPilot_LLM.log("[Main] Stopped — queue cleared.")
-    end,
-    chain    = function(p, cmd)
-        local steps = cmd.steps or ""
-        AutoPilot_LLM.log("[Main] Chain received: " .. steps)
-        AutoPilot_Actions.executeChain(p, steps)
-    end,
-    status   = function(p)
-        local snap = AutoPilot_Needs.getMoodleSnapshot(p)
-        local parts = {}
-        for k, v in pairs(snap) do
-            table.insert(parts, k .. "=" .. tostring(v))
-        end
-        AutoPilot_LLM.log("[Main] Status: " .. table.concat(parts, " "))
-    end,
+    eat         = _llmEat,
+    drink       = _llmDrink,
+    sleep       = _llmSleep,
+    rest        = _llmRest,
+    exercise    = _llmExercise,
+    outside     = _llmOutside,
+    fight       = _llmFight,
+    flee        = _llmFlee,
+    bandage     = _llmBandage,
+    idle        = _llmIdle,
+    search_item = _llmSearchItem,
+    loot_item   = _llmLootItem,
+    place_item  = _llmPlaceItem,
+    walk_to     = _llmWalkTo,
+    stop        = _llmStop,
+    chain       = _llmChain,
+    status      = _llmStatus,
 }
 
 local function applyLLMCommand(player, cmd)
