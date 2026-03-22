@@ -137,6 +137,10 @@ AutoPilot_Constants.EXERCISE_ENDURANCE_RESUME = 0.70    -- resume exercise above
 AutoPilot_Constants.EXERCISE_DAILY_CAP = 20
 
 -- ---------------------------------------------------------------------------
+-- Phase 3: Weight management thresholds (in-game weight units)
+AutoPilot_Constants.WEIGHT_UNDERWEIGHT = 65    -- below this: prioritize high-calorie food
+AutoPilot_Constants.WEIGHT_OVERWEIGHT  = 85    -- above this: prefer low-calorie food
+
 -- Phase 3: Happiness / boredom thresholds
 AutoPilot_Constants.HAPPINESS_LOW_THRESHOLD = 40   -- MoodleType.Unhappy level to trigger action
 

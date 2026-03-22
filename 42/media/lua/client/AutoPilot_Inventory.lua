@@ -58,6 +58,55 @@ function AutoPilot_Inventory.getBestFood(player)
     return best
 end
 
+--- Phase 3: Select the best food item considering player weight.
+--- Underweight: prioritise high-calorie food; overweight: prefer low-calorie.
+--- Applies the same frozen/needs-cooking safety filters as getBestFood.
+--- Returns an IsoObject food item, or nil.
+function AutoPilot_Inventory.selectFoodByWeight(player)
+    local weight = 75
+    pcall(function()
+        local nutrition = player:getNutrition()
+        if nutrition then weight = nutrition:getWeight() or 75 end
+    end)
+
+    local inv    = player:getInventory()
+    local best, bestScore = nil, nil
+
+    for i = 0, inv:getItems():size() - 1 do
+        local item = inv:getItems():get(i)
+        if item and item:isFood() and not item:isRotten() then
+            local frozen = false
+            pcall(function() frozen = item:isFrozen() end)
+            if not frozen then
+                local needsCooking = false
+                pcall(function()
+                    needsCooking = item:isIsCookable() and not item:isCooked()
+                end)
+                if not needsCooking then
+                    local calories = 0
+                    pcall(function() calories = item:getCalories() or 0 end)
+                    local hunger = 0
+                    pcall(function() hunger = item:getHungerChange() or 0 end)
+
+                    local score
+                    if weight < AutoPilot_Constants.WEIGHT_UNDERWEIGHT then
+                        score = calories + math.abs(hunger)     -- max calories
+                    elseif weight > AutoPilot_Constants.WEIGHT_OVERWEIGHT then
+                        score = -calories + math.abs(hunger)    -- min calories
+                    else
+                        score = math.abs(hunger)                -- just satisfy hunger
+                    end
+
+                    if bestScore == nil or score > bestScore then
+                        best, bestScore = item, score
+                    end
+                end
+            end
+        end
+    end
+    return best
+end
+
 -- Returns the best drink item (negative thirst change = hydrating).
 function AutoPilot_Inventory.getBestDrink(player)
     local inv = player:getInventory()

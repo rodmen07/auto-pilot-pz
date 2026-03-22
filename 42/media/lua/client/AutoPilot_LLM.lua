@@ -98,6 +98,15 @@ local function _buildStateTable(player)
         inventory_summary   = invSummary,
         search_results      = searchResults,
         available_actions   = AutoPilot_Actions.getSchemaNames(),
+        -- Phase 3: weight management
+        player_weight       = (function()
+            local w = 0
+            pcall(function()
+                local n = player:getNutrition()
+                if n then w = n:getWeight() or 0 end
+            end)
+            return w
+        end)(),
         -- Phase 3: map / depletion + supply run state
         depleted_squares    = AutoPilot_Map.getStats().depleted_squares,
         empty_loot_cycles   = AutoPilot_Needs.getEmptyLootCycles and AutoPilot_Needs.getEmptyLootCycles() or 0,

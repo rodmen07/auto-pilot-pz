@@ -63,7 +63,9 @@ end
 -- ── Actions ─────────────────────────────────────────────────────────────────
 
 local function doEat(player)
-    local food = AutoPilot_Inventory.getBestFood(player)
+    -- Phase 3: weight-aware selector; falls back to nil if nothing matches
+    local food = AutoPilot_Inventory.selectFoodByWeight(player)
+        or AutoPilot_Inventory.getBestFood(player)
     if not food then
         AutoPilot_LLM.log("[Needs] Hungry but no food in inventory — looting nearby.")
         local found = AutoPilot_Inventory.lootNearbyFood(player)
