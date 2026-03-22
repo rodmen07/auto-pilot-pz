@@ -137,6 +137,9 @@ AutoPilot_Constants.EXERCISE_ENDURANCE_RESUME = 0.70    -- resume exercise above
 AutoPilot_Constants.EXERCISE_DAILY_CAP = 20
 
 -- ---------------------------------------------------------------------------
+-- Phase 3: Happiness / boredom thresholds
+AutoPilot_Constants.HAPPINESS_LOW_THRESHOLD = 40   -- MoodleType.Unhappy level to trigger action
+
 -- Phase 3: Foraging / supply run radii
 -- ---------------------------------------------------------------------------
 AutoPilot_Constants.LOOT_RADIUS_HOME   = 80    -- normal home-area loot radius

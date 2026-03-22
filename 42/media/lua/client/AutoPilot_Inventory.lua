@@ -680,6 +680,32 @@ function AutoPilot_Inventory.currentExerciseTier(player)
 end
 
 -- ---------------------------------------------------------------------------
+-- Phase 3: Happiness / unhappiness helpers
+-- ---------------------------------------------------------------------------
+
+--- Find the food item in inventory with the best boredom-reduction value.
+--- Prefers items with the most negative getBoredomChange() (reduces boredom most).
+--- Returns an item, or nil if no boredom-reducing food is in inventory.
+function AutoPilot_Inventory.preferTastyFood(player)
+    local inv   = player:getInventory()
+    local items = inv:getItems()
+    local best, bestBoredom = nil, 0  -- want most negative (most reducing)
+
+    for i = 0, items:size() - 1 do
+        local item = items:get(i)
+        if item and item:isFood() and not item:isRotten() then
+            local boring = 0
+            pcall(function() boring = item:getBoredomChange() or 0 end)
+            if boring < bestBoredom then  -- more negative = better mood food
+                bestBoredom = boring
+                best = item
+            end
+        end
+    end
+    return best
+end
+
+-- ---------------------------------------------------------------------------
 -- Phase 3: Bulk looting
 -- ---------------------------------------------------------------------------
 

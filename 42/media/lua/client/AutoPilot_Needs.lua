@@ -581,10 +581,22 @@ function AutoPilot_Needs.check(player, skipExercise)
         return doRest(player)
     end
 
-    -- 7. Bored or Sad -> read literature first, then go outside
-    local boredom = AutoPilot_Utils.safeStat(player, CharacterStat.BOREDOM)
-    local sadness = AutoPilot_Utils.safeStat(player, CharacterStat.SANITY)
-    if boredom >= BOREDOM_STAT_THRESHOLD or sadness >= SADNESS_STAT_THRESHOLD then
+    -- 7. Bored, Sad, or Unhappy -> prefer tasty food, then read, then go outside
+    local boredom     = AutoPilot_Utils.safeStat(player, CharacterStat.BOREDOM)
+    local sadness     = AutoPilot_Utils.safeStat(player, CharacterStat.SANITY)
+    local unhappyLvl  = safeMoodleLevel(player, MoodleType.Unhappy)
+    if boredom >= BOREDOM_STAT_THRESHOLD or sadness >= SADNESS_STAT_THRESHOLD
+        or unhappyLvl >= AutoPilot_Constants.HAPPINESS_LOW_THRESHOLD then
+        -- Phase 3: when unhappy, prefer food that reduces boredom first
+        if unhappyLvl >= AutoPilot_Constants.HAPPINESS_LOW_THRESHOLD then
+            local tastyFood = AutoPilot_Inventory.preferTastyFood(player)
+            if tastyFood then
+                AutoPilot_LLM.log("[Needs] Unhappy — eating tasty food: "
+                    .. tostring(tastyFood:getName()))
+                ISTimedActionQueue.add(ISEatFoodAction:new(player, tastyFood, 1))
+                return true
+            end
+        end
         if doRead(player) then return true end
         if boredom >= BOREDOM_STAT_THRESHOLD then
             local went = doGoOutside(player)
