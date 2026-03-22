@@ -475,7 +475,8 @@ function AutoPilot_Inventory.lootItem(player, keyword)
             player, best.item, best.container, player:getInventory()))
     end)
     if not ok then
-        AutoPilot_LLM.log("[Inventory] ISInventoryTransferAction failed for loot — skipping direct transfer (MP-unsafe).")
+        AutoPilot_LLM.log("[Inventory] ISInventoryTransferAction failed for loot" ..
+            " — skipping direct transfer (MP-unsafe).")
         return false
     end
     return true

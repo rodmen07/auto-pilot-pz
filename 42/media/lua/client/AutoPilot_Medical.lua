@@ -88,7 +88,8 @@ local function lootNearbyBandage(player)
                                             player:getInventory()))
                                 end)
                                 if not xferOk then
-                                    AutoPilot_LLM.log("[Medical] ISInventoryTransferAction failed for bandage — skipping direct transfer (MP-unsafe).")
+                                    AutoPilot_LLM.log("[Medical] ISInventoryTransferAction failed" ..
+                                        " for bandage — skipping direct transfer (MP-unsafe).")
                                 else
                                     result = true
                                 end

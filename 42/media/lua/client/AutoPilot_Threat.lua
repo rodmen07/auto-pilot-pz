@@ -57,7 +57,7 @@ end
 
 -- Flee: when home is set, run toward home center; otherwise flee away from zombie centroid.
 local function doFlee(player, zombies)
-    local destSq = nil
+    local destSq
 
     if AutoPilot_Home.isSet(player) then
         -- Safehouse mode: flee toward home center; find nearest free in-bounds square.
