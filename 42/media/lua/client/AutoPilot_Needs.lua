@@ -202,19 +202,6 @@ local sleepCooldownMs = 0
 local BED_SEARCH_DIST = 100
 local BED_SEARCH_FLOORS = 3  -- check z, z+1, z-1 (ground floor + upstairs + basement)
 
-local function hasBedOnSquare(sq)
-    for i = 0, sq:getObjects():size() - 1 do
-        local obj = sq:getObjects():get(i)
-        local ok, isBed = pcall(function()
-            return obj:getSprite()
-                and obj:getSprite():getProperties()
-                    :has(IsoFlagType.bed)
-        end)
-        if ok and isBed then return true end
-    end
-    return false
-end
-
 local function getBedObjectOnSquare(sq)
     for i = 0, sq:getObjects():size() - 1 do
         local obj = sq:getObjects():get(i)
@@ -242,7 +229,9 @@ local function doSleep(player)
 
     -- Home set: restrict search to home bounds only
     if AutoPilot_Home.isSet(player) then
-        local bedSq = AutoPilot_Home.getNearestInside(player, hasBedOnSquare)
+        local bedSq = AutoPilot_Home.getNearestInside(player, function(sq)
+            return getBedObjectOnSquare(sq) ~= nil
+        end)
         if bedSq then
             local bedObj = getBedObjectOnSquare(bedSq)
             if bedObj then

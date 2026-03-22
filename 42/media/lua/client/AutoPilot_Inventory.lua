@@ -139,13 +139,19 @@ function AutoPilot_Inventory.getReadable(player)
     return nil
 end
 
--- Scans nearby containers for readable literature and transfers it to inventory.
-function AutoPilot_Inventory.lootNearbyReadable(player)
-    local px, py, pz = player:getX(), player:getY(), player:getZ()
+-- ── Container iteration helpers ───────────────────────────────────────────────
 
-    for dx = -LOOT_SEARCH_RADIUS, LOOT_SEARCH_RADIUS do
-        for dy = -LOOT_SEARCH_RADIUS, LOOT_SEARCH_RADIUS do
-            local sq = getCell():getGridSquare(px + dx, py + dy, pz)
+-- Iterates every item in every container on every in-bounds square within
+-- `radius` tiles of the player.  Calls callback(item, container) for each
+-- non-nil item.  If the callback returns true, iteration stops early (use for
+-- first-match searches).  Returns true if the callback ever stopped early.
+local function _iterateContainersNearby(player, radius, callback)
+    local px, py, pz = player:getX(), player:getY(), player:getZ()
+    local cell = getCell()
+    if not cell then return false end
+    for dx = -radius, radius do
+        for dy = -radius, radius do
+            local sq = cell:getGridSquare(px + dx, py + dy, pz)
             if sq and AutoPilot_Home.isInside(sq) then
                 for i = 0, sq:getObjects():size() - 1 do
                     local obj = sq:getObjects():get(i)
@@ -155,33 +161,8 @@ function AutoPilot_Inventory.lootNearbyReadable(player)
                             local items = container:getItems()
                             for j = 0, items:size() - 1 do
                                 local item = items:get(j)
-                                if item then
-                                    local ok, isLit = pcall(function()
-                                        return item:getScriptItem()
-                                            :isItemType(ItemType.LITERATURE)
-                                    end)
-                                    local uninteresting = false
-                                    if ok and isLit then
-                                        pcall(function()
-                                            uninteresting = item:hasTag(
-                                                ItemTag.UNINTERESTING)
-                                        end)
-                                    end
-                                    if ok and isLit and not uninteresting then
-                                        AutoPilot_LLM.log("[Inventory] Looting readable: "
-                                            .. tostring(item:getName()))
-                                                                        local xferOk = pcall(function()
-                                            ISTimedActionQueue.add(
-                                                ISInventoryTransferAction:new(
-                                                    player, item, container,
-                                                    player:getInventory()))
-                                        end)
-                                        if not xferOk then
-                                            AutoPilot_LLM.log("[Inventory] ISInventoryTransferAction failed for readable — skipping direct transfer (MP-unsafe).")
-                                            return false
-                                        end
-                                        return true
-                                    end
+                                if item and callback(item, container) then
+                                    return true
                                 end
                             end
                         end
@@ -189,102 +170,91 @@ function AutoPilot_Inventory.lootNearbyReadable(player)
                 end
             end
         end
+    end
+    return false
+end
+
+-- Queue an ISInventoryTransferAction and log the result.
+-- Returns true on success, false when PZ refuses the action (MP-unsafe path).
+local function _queueTransfer(player, item, container, label)
+    local ok = pcall(function()
+        ISTimedActionQueue.add(ISInventoryTransferAction:new(
+            player, item, container, player:getInventory()))
+    end)
+    if not ok then
+        AutoPilot_LLM.log("[Inventory] ISInventoryTransferAction failed for "
+            .. label .. " — skipping direct transfer (MP-unsafe).")
+    end
+    return ok
+end
+
+-- ── Auto-loot from nearby containers ─────────────────────────────────────────
+
+-- Scans nearby containers for readable literature and transfers it to inventory.
+function AutoPilot_Inventory.lootNearbyReadable(player)
+    local found, foundContainer = nil, nil
+    _iterateContainersNearby(player, LOOT_SEARCH_RADIUS, function(item, container)
+        local ok, isLit = pcall(function()
+            return item:getScriptItem():isItemType(ItemType.LITERATURE)
+        end)
+        if ok and isLit then
+            local uninteresting = false
+            pcall(function() uninteresting = item:hasTag(ItemTag.UNINTERESTING) end)
+            if not uninteresting then
+                found = item
+                foundContainer = container
+                return true  -- stop scanning
+            end
+        end
+        return false
+    end)
+    if found then
+        AutoPilot_LLM.log("[Inventory] Looting readable: " .. tostring(found:getName()))
+        return _queueTransfer(player, found, foundContainer, "readable")
     end
     AutoPilot_LLM.log("[Inventory] No readable items found in nearby containers.")
     return false
 end
 
--- ── Auto-loot from nearby containers ────────────────────────────────────────
-
--- Scans nearby containers for food and transfers the best item to player inventory.
+-- Scans nearby containers for food and transfers the highest-calorie item.
 function AutoPilot_Inventory.lootNearbyFood(player)
-    local px, py, pz = player:getX(), player:getY(), player:getZ()
-    local best = nil
-    local bestCal = -999
-    local bestContainer = nil
-
-    for dx = -LOOT_SEARCH_RADIUS, LOOT_SEARCH_RADIUS do
-        for dy = -LOOT_SEARCH_RADIUS, LOOT_SEARCH_RADIUS do
-            local sq = getCell():getGridSquare(px + dx, py + dy, pz)
-            if sq and AutoPilot_Home.isInside(sq) then
-                for i = 0, sq:getObjects():size() - 1 do
-                    local obj = sq:getObjects():get(i)
-                    if obj then
-                        local container = obj:getContainer()
-                        if container then
-                            local items = container:getItems()
-                            for j = 0, items:size() - 1 do
-                                local item = items:get(j)
-                                if item and item:isFood() and not item:isRotten() then
-                                    local cal = item:getCalories() or 0
-                                    if cal > bestCal then
-                                        bestCal = cal
-                                        best = item
-                                        bestContainer = container
-                                    end
-                                end
-                            end
-                        end
-                    end
-                end
+    local best, bestCal, bestContainer = nil, -999, nil
+    _iterateContainersNearby(player, LOOT_SEARCH_RADIUS, function(item, container)
+        if item:isFood() and not item:isRotten() then
+            local cal = item:getCalories() or 0
+            if cal > bestCal then
+                bestCal = cal
+                best = item
+                bestContainer = container
             end
         end
-    end
-
-    if best and bestContainer then
+        return false  -- scan all squares to find the best
+    end)
+    if best then
         AutoPilot_LLM.log("[Inventory] Looting food: " .. tostring(best:getName()))
-        local ok, _ = pcall(function()
-            ISTimedActionQueue.add(ISInventoryTransferAction:new(player, best, bestContainer, player:getInventory()))
-        end)
-        if not ok then
-            AutoPilot_LLM.log("[Inventory] ISInventoryTransferAction failed for food — skipping direct transfer (MP-unsafe).")
-            return false
-        end
-        return true
+        return _queueTransfer(player, best, bestContainer, "food")
     end
     AutoPilot_LLM.log("[Inventory] No food found in nearby containers.")
     return false
 end
 
--- Scans nearby containers for drinks and transfers the best item to player inventory.
+-- Scans nearby containers for drinks and transfers the first hydrating item.
 function AutoPilot_Inventory.lootNearbyDrink(player)
-    local px, py, pz = player:getX(), player:getY(), player:getZ()
-
-    for dx = -LOOT_SEARCH_RADIUS, LOOT_SEARCH_RADIUS do
-        for dy = -LOOT_SEARCH_RADIUS, LOOT_SEARCH_RADIUS do
-            local sq = getCell():getGridSquare(px + dx, py + dy, pz)
-            if sq and AutoPilot_Home.isInside(sq) then
-                for i = 0, sq:getObjects():size() - 1 do
-                    local obj = sq:getObjects():get(i)
-                    if obj then
-                        local container = obj:getContainer()
-                        if container then
-                            local items = container:getItems()
-                            for j = 0, items:size() - 1 do
-                                local item = items:get(j)
-                                if item and item:isFood() and not item:isRotten() then
-                                    local thirstChange = item:getThirstChange()
-                                    if thirstChange and thirstChange < 0 then
-                                        AutoPilot_LLM.log("[Inventory] Looting drink: " .. tostring(item:getName()))
-                                        local ok, _ = pcall(function()
-                                            local inv = player:getInventory()
-                                            ISTimedActionQueue.add(
-                                                ISInventoryTransferAction:new(
-                                                    player, item, container, inv))
-                                        end)
-                                        if not ok then
-                                            AutoPilot_LLM.log("[Inventory] ISInventoryTransferAction failed for drink — skipping direct transfer (MP-unsafe).")
-                                            return false
-                                        end
-                                        return true
-                                    end
-                                end
-                            end
-                        end
-                    end
-                end
+    local found, foundContainer = nil, nil
+    _iterateContainersNearby(player, LOOT_SEARCH_RADIUS, function(item, container)
+        if item:isFood() and not item:isRotten() then
+            local thirstChange = item:getThirstChange()
+            if thirstChange and thirstChange < 0 then
+                found = item
+                foundContainer = container
+                return true  -- stop scanning
             end
         end
+        return false
+    end)
+    if found then
+        AutoPilot_LLM.log("[Inventory] Looting drink: " .. tostring(found:getName()))
+        return _queueTransfer(player, found, foundContainer, "drink")
     end
     AutoPilot_LLM.log("[Inventory] No drinks found in nearby containers.")
     return false
