@@ -117,6 +117,8 @@ local function doFight(player, zombies)
         return
     end
 
+    AutoPilot_Inventory.checkAndSwapWeapon(player)
+
     local px, py = player:getX(), player:getY()
     table.sort(zombies, function(a, b)
         local da = (a:getX()-px)^2 + (a:getY()-py)^2

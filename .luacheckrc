@@ -48,6 +48,8 @@ globals = {
     "ISReadABook",
     "ISTakeWaterAction",
     "ISInventoryTransferAction",
+    "ISWearClothing",
+    "ISBarricadeAction",
 
     -- PZ engine utility functions
     "instanceof",
@@ -66,6 +68,7 @@ globals = {
     "AutoPilot_Actions",
     "AutoPilot_Home",
     "AutoPilot_Map",
+    "AutoPilot_Barricade",
 
     -- PZ B42 engine global for persistent mod storage
     "ModData",

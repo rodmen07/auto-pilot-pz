@@ -149,3 +149,16 @@ AutoPilot_Constants.HAPPINESS_LOW_THRESHOLD = 40   -- MoodleType.Unhappy level t
 AutoPilot_Constants.LOOT_RADIUS_HOME   = 80    -- normal home-area loot radius
 AutoPilot_Constants.LOOT_RADIUS_SUPPLY = 200   -- expanded radius for supply runs
 AutoPilot_Constants.SUPPLY_RUN_TRIGGER = 5     -- consecutive empty loot cycles before expanding radius
+
+-- Phase 4: Combat weapon management
+AutoPilot_Constants.WEAPON_CONDITION_MIN  = 0.25  -- swap weapon if condition drops below this (0.0–1.0)
+AutoPilot_Constants.WEAPON_SEARCH_RADIUS  = 20    -- tiles to search for a replacement weapon
+
+-- Phase 4: Temperature / clothing thresholds
+-- BodyStats temperature is roughly -100 (freezing) to +100 (boiling), 0 = comfortable
+AutoPilot_Constants.TEMP_TOO_COLD = -20   -- equip warmer clothing below this
+AutoPilot_Constants.TEMP_TOO_HOT  =  20   -- equip lighter clothing above this
+AutoPilot_Constants.CLOTHING_SEARCH_RADIUS = 30
+
+-- Phase 4: Barricading
+AutoPilot_Constants.BARRICADE_SEARCH_RADIUS = 15  -- only barricade windows/doors within home radius

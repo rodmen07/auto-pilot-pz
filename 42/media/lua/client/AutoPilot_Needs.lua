@@ -566,6 +566,9 @@ function AutoPilot_Needs.check(player, skipExercise)
     -- 4. Wounds — treat non-bleeding wounds (scratches, bites, deep wounds)
     if AutoPilot_Medical.check(player, false) then return true end
 
+    -- Phase 4: temperature comfort check
+    if AutoPilot_Inventory.adjustClothing(player) then return end
+
     -- 5. Tired (fatigue: 0.0=rested, ~1.0=exhausted) — checked BEFORE endurance
     -- because sleep recovers both fatigue AND endurance.
     local fatigue = AutoPilot_Utils.safeStat(player, CharacterStat.FATIGUE)
