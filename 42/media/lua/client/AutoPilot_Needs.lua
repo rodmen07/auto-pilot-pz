@@ -215,39 +215,21 @@ local function getBedObjectOnSquare(sq)
     return nil
 end
 
-local function doSleep(player)
-    -- Cooldown guard: prevent re-queuing bed action every tick
-    local ok, now = pcall(function()
-        return getGameTime():getCalender():getTimeInMillis()
-    end)
-    local ms = ok and now or 0
-    if ms < sleepCooldownMs then return true end
-
-    AutoPilot_LLM.log("[Needs] Sleeping...")
-
-    ISTimedActionQueue.clear(player)
-
-    -- Home set: restrict search to home bounds only
+-- Search for the nearest bed object around `player`.
+-- Prefers home bounds when home is set; falls back to a wide multi-floor scan.
+-- Returns the IsoObject with the bed flag, or nil if none is found.
+local function _findBedNearby(player)
     if AutoPilot_Home.isSet(player) then
         local bedSq = AutoPilot_Home.getNearestInside(player, function(sq)
             return getBedObjectOnSquare(sq) ~= nil
         end)
         if bedSq then
-            local bedObj = getBedObjectOnSquare(bedSq)
-            if bedObj then
-                AutoPilot_LLM.log("[Needs] Found bed inside home bounds — getting on it.")
-                ISTimedActionQueue.add(ISGetOnBedAction:new(player, bedObj))
-                sleepCooldownMs = ms + 15000
-                return true
-            end
+            return getBedObjectOnSquare(bedSq)
         end
-        -- No bed in home bounds and no fallback sleep in MP (setAsleep is client-only,
-        -- the server never learns of the sleep state → fatigue desync).
-        AutoPilot_LLM.log("[Needs] No bed found inside home bounds — cannot force sleep (MP-unsafe); will retry.")
-        return false
+        return nil  -- no bed inside home bounds; caller logs the failure
     end
 
-    -- No home set: wide search across floors
+    -- No home set: wide multi-floor scan
     local px, py, pz = player:getX(), player:getY(), player:getZ()
     local bestObj  = nil
     local bestDist = math.huge
@@ -274,26 +256,43 @@ local function doSleep(player)
             end
         end
     end
+    return bestObj
+end
 
-    if bestObj then
-        local bedSq = bestObj:getSquare()
-        local bedZ = bedSq and bedSq:getZ() or pz
-        if bedZ ~= pz then
-            AutoPilot_LLM.log(string.format(
-                "[Needs] Found bed on floor %d — walking there.", bedZ))
+local function doSleep(player)
+    -- Cooldown guard: prevent re-queuing bed action every tick
+    local ok, now = pcall(function()
+        return getGameTime():getCalender():getTimeInMillis()
+    end)
+    local ms = ok and now or 0
+    if ms < sleepCooldownMs then return true end
+
+    AutoPilot_LLM.log("[Needs] Sleeping...")
+    ISTimedActionQueue.clear(player)
+
+    local bedObj = _findBedNearby(player)
+    if not bedObj then
+        -- Forcing sleep via setAsleep is client-only; the server never learns of
+        -- the state change, causing fatigue desync in MP.  Retry next cycle.
+        if AutoPilot_Home.isSet(player) then
+            AutoPilot_LLM.log(
+                "[Needs] No bed found inside home bounds — cannot force sleep (MP-unsafe); will retry.")
         else
-            AutoPilot_LLM.log("[Needs] Found bed — getting on it.")
+            AutoPilot_LLM.log("[Needs] No bed found — cannot force sleep (MP-unsafe); will retry.")
         end
-        ISTimedActionQueue.add(ISGetOnBedAction:new(player, bestObj))
-        sleepCooldownMs = ms + 15000
-        return true
+        return false
     end
 
-    -- No bed found anywhere — do not force sleep directly (MP-unsafe; server
-    -- never learns of the state change → fatigue desync).  Return false so
-    -- the next cycle retries the bed search.
-    AutoPilot_LLM.log("[Needs] No bed found — cannot force sleep (MP-unsafe); will retry.")
-    return false
+    local bedSq = bedObj:getSquare()
+    local bedZ  = bedSq and bedSq:getZ() or player:getZ()
+    if bedZ ~= player:getZ() then
+        AutoPilot_LLM.log(string.format("[Needs] Found bed on floor %d — walking there.", bedZ))
+    else
+        AutoPilot_LLM.log("[Needs] Found bed — getting on it.")
+    end
+    ISTimedActionQueue.add(ISGetOnBedAction:new(player, bedObj))
+    sleepCooldownMs = ms + 15000
+    return true
 end
 
 -- Walk to the nearest outdoor square to relieve boredom.

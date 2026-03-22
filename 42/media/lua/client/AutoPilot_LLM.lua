@@ -48,27 +48,30 @@ end
 
 -- ── State writer ──────────────────────────────────────────────────────────────
 
-local function writeState(player)
+-- Collect all game-state data into a plain Lua table suitable for JSON encoding.
+-- Separated from writeState so tests can inspect the structure without touching
+-- the filesystem.
+local function _buildStateTable(player)
     local moodles   = AutoPilot_Needs.getMoodleSnapshot(player)
     local negCount  = AutoPilot_Threat.countNegativeMoodles(player)
     local zombies   = AutoPilot_Threat.getNearbyZombies(player)
     local foodCnt, drinkCnt = AutoPilot_Inventory.getSupplyCounts(player)
 
-    local wounds = AutoPilot_Medical.getWoundSnapshot(player)
-    local hasWater = AutoPilot_Inventory.hasNearbyWaterSource(player)
-
+    local wounds        = AutoPilot_Medical.getWoundSnapshot(player)
+    local hasWater      = AutoPilot_Inventory.hasNearbyWaterSource(player)
     local invSummary    = AutoPilot_Inventory.getInventorySummary(player)
     local searchResults = AutoPilot_Inventory.getLastSearchResults()
 
-    local hx, hy, hz, hr = AutoPilot_Home.getState()
-    local homeSet = AutoPilot_Home.isSet(player)
-
+    local hx, hy, hz, hr = AutoPilot_Home.getState()  -- hz unused in JSON but kept for symmetry
+    local homeSet  = AutoPilot_Home.isSet(player)
     local playerSq = player:getSquare()  -- may be nil during cell transitions
 
     local _okHp,  _hp  = pcall(function() return player:getHealth() end)
-    local _okEnd, _end = pcall(function() return player:getStats():get(CharacterStat.ENDURANCE) end)
+    local _okEnd, _end = pcall(function()
+        return player:getStats():get(CharacterStat.ENDURANCE)
+    end)
 
-    local state = {
+    return {
         health              = math.floor(((_okHp  and _hp)  or 1) * 100),
         endurance           = math.floor(((_okEnd and _end) or 0) * 100),
         negative_moodles    = negCount,
@@ -91,8 +94,12 @@ local function writeState(player)
         search_results      = searchResults,
         available_actions   = AutoPilot_Actions.getSchemaNames(),
     }
+end
 
-    local json = jsonVal(state)
+-- Encode the current game state to JSON and write it to the IPC file.
+local function writeState(player)
+    local state = _buildStateTable(player)
+    local json  = jsonVal(state)
 
     -- getFileWriter(path, append) — false = overwrite each time
     local fw = getFileWriter("auto_pilot_state.json", false, false)

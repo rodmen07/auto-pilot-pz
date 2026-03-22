@@ -44,6 +44,33 @@ AutoPilot_Actions.SCHEMA = {
       desc = "Clear the action queue" },
 }
 
+-- ── Helpers ───────────────────────────────────────────────────────────────────
+
+-- Parse a "direction [distance]" param string (e.g. "north 30" or "ne").
+-- Returns direction (lowercase), distance (number), or nil, nil on failure.
+local function _parseDirection(param)
+    local dir, dist = param:match("^(%a+)%s+(%d+)$")
+    if dir then return dir:lower(), tonumber(dist) end
+    dir = param:match("^(%a+)$")
+    if dir then return dir:lower(), 20 end  -- 20-tile default when no range given
+    return nil, nil
+end
+
+-- Translate a lowercase direction name and distance into a world (dx, dy) offset.
+-- Returns dx, dy, or nil, nil if the direction string is not recognised.
+local function _dirToOffset(dir, dist)
+    if     dir == "north" or dir == "n"      then return 0,    -dist
+    elseif dir == "south" or dir == "s"      then return 0,     dist
+    elseif dir == "east"  or dir == "e"      then return  dist,  0
+    elseif dir == "west"  or dir == "w"      then return -dist,  0
+    elseif dir == "ne" or dir == "northeast" then return  dist, -dist
+    elseif dir == "nw" or dir == "northwest" then return -dist, -dist
+    elseif dir == "se" or dir == "southeast" then return  dist,  dist
+    elseif dir == "sw" or dir == "southwest" then return -dist,  dist
+    end
+    return nil, nil
+end
+
 -- ── Handlers ──────────────────────────────────────────────────────────────────
 
 local function handleWalkTo(player, param)
@@ -53,30 +80,14 @@ local function handleWalkTo(player, param)
         return false
     end
 
-    local dir, dist = param:match("^(%a+)%s+(%d+)$")
-    if not dir then
-        dir  = param:match("^(%a+)$")
-        dist = 20
-    else
-        dist = tonumber(dist)
-    end
-
+    local dir, dist = _parseDirection(param)
     if not dir then
         AutoPilot_LLM.log("[Actions] walk_to: cannot parse '" .. tostring(param) .. "'")
         return false
     end
 
-    local dx, dy = 0, 0
-    dir = dir:lower()
-    if     dir == "north" or dir == "n"       then dy = -dist
-    elseif dir == "south" or dir == "s"       then dy =  dist
-    elseif dir == "east"  or dir == "e"       then dx =  dist
-    elseif dir == "west"  or dir == "w"       then dx = -dist
-    elseif dir == "ne" or dir == "northeast"  then dx =  dist; dy = -dist
-    elseif dir == "nw" or dir == "northwest"  then dx = -dist; dy = -dist
-    elseif dir == "se" or dir == "southeast"  then dx =  dist; dy =  dist
-    elseif dir == "sw" or dir == "southwest"  then dx = -dist; dy =  dist
-    else
+    local dx, dy = _dirToOffset(dir, dist)
+    if not dx then
         AutoPilot_LLM.log("[Actions] walk_to: unknown direction '" .. dir .. "'")
         return false
     end
@@ -96,8 +107,7 @@ local function handleWalkTo(player, param)
     for r = 0, 5 do
         for ddx = -r, r do
             for ddy = -r, r do
-                local sq = cell:getGridSquare(
-                    px + ddx, py + ddy, pz)
+                local sq = cell:getGridSquare(px + ddx, py + ddy, pz)
                 if sq and sq:isFree(false) then
                     targetSq = sq
                     break
@@ -109,8 +119,7 @@ local function handleWalkTo(player, param)
     end
 
     if not targetSq then
-        AutoPilot_LLM.log(
-            "[Actions] walk_to: no walkable square near target.")
+        AutoPilot_LLM.log("[Actions] walk_to: no walkable square near target.")
         return false
     end
 

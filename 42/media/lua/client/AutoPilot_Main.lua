@@ -117,6 +117,32 @@ local function applyLLMCommand(player, cmd)
     end
 end
 
+-- ── Main tick helpers ─────────────────────────────────────────────────────────
+
+-- Step 1: write state file + read any pending command from the sidecar.
+local function _runLLMCycle(player)
+    AutoPilot_LLM.tick(player)
+end
+
+-- Step 2: run threat check; set cooldown and return true if a threat was handled.
+local function _runThreatCheck(player)
+    if AutoPilot_Threat.check(player) then
+        actionCooldown = ACTION_COOLDOWN_CYCLES
+        return true
+    end
+    return false
+end
+
+-- Step 5: run survival-needs check; set cooldown and return true if acted.
+-- skipExercise=true in pilot mode so idle falls through to LLM commands.
+local function _runNeedsCheck(player, skipExercise)
+    if AutoPilot_Needs.check(player, skipExercise) then
+        actionCooldown = ACTION_COOLDOWN_CYCLES
+        return true
+    end
+    return false
+end
+
 -- ── Main tick ─────────────────────────────────────────────────────────────────
 
 local function onTick()
@@ -143,13 +169,10 @@ local function onTick()
     if asleepOk and isAsleep then return end
 
     -- 1. LLM housekeeping (write state, read command) — always runs in both modes
-    AutoPilot_LLM.tick(player)
+    _runLLMCycle(player)
 
     -- 2. Threat check — always runs in both modes (survival trumps everything)
-    if AutoPilot_Threat.check(player) then
-        actionCooldown = ACTION_COOLDOWN_CYCLES
-        return
-    end
+    if _runThreatCheck(player) then return end
 
     -- 3. Action cooldown
     if actionCooldown > 0 then
@@ -171,12 +194,7 @@ local function onTick()
     end
 
     -- 5. Survival needs — runs in BOTH modes (identical logic).
-    --    In pilot mode, skipExercise=true so idle falls through to LLM commands.
-    local skipExercise = (mode == "pilot")
-    if AutoPilot_Needs.check(player, skipExercise) then
-        actionCooldown = ACTION_COOLDOWN_CYCLES
-        return
-    end
+    if _runNeedsCheck(player, mode == "pilot") then return end
 
     -- 6. LLM/piped command — runs in BOTH modes
     local cmd = AutoPilot_LLM.consumeCommand()
