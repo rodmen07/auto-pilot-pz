@@ -77,17 +77,17 @@ Added the two critical missing survival systems that would kill the character be
 | Expanded LLM state snapshot | Done | Now includes wound data + water source availability |
 | Updated schemas & sidecar | Done | `bandage` action added, wound/water fields in state |
 
-### Phase 2: Level Faster (Exercise Optimization) — NOT STARTED *(v0.1.2)*
+### Phase 2: Level Faster (Exercise Optimization) — IN PROGRESS *(v0.1.2)*
 
 Maximize XP gain per in-game day.
 
 | Task | Status | Details |
 |------|--------|---------|
-| Use exercise equipment | Pending | Dumbbells (1.8x XP) and barbells (1.2x XP) vs bodyweight (1.0x) |
-| Endurance-aware scheduling | Pending | Variable set duration based on current endurance; rest between sets |
-| Daily set tracking | Pending | Track diminishing returns per day; reset at midnight |
-| Loot exercise equipment | Pending | Prioritize `Base.DumbBell` and `Base.BarBell` in container scanning |
-| STR/FIT decay prevention | Pending | Ensure consistent exercise cadence to prevent XP timer decay |
+| Use exercise equipment | Done | `getExerciseEquipmentTier` scans inventory; dumbbell (1.8×) > barbell (1.2×) > bodyweight (1.0×) |
+| Endurance-aware scheduling | Done | Hysteresis gate: pause below 0.30, resume only above 0.70 endurance |
+| Daily set tracking | Done | `exerciseSetsToday` counter resets on day rollover; cap = 20 sets/day |
+| Loot exercise equipment | Done | `equipBestExerciseItem` scans containers for `Base.DumbBell` / `Base.BarBell`, throttled 2 min |
+| STR/FIT decay prevention | Done | Gap-aware selection: if \|STR−FIT\| > 1, strongly prefer the lagging stat's exercises |
 
 ### Phase 3: Sustained Survival (Weeks/Months) — NOT STARTED *(v0.1.3)*
 
