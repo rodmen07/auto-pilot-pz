@@ -116,3 +116,14 @@ AutoPilot_Constants.SEARCH_RESULTS_MAX = 10
 
 -- Max inventory item names included in the LLM state snapshot.
 AutoPilot_Constants.INVENTORY_SUMMARY_MAX = 20
+
+-- ── Exercise equipment ────────────────────────────────────────────────────────
+-- B42 canonical full-type IDs for exercise equipment and their XP multiplier tiers.
+--   "dumbbell" → 1.8× XP  (dumbbellpress, bicepscurl)
+--   "barbell"  → 1.2× XP  (barbellcurl)
+--   "none"     → 1.0× XP  (pushups, squats, situp, burpees — bodyweight only)
+-- Sorted highest-multiplier first so the first matching entry wins a "best" scan.
+AutoPilot_Constants.EXERCISE_EQUIPMENT = {
+    { id = "Base.DumbBell", tier = "dumbbell", multiplier = 1.8 },
+    { id = "Base.BarBell",  tier = "barbell",  multiplier = 1.2 },
+}

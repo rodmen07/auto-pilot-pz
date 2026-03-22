@@ -567,6 +567,87 @@ function AutoPilot_Inventory.placeItem(player, keyword)
     return true
 end
 
+-- ── Exercise equipment ────────────────────────────────────────────────────────
+
+-- Returns the best exercise equipment tier ("dumbbell", "barbell", or "none")
+-- and its XP multiplier for items currently in the player's inventory.
+-- Checks full type IDs against AutoPilot_Constants.EXERCISE_EQUIPMENT (sorted
+-- highest-multiplier first, so the loop exits as soon as the best is found).
+function AutoPilot_Inventory.getExerciseEquipmentTier(player)
+    local inv = player:getInventory()
+    local items = inv:getItems()
+    for _, eq in ipairs(AutoPilot_Constants.EXERCISE_EQUIPMENT) do
+        for i = 0, items:size() - 1 do
+            local item = items:get(i)
+            if item then
+                local ok, fullType = pcall(function() return item:getFullType() end)
+                if ok and fullType == eq.id then
+                    return eq.tier, eq.multiplier
+                end
+            end
+        end
+    end
+    return "none", 1.0
+end
+
+-- Scans containers within home bounds for exercise equipment and returns the
+-- best available item together with its tier name and source container, or
+-- nil, "none", nil when nothing is found.
+-- "Best" = highest multiplier per AutoPilot_Constants.EXERCISE_EQUIPMENT order.
+function AutoPilot_Inventory.findExerciseEquipment(player)
+    local bestItem      = nil
+    local bestTier      = "none"
+    local bestMult      = 0.0
+    local bestContainer = nil
+
+    _iterateContainersNearby(player, LOOT_SEARCH_RADIUS, function(item, container)
+        local ok, fullType = pcall(function() return item:getFullType() end)
+        if ok and fullType then
+            for _, eq in ipairs(AutoPilot_Constants.EXERCISE_EQUIPMENT) do
+                if fullType == eq.id and eq.multiplier > bestMult then
+                    bestMult      = eq.multiplier
+                    bestTier      = eq.tier
+                    bestItem      = item
+                    bestContainer = container
+                end
+            end
+        end
+        return false  -- scan all squares to find the highest-tier item
+    end)
+
+    return bestItem, bestTier, bestContainer
+end
+
+-- Transfers the best exercise equipment found in nearby containers into the
+-- player's inventory via ISInventoryTransferAction.  Skips the scan when the
+-- player already carries dumbbells (highest tier).
+-- Returns true if a transfer action was queued, false otherwise.
+function AutoPilot_Inventory.equipBestExerciseItem(player)
+    -- Fast path: already carrying the best possible equipment.
+    local invTier, _ = AutoPilot_Inventory.getExerciseEquipmentTier(player)
+    if invTier == "dumbbell" then
+        AutoPilot_LLM.log("[Inventory] Already carrying dumbbells — no loot needed.")
+        return true
+    end
+
+    local item, tier, container = AutoPilot_Inventory.findExerciseEquipment(player)
+    if not item then
+        AutoPilot_LLM.log("[Inventory] No exercise equipment found in nearby containers.")
+        return false
+    end
+
+    -- Don't replace a barbell with another barbell.
+    if invTier == "barbell" and tier == "barbell" then
+        AutoPilot_LLM.log("[Inventory] Already carrying barbell — no upgrade available.")
+        return false
+    end
+
+    local ok, fullType = pcall(function() return item:getFullType() end)
+    AutoPilot_LLM.log("[Inventory] Looting exercise equipment: "
+        .. (ok and fullType or "unknown") .. " (tier=" .. tier .. ")")
+    return _queueTransfer(player, item, container, "exercise equipment")
+end
+
 -- Returns search result names from the last searchItem call.
 function AutoPilot_Inventory.getLastSearchResults()
     return AutoPilot_Inventory._lastSearchResults or {}
