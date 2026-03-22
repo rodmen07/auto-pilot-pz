@@ -50,6 +50,8 @@ globals = {
 
     -- PZ engine utility functions
     "instanceof",
+    "isClient",
+    "getPlayerCount",
 
     -- AutoPilot module tables (each defined in its own file, referenced across all)
     "AutoPilot",
