@@ -794,6 +794,67 @@ function AutoPilot_Inventory.bulkLoot(player, container, keywords)
     return count
 end
 
+-- ---------------------------------------------------------------------------
+-- Phase 4: Weapon durability helpers
+-- ---------------------------------------------------------------------------
+
+--- Return the condition ratio (0.0–1.0) of the player's equipped weapon.
+--- Returns 1.0 if no weapon or no condition data (treat as full).
+function AutoPilot_Inventory.equippedWeaponCondition(player)
+    local weapon = player:getPrimaryHandItem()
+    if not weapon then return 1.0 end
+    local ok, ratio = pcall(function()
+        local max  = weapon:getConditionMax()
+        if not max or max == 0 then return 1.0 end
+        return weapon:getCondition() / max
+    end)
+    return ok and ratio or 1.0
+end
+
+--- Find the best melee weapon in inventory (highest condition × damage score).
+--- Returns the item or nil.
+function AutoPilot_Inventory.bestMeleeWeapon(player)
+    local inv  = player:getInventory()
+    local best, bestScore = nil, -1
+    for i = 0, inv:getItems():size() - 1 do
+        local item = inv:getItems():get(i)
+        local ok, score = pcall(function()
+            if not item:isWeapon() then return -1 end
+            local max = item:getConditionMax()
+            if not max or max == 0 then return -1 end
+            local condRatio = item:getCondition() / max
+            local dmg = item:getMaxDamage and item:getMaxDamage() or 1
+            return condRatio * dmg
+        end)
+        if ok and score > bestScore then
+            best, bestScore = item, score
+        end
+    end
+    return best
+end
+
+--- Equip the best available melee weapon if current weapon is below WEAPON_CONDITION_MIN.
+--- Returns true if a swap was made.
+function AutoPilot_Inventory.checkAndSwapWeapon(player)
+    local cond = AutoPilot_Inventory.equippedWeaponCondition(player)
+    if cond >= AutoPilot_Constants.WEAPON_CONDITION_MIN then return false end
+    AutoPilot_LLM.log(("[Inv] Weapon condition %.2f < %.2f — seeking replacement."):format(
+        cond, AutoPilot_Constants.WEAPON_CONDITION_MIN))
+    local replacement = AutoPilot_Inventory.bestMeleeWeapon(player)
+    if not replacement then
+        AutoPilot_LLM.log("[Inv] No replacement weapon found in inventory.")
+        return false
+    end
+    local ok = pcall(function()
+        player:setPrimaryHandItem(replacement)
+    end)
+    if ok then
+        AutoPilot_LLM.log("[Inv] Swapped to " .. replacement:getType())
+        return true
+    end
+    return false
+end
+
 -- Returns search result names from the last searchItem call.
 function AutoPilot_Inventory.getLastSearchResults()
     return AutoPilot_Inventory._lastSearchResults or {}

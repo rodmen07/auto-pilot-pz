@@ -110,6 +110,8 @@ local function _buildStateTable(player)
         -- Phase 3: map / depletion + supply run state
         depleted_squares    = AutoPilot_Map.getStats().depleted_squares,
         empty_loot_cycles   = AutoPilot_Needs.getEmptyLootCycles and AutoPilot_Needs.getEmptyLootCycles() or 0,
+        -- Phase 4: combat + environment
+        weapon_condition    = AutoPilot_Inventory.equippedWeaponCondition(player),
     }
 end
 
