@@ -43,7 +43,7 @@ function AutoPilot_Barricade.doBarricade(player)
             for oi = 0, sq:getObjects():size() - 1 do
                 local obj = sq:getObjects():get(oi)
                 -- Windows
-                local ok1 = pcall(function()
+                pcall(function()
                     if obj:getName() and obj:getName():lower():find("window") then
                         local inv = player:getInventory()
                         local nails  = inv:getFirstTypeRecurse("Nails")
@@ -55,7 +55,6 @@ function AutoPilot_Barricade.doBarricade(player)
                         end
                     end
                 end)
-                if not ok1 then end  -- swallow pcall error
             end
         end)
 

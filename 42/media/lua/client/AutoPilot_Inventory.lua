@@ -823,7 +823,7 @@ function AutoPilot_Inventory.bestMeleeWeapon(player)
             local max = item:getConditionMax()
             if not max or max == 0 then return -1 end
             local condRatio = item:getCondition() / max
-            local dmg = item:getMaxDamage and item:getMaxDamage() or 1
+            local dmg = (item.getMaxDamage and item:getMaxDamage()) or 1
             return condRatio * dmg
         end)
         if ok and score > bestScore then
@@ -878,7 +878,7 @@ function AutoPilot_Inventory.findClothing(player, wantWarm)
     for i = 0, inv:getItems():size() - 1 do
         local item = inv:getItems():get(i)
         local ok, insulation = pcall(function()
-            return item:getInsulation and item:getInsulation() or nil
+            return (item.getInsulation and item:getInsulation()) or nil
         end)
         if ok and insulation ~= nil then
             local score = wantWarm and insulation or -insulation

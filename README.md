@@ -101,15 +101,15 @@ Handle resource depletion for long-term play.
 | ✅ Unhappiness management | Done | Prefers boredom-reducing food when Unhappy moodle fires; falls back to reading |
 | ✅ Weight management | Done | `selectFoodByWeight()` scores food by calories vs. player weight (under/over thresholds) |
 
-### Phase 4: Polish — NOT STARTED *(v0.2.1)*
+### Phase 4: Polish — COMPLETE *(v0.2.1)*
 
 Edge cases and minor optimizations.
 
 | Task | Status | Details |
 |------|--------|---------|
-| Weapon durability tracking | Pending | Check condition before combat, swap to backup |
-| Temperature/clothing | Pending | Equip warmer/cooler clothing by season |
-| Safehouse barricading | Pending | One-time window/door barricading at home base |
+| ✅ Weapon durability tracking | Done | `checkAndSwapWeapon()` — swaps to best inventory weapon when condition < 25% before combat |
+| ✅ Temperature/clothing | Done | `adjustClothing()` — equips warm/cool gear based on body temperature delta |
+| ✅ Safehouse barricading | Done | `AutoPilot_Barricade` — one-time window barricading on home set (ModData flag) |
 
 ### Phase 5: Deployment — NOT STARTED *(v0.2.2 / V1.0 release milestone)*
 
