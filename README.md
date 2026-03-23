@@ -2,7 +2,7 @@
 
 AFK auto-leveler for Strength and Fitness. Keeps your character alive through automated survival (eating, drinking, sleeping, wound treatment) while exercising to max both stats.
 
-> **Status:** All 4 feature phases complete (v0.2.1). Pending Steam Workshop upload (V1.0).
+> **Status:** All 4 feature phases complete (V1.0). Pending Steam Workshop upload (V1.0).
 > See [WORKSHOP.md](WORKSHOP.md) for the Workshop description and [TESTING.md](TESTING.md) for the pre-release test checklist.
 
 ## Quick Start
@@ -125,7 +125,7 @@ Publish the mod for others to use. Completing this phase marks the **V1.0** publ
 | Poster artwork | 🔲 Pending | Finalize `poster.png` for Workshop listing |
 | In-game testing on fresh save | 🔲 Pending | Full end-to-end validation on clean install — see `TESTING.md` |
 | Multiplayer compatibility check | ✅ Done | Security audit complete — client-only; no cross-player actions; safe for private servers |
-| Version tagging | 🔲 Pending | Minor/patch releases use lowercase `v` (e.g. `v0.1`, `v0.1.2`); major releases use capital `V` (e.g. `V1.0`) |
+| Version tagging | ✅ Done | Minor/patch releases use lowercase `v` (e.g. `v0.1`, `v0.1.2`); major releases use capital `V` (e.g. `V1.0`) |
 
 ---
 
