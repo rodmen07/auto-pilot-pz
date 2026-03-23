@@ -30,5 +30,33 @@ jobs:
       - name: Lua lint
         run: luacheck 42/media/lua/client/*.lua --config .luacheckrc
 
+      - name: Static API Guard
+        run: |
+          echo "=== Static API Guard: checking for deprecated PZ APIs ==="
+          DEPRECATED_PATTERNS=(
+            ":getHunger()"
+            ":getThirst()"
+            ":getFatigue()"
+            ":getEndurance()"
+            "CharacterStats\."
+          )
+          FOUND=0
+          for pattern in "${DEPRECATED_PATTERNS[@]}"; do
+            if grep -rn --include="*.lua" -- "$pattern" 42/media/lua/client/; then
+              echo "ERROR: Deprecated API pattern found: $pattern"
+              FOUND=$((FOUND + 1))
+            fi
+          done
+          if [ "$FOUND" -gt 0 ]; then
+            echo "Static API Guard FAILED: $FOUND deprecated pattern(s) detected."
+            echo "Use player:getStats():get(CharacterStat.X) instead of direct stat getters."
+            exit 1
+          fi
+          echo "Static API Guard PASSED: no deprecated APIs detected."
+
+      - name: Lua logic tests
+        run: lua5.1 tests/test_priority_logic.lua
+
       - name: Python tests
-        run: python -m pytest tests/ -v
+        run: python -m pytest tests/ -v --ignore=tests/test_priority_logic.lua --ignore=tests/lua_mock_pz.lua
+
