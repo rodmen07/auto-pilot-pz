@@ -3,6 +3,6 @@ poster=poster.png
 id=AutoPilot
 description=Keeps your character alive and improving while AFK. Handles all survival needs automatically: hunger, thirst, sleep, exhaustion, wounds (auto-bandage), and boredom. Exercises to level Strength and Fitness using the best available equipment (dumbbells/barbells preferred). Fights zombies when cornered; flees when bleeding or outnumbered. Automatically forages and bulk-loots nearby buildings, tracks depleted containers to avoid wasted trips, and expands its search radius when supplies run low. Manages happiness (prefers tasty food, reads when bored), weight (calorie-aware food selection), clothing (temperature-aware), and weapon condition (auto-swaps when durability is low). Barricades windows at home base after setup. Optional Claude LLM sidecar for goal-driven AI control. Press F7 to set home base, F8 to toggle autopilot, H to halt. Private server safe. Client-side only — no server mod required.
 url=https://github.com/rodmen07/auto-pilot-pz
-modversion=0.2.2
+modversion=1.0
 pzversion=42.15.3
 tags=Multiplayer;Build 42;QualityOfLife;AFK
