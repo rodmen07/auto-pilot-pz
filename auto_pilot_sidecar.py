@@ -65,8 +65,8 @@ STATE_FILE:      pathlib.Path = ZOMBOID_LUA_DIR / "auto_pilot_state.json"
 CMD_FILE:        pathlib.Path = ZOMBOID_LUA_DIR / "auto_pilot_cmd.json"
 PROMPT_FILE:     pathlib.Path = ZOMBOID_LUA_DIR / "auto_pilot_prompt.txt"
 LOG_FILE:        pathlib.Path = ZOMBOID_LUA_DIR / "auto_pilot_sidecar.log"
-POLL_INTERVAL   = 2.0
-MODEL           = os.environ.get("AUTOPILOT_MODEL", "claude-opus-4-6")
+POLL_INTERVAL   = 10.0
+MODEL           = os.environ.get("AUTOPILOT_MODEL", "claude-haiku-4-5-20251001")
 
 
 def _apply_lua_dir(lua_dir: pathlib.Path) -> None:
@@ -122,7 +122,7 @@ Priority order (highest → lowest):
 5. Exhausted (endurance ≤ 15%) → rest
 6. Very tired (tired ≥ 70%) → sleep
 7. Bored (bored ≥ 30%) → outside (go outdoors) or read if already outside
-8. Nothing urgent → exercise (Strength if STR ≤ FIT, else Fitness) or idle
+8. Nothing urgent → exercise the LOWER skill (if STR level < FIT level train Strength; if FIT level < STR level train Fitness; higher number = higher level = stronger) or idle
 
 Respond with a JSON object and nothing else — no markdown fences, no extra text:
 {"action": "<action>", "reason": "<one short sentence explaining why>"}
@@ -327,7 +327,7 @@ def exercise_cycle(client: anthropic.Anthropic, state: dict) -> dict:
 
     t0 = time.perf_counter()
     with client.messages.stream(
-        model=MODEL, max_tokens=256,
+        model=MODEL, max_tokens=512,
         system=EXERCISE_SYSTEM,
         messages=[{"role": "user", "content": user_msg}],
     ) as stream:
@@ -538,7 +538,7 @@ def main() -> None:
 
         except json.JSONDecodeError as exc:
             log.error("JSON parse error: %s", exc)
-        except anthropic.OverloadedError:
+        except anthropic.InternalServerError:
             log.warning("API overloaded — retrying in %.0fs", retry_delay)
             time.sleep(retry_delay)
             retry_delay = min(retry_delay * 2, 60)
@@ -550,6 +550,9 @@ def main() -> None:
             continue
         except anthropic.APIError as exc:
             log.error("Anthropic API error: %s", exc)
+            time.sleep(retry_delay)
+            retry_delay = min(retry_delay * 2, 60)
+            continue
         except KeyboardInterrupt:
             log.info("Stopped by user.")
             break

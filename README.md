@@ -23,6 +23,27 @@ python auto_pilot_sidecar.py
 
 The sidecar is **not required** — the mod runs fully autonomously without it. When running, the sidecar uses Claude to override the rule-based brain with AI-driven decisions.
 
+### Cloud Agent -> Local Game Sync (Windows)
+
+If Copilot's cloud coding agent opens and merges a PR, those changes only exist in GitHub until you sync locally.
+
+```bat
+cd C:\Users\rodme\Zomboid\mods\auto_pilot
+sync_after_merge.bat
+```
+
+What this does:
+
+1. Fetches and fast-forwards your local `main` from `origin/main`
+2. If your repo is not the same as the live game mod folder, deploys `42/` + `auto_pilot_sidecar.py` into `%USERPROFILE%\Zomboid\mods\auto_pilot`
+
+Notes:
+
+- Script aborts if your working tree has local uncommitted changes
+- Optional branch argument: `sync_after_merge.bat main`
+- Optional custom deploy target via env var:
+  `set AUTO_PILOT_GAME_MOD_DIR=C:\path\to\Zomboid\mods\auto_pilot`
+
 ## Architecture
 
 Six Lua modules in `42/media/lua/client/`:
