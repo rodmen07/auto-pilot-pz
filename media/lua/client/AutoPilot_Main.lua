@@ -1,6 +1,7 @@
 -- AutoPilot_Main.lua
 -- Entry point. Registers the OnTick event and orchestrates all sub-modules.
 --
+-- luacheck: globals HaloTextHelper isKeyDown
 -- Updated for local autonomous survivor mode with prompt override.
 -- Ctrl+1: autopilot on/off
 -- Ctrl+2: prompt override (modal)
