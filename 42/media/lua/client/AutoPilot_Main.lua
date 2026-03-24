@@ -51,17 +51,15 @@ local function writeTelemetryEntry(entry)
     if not telemetryEnabled then return end
     local ok, fw = pcall(function() return getFileWriter(telemetryFilename, true, false) end)
     if not ok or not fw then return end
-    local line = ""
     if type(entry) == "table" then
         local parts = {}
         for k, v in pairs(entry) do
             table.insert(parts, tostring(k) .. "=" .. tostring(v))
         end
-        line = table.concat(parts, ",")
+        fw:write(table.concat(parts, ",") .. "\n")
     else
-        line = tostring(entry)
+        fw:write(tostring(entry) .. "\n")
     end
-    fw:write(line .. "\n")
     fw:close()
 end
 
@@ -70,7 +68,13 @@ local function markRunEnd(reason)
     local fw = getFileWriter(telemetryFlag, false, false)
     if not fw then return end
     local status = {status = "dead", reason = reason, timestamp = os.time()}
-    fw:write("{" .. "\"status\":\"dead\",\"reason\":\"" .. tostring(reason) .. "\",\"timestamp\":" .. tostring(status.timestamp) .. "}")
+    fw:write(
+        "{"
+        .. "\"status\":\"dead\","
+        .. "\"reason\":\"" .. tostring(reason) .. "\","
+        .. "\"timestamp\":" .. tostring(status.timestamp)
+        .. "}"
+    )
     fw:close()
 end
 
@@ -130,6 +134,26 @@ local function promptTimeoutCheck(player)
         return true
     end
     return false
+end
+
+local function updateStatusHUD(player)
+    if not player or mode == "off" then return end
+
+    local hunger = AutoPilot_Utils.safeStat(player, CharacterStat.HUNGER)
+    local thirst = AutoPilot_Utils.safeStat(player, CharacterStat.THIRST)
+    local fatigue = AutoPilot_Utils.safeStat(player, CharacterStat.FATIGUE)
+    local zombies = #AutoPilot_Threat.getNearbyZombies(player)
+    local priority = currentPriority or "auto"
+
+    local latest = string.format("[AP] %s | P:%s | H:%.0f%% T:%.0f%% F:%.0f%% Z:%d",
+        mode:upper(), priority, hunger * 100, thirst * 100, fatigue * 100, zombies)
+
+    if decisionPending and decisionPrompt ~= "" then
+        latest = latest .. " | PROMPT: " .. decisionPrompt
+    end
+
+    latest = latest .. " | Help: Ctrl+0"
+    HaloTextHelper.addText(player, latest)
 end
 
 local function _runThreatCheck(player)
@@ -238,8 +262,17 @@ local function onTick()
         local thirst = AutoPilot_Utils.safeStat(player, CharacterStat.THIRST)
         local fatigue = AutoPilot_Utils.safeStat(player, CharacterStat.FATIGUE)
         local zombies = #AutoPilot_Threat.getNearbyZombies(player)
-        writeTelemetryEntry({run_tick = tickCounter, mode = mode, hunger = hunger, thirst = thirst, fatigue = fatigue, zombies = zombies})
+        writeTelemetryEntry({
+            run_tick = tickCounter,
+            mode = mode,
+            hunger = hunger,
+            thirst = thirst,
+            fatigue = fatigue,
+            zombies = zombies
+        })
     end
+
+    updateStatusHUD(player)
 
     if _runThreatCheck(player) then return end
 
