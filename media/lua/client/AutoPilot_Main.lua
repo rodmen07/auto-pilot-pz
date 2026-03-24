@@ -32,6 +32,10 @@ local currentPriority = nil
 
 -- Debug/log state
 local debugEnabled = false
+local helpVisible = false
+local helpStartTime = 0
+local HELP_TIMEOUT = 20 -- seconds
+
 local telemetryEnabled = true
 local telemetryCounter = 0
 local telemetryFilename = "auto_pilot_run.log"
@@ -99,6 +103,20 @@ local function updatePromptDisplay(player)
     end
     if player then
         HaloTextHelper.addText(player, text)
+    end
+end
+
+local function updateHelpDisplay(player)
+    if not helpVisible then return end
+    local text = "[AutoPilot Help] Ctrl+0=Help, Ctrl+1=Auto, Ctrl+2=Prompt, Ctrl+3-7=Priority. H=Home.\n"
+    text = text .. "Survival: thirst/hunger/wounds/sleep/rest/brain. Safety: evade when threatened.\n"
+    text = text .. "Ctrl+0 again to close.\n"
+    if player then
+        HaloTextHelper.addText(player, text)
+    end
+    local now = getGameTime():getCalender():getTimeInMillis()/1000
+    if now - helpStartTime >= HELP_TIMEOUT then
+        helpVisible = false
     end
 end
 
@@ -225,6 +243,11 @@ local function onTick()
 
     if _runThreatCheck(player) then return end
 
+    if helpVisible then
+        updateHelpDisplay(player)
+        return
+    end
+
     if decisionPending then
         updatePromptDisplay(player)
         if promptTimeoutCheck(player) then return end
@@ -307,6 +330,12 @@ local function onKeyPressed(key)
             mode = "autopilot"
             sayMode(player)
         end
+    end
+
+    if key == Keyboard.KEY_0 and isCtrlDown() then
+        helpVisible = not helpVisible
+        helpStartTime = getGameTime():getCalender():getTimeInMillis()/1000
+        return
     end
 
     if key == Keyboard.KEY_H then
