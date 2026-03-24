@@ -31,11 +31,42 @@ local currentPriority = nil
 
 -- Debug/log state
 local debugEnabled = false
+local telemetryEnabled = true
+local telemetryCounter = 0
+local telemetryFilename = "auto_pilot_run.log"
+local telemetryFlag = "auto_pilot_run_end.json"
 
 local function apLog(msg)
     if debugEnabled then
         print("[AutoPilot] " .. tostring(msg))
     end
+end
+
+local function writeTelemetryEntry(entry)
+    if not telemetryEnabled then return end
+    local ok, fw = pcall(function() return getFileWriter(telemetryFilename, true, false) end)
+    if not ok or not fw then return end
+    local line = ""
+    if type(entry) == "table" then
+        local parts = {}
+        for k, v in pairs(entry) do
+            table.insert(parts, tostring(k) .. "=" .. tostring(v))
+        end
+        line = table.concat(parts, ",")
+    else
+        line = tostring(entry)
+    end
+    fw:write(line .. "\n")
+    fw:close()
+end
+
+local function markRunEnd(reason)
+    if not telemetryEnabled then return end
+    local fw = getFileWriter(telemetryFlag, false, false)
+    if not fw then return end
+    local status = {status = "dead", reason = reason, timestamp = os.time()}
+    fw:write("{" .. "\"status\":\"dead\",\"reason\":\"" .. tostring(reason) .. "\",\"timestamp\":" .. tostring(status.timestamp) .. "}")
+    fw:close()
 end
 
 local function sayMode(player)
@@ -172,10 +203,24 @@ local function onTick()
     tickCounter = 0
 
     local player = getPlayer()
-    if not player or player:isDead() then return end
+    if not player then return end
+
+    local deadOk, isDead = pcall(function() return player:isDead() end)
+    if deadOk and isDead then
+        markRunEnd("dead")
+        return
+    end
 
     local asleepOk, isAsleep = pcall(function() return player:isAsleep() end)
     if asleepOk and isAsleep then return end
+
+    if telemetryEnabled then
+        local hunger = AutoPilot_Utils.safeStat(player, CharacterStat.HUNGER)
+        local thirst = AutoPilot_Utils.safeStat(player, CharacterStat.THIRST)
+        local fatigue = AutoPilot_Utils.safeStat(player, CharacterStat.FATIGUE)
+        local zombies = #AutoPilot_Threat.getNearbyZombies(player)
+        writeTelemetryEntry({run_tick = tickCounter, mode = mode, hunger = hunger, thirst = thirst, fatigue = fatigue, zombies = zombies})
+    end
 
     if _runThreatCheck(player) then return end
 
