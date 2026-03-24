@@ -49,18 +49,19 @@ AutoPilot is a client-side mod for Project Zomboid Build 42 that runs a full sur
 [*]Home position persists across sessions via ModData
 [/list]
 
-[b]Optional: Claude LLM Sidecar[/b]
+[b]Local Autonomous Survivor Mode[/b]
 [list]
-[*]Run [code]auto_pilot_sidecar.py[/code] alongside the game for AI-driven goal mode
-[*]Provide a plain-English goal (e.g. "level Strength to 5") and Claude will plan and execute it
-[*]Requires an Anthropic API key — see [url=https://github.com/rodmen07/auto-pilot-pz]the GitHub repo[/url] for setup
+[*]No sidecar required — all decision logic runs inside the mod.
+[*]Send prompt override with [b]2[/b] and choose a priority with [b]3[/b]-[b]7[/b].
+[*]Select from survival, safety, comfort, training, status.
 [/list]
 
 [h2]Controls[/h2]
 [list]
-[*][b]F7[/b] — Set home base at current position
-[*][b]F8[/b] — Toggle AutoPilot on/off
-[*][b]H[/b] — Halt all queued actions immediately
+[*][b]Ctrl+1[/b] — Toggle autopilot on/off
+[*][b]Ctrl+2[/b] — Enter prompt override
+[*][b]Ctrl+3[/b]-[b]Ctrl+7[/b] — Prompt options (when prompt active)
+[*][b]H[/b]  — Halt all queued actions immediately
 [/list]
 
 [h2]Compatibility[/h2]

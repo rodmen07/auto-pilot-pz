@@ -41,8 +41,4 @@ mkdir -p "${DEST}"
 echo "Copying 42/ …"
 cp -r "${SCRIPT_DIR}/42" "${DEST}/"
 
-echo "Copying sidecar …"
-cp "${SCRIPT_DIR}/auto_pilot_sidecar.py" "${DEST}/auto_pilot_sidecar.py"
-
-echo ""
 echo "Deploy complete → ${DEST}"

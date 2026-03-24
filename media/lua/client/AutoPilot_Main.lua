@@ -1,158 +1,87 @@
 -- AutoPilot_Main.lua
 -- Entry point. Registers the OnTick event and orchestrates all sub-modules.
 --
--- SPLITSCREEN NOTE: Module-level variables (mode, tickCounter, actionCooldown)
--- are shared across all local players.  Splitscreen is NOT supported — the mod
--- targets a single local player (getPlayer() / player index 0) only.
+-- Updated for local autonomous survivor mode with prompt override.
+-- Ctrl+1: autopilot on/off
+-- Ctrl+2: prompt override (modal)
+-- Ctrl+3-7: prompt option selection
 --
--- Modes:
---   EXERCISE (F7) — autonomous: survival needs + exercise when idle
---   PILOT    (F8) — survival needs + LLM commands when idle (no exercise)
---
--- Both modes share identical survival logic (Needs.check).
--- The only difference: exercise mode exercises when idle, pilot mode
--- waits for LLM commands instead.
---
--- Execution order each cycle:
---   1. LLM tick     — write state file, read any pending command
---   2. Threat       — highest priority; interrupts queue if zombies nearby
---   3. Survival     — needs check (both modes, skip exercise in pilot)
---   4. LLM cmd      — apply any pending command (both modes)
+-- Sidecar/LLM logic removed; all behavior is local.
 
 AutoPilot = {}
 
--- How often the main loop runs (in game ticks).
--- PZ runs at ~20 ticks/second; 15 ticks ≈ 0.75s between evaluations.
 local TICK_INTERVAL = 15
-local tickCounter   = 0  -- counts OnTick calls; resets to 0 every TICK_INTERVAL ticks
+local tickCounter = 0
 
--- Modes: "off", "exercise", "pilot"
+-- Modes: "off", "autopilot", "prompt"
 local mode = "off"
 local actionCooldown = 0
--- 4 cycles × 15 ticks/cycle ÷ 20 ticks/s ≈ 3 s between consecutive actions.
 local ACTION_COOLDOWN_CYCLES = 4
 
--- ── LLM command handlers ──────────────────────────────────────────────────────
--- Named functions instead of inline lambdas so stack traces name the handler.
+-- Prompt override state
+local decisionPending = false
+local decisionPrompt = ""
+local decisionOptions = {}
+local decisionCallback = nil
+local decisionStartTime = 0
+local PROMPT_TIMEOUT = 30 -- seconds
 
-local function _llmEat(p)      AutoPilot_Needs.check(p) end
-local function _llmDrink(p)    AutoPilot_Needs.check(p) end
-local function _llmSleep(p)    AutoPilot_Needs.trySleep(p) end
-local function _llmRest(p)     ISTimedActionQueue.clear(p) end
-local function _llmExercise(p) AutoPilot_Needs.check(p) end
-local function _llmOutside(p)  AutoPilot_Needs.check(p) end
-local function _llmFight(p)    AutoPilot_Threat.forceFight(p) end
-local function _llmFlee(p)     AutoPilot_Threat.forceFlee(p) end
-local function _llmBandage(p)  AutoPilot_Medical.check(p, false) end
-local function _llmIdle(p)     AutoPilot_Needs.check(p) end
+-- Current priority override active after prompt
+local currentPriority = nil
 
-local function _llmSearchItem(p, cmd)
-    local keyword = cmd.reason or ""
-    if keyword == "" then
-        AutoPilot_LLM.log("[Main] search_item: no keyword in reason field.")
-        return
-    end
-    local results = AutoPilot_Inventory.searchItem(p, keyword)
-    if results and #results > 0 then
-        AutoPilot_LLM.log("[Main] search_item: found " .. #results
-            .. " result(s) for '" .. keyword .. "'.")
-    else
-        AutoPilot_LLM.log("[Main] search_item: nothing found for '" .. keyword .. "'.")
+-- Debug/log state
+local debugEnabled = false
+
+local function apLog(msg)
+    if debugEnabled then
+        print("[AutoPilot] " .. tostring(msg))
     end
 end
 
-local function _llmLootItem(p, cmd)
-    local keyword = cmd.reason or ""
-    if keyword == "" then
-        AutoPilot_LLM.log("[Main] loot_item: no keyword in reason field.")
-        return
+local function sayMode(player)
+    local label = mode:upper()
+    if player then
+        if mode == "off" then
+            HaloTextHelper.addBadText(player, "AutoPilot: OFF")
+        else
+            HaloTextHelper.addGoodText(player, "AutoPilot: " .. label)
+        end
     end
-    if AutoPilot_Inventory.lootItem(p, keyword) then
-        AutoPilot_LLM.log("[Main] loot_item: looting '" .. keyword .. "'.")
-    else
-        AutoPilot_LLM.log("[Main] loot_item: could not find '" .. keyword .. "' nearby.")
+    apLog("Mode: " .. label)
+end
+
+local function clearPrompt()
+    decisionPending = false
+    decisionPrompt = ""
+    decisionOptions = {}
+    decisionCallback = nil
+    decisionStartTime = 0
+end
+
+local function updatePromptDisplay(player)
+    if not decisionPending then return end
+    local text = "[Prompt] " .. decisionPrompt .. "\n"
+    for i, opt in ipairs(decisionOptions) do
+        local keynum = 2 + i
+        text = text .. string.format("Ctrl+%d: %s  ", keynum, opt)
     end
-end
-
-local function _llmPlaceItem(p, cmd)
-    local keyword = cmd.reason or ""
-    if keyword == "" then
-        AutoPilot_LLM.log("[Main] place_item: no keyword in reason field.")
-        return
-    end
-    if AutoPilot_Inventory.placeItem(p, keyword) then
-        AutoPilot_LLM.log("[Main] place_item: placing '" .. keyword .. "'.")
-    else
-        AutoPilot_LLM.log("[Main] place_item: failed for '" .. keyword .. "'.")
-    end
-end
-
--- Delegate to AutoPilot_Actions — all walk_to logic lives there.
-local function _llmWalkTo(p, cmd)
-    AutoPilot_Actions.execute(p, "walk_to", cmd.reason or "")
-end
-
-local function _llmStop(p)
-    ISTimedActionQueue.clear(p)
-    AutoPilot_LLM.log("[Main] Stopped — queue cleared.")
-end
-
-local function _llmChain(p, cmd)
-    local steps = cmd.steps or ""
-    AutoPilot_LLM.log("[Main] Chain received: " .. steps)
-    AutoPilot_Actions.executeChain(p, steps)
-end
-
-local function _llmStatus(p)
-    local snap = AutoPilot_Needs.getMoodleSnapshot(p)
-    local parts = {}
-    for k, v in pairs(snap) do
-        table.insert(parts, k .. "=" .. tostring(v))
-    end
-    AutoPilot_LLM.log("[Main] Status: " .. table.concat(parts, " "))
-end
-
--- ── LLM command executor ──────────────────────────────────────────────────────
-
-local LLM_ACTION_MAP = {
-    eat         = _llmEat,
-    drink       = _llmDrink,
-    sleep       = _llmSleep,
-    rest        = _llmRest,
-    exercise    = _llmExercise,
-    outside     = _llmOutside,
-    fight       = _llmFight,
-    flee        = _llmFlee,
-    bandage     = _llmBandage,
-    idle        = _llmIdle,
-    search_item = _llmSearchItem,
-    loot_item   = _llmLootItem,
-    place_item  = _llmPlaceItem,
-    walk_to     = _llmWalkTo,
-    stop        = _llmStop,
-    chain       = _llmChain,
-    status      = _llmStatus,
-}
-
-local function applyLLMCommand(player, cmd)
-    local fn = LLM_ACTION_MAP[cmd.action]
-    if fn then
-        AutoPilot_LLM.log("[Main] Command: " .. cmd.action
-            .. (cmd.reason and (" — " .. cmd.reason) or ""))
-        fn(player, cmd)
-    else
-        AutoPilot_LLM.log("[Main] Unknown action: " .. tostring(cmd.action))
+    if player then
+        HaloTextHelper.addText(player, text)
     end
 end
 
--- ── Main tick helpers ─────────────────────────────────────────────────────────
-
--- Step 1: write state file + read any pending command from the sidecar.
-local function _runLLMCycle(player)
-    AutoPilot_LLM.tick(player)
+local function promptTimeoutCheck(player)
+    if not decisionPending then return false end
+    local now = getGameTime():getCalender():getTimeInMillis() / 1000
+    if now - decisionStartTime >= PROMPT_TIMEOUT then
+        apLog("Prompt timed out; reverting to autopilot")
+        clearPrompt()
+        mode = "autopilot"
+        return true
+    end
+    return false
 end
 
--- Step 2: run threat check; set cooldown and return true if a threat was handled.
 local function _runThreatCheck(player)
     if AutoPilot_Threat.check(player) then
         actionCooldown = ACTION_COOLDOWN_CYCLES
@@ -161,132 +90,187 @@ local function _runThreatCheck(player)
     return false
 end
 
--- Step 5: run survival-needs check; set cooldown and return true if acted.
--- skipExercise=true in pilot mode so idle falls through to LLM commands.
-local function _runNeedsCheck(player, skipExercise)
-    if AutoPilot_Needs.check(player, skipExercise) then
+local function _runNeedsCheck(player)
+    if AutoPilot_Needs.check(player) then
         actionCooldown = ACTION_COOLDOWN_CYCLES
         return true
     end
     return false
 end
 
--- ── Main tick ─────────────────────────────────────────────────────────────────
+local function _clearCurrentPriorityIfSatisfied(player)
+    if not currentPriority then return end
+
+    local satisfied = false
+    local zombiesNearby = #AutoPilot_Threat.getNearbyZombies(player)
+
+    if currentPriority == "survival" then
+        local thirst = AutoPilot_Utils.safeStat(player, CharacterStat.THIRST)
+        local hunger = AutoPilot_Utils.safeStat(player, CharacterStat.HUNGER)
+        local hasCritical = AutoPilot_Medical.hasCriticalWound(player)
+        satisfied = thirst < 0.2 and hunger < 0.2 and not hasCritical
+        if zombiesNearby > 0 then satisfied = false end
+    elseif currentPriority == "safety" then
+        satisfied = zombiesNearby == 0
+    elseif currentPriority == "comfort" then
+        local tired = AutoPilot_Utils.safeStat(player, CharacterStat.FATIGUE)
+        satisfied = tired < 0.7
+    elseif currentPriority == "training" then
+        local endurance = AutoPilot_Utils.safeStat(player, CharacterStat.ENDURANCE)
+        satisfied = endurance < 0.5 or AutoPilot_Needs.getExerciseSetsToday() >= AutoPilot_Constants.EXERCISE_DAILY_CAP
+    elseif currentPriority == "status" then
+        satisfied = true
+    end
+
+    if satisfied then
+        apLog("Priority " .. tostring(currentPriority) .. " satisfied; resuming autopilot")
+        currentPriority = nil
+    end
+end
+
+local function _runPriorityAction(player)
+    if not currentPriority then return false end
+
+    if currentPriority == "survival" then
+        if _runNeedsCheck(player) then return true end
+    elseif currentPriority == "safety" then
+        if _runThreatCheck(player) then return true end
+        currentPriority = nil
+        return false
+    elseif currentPriority == "comfort" then
+        if _runNeedsCheck(player) then return true end
+        if AutoPilot_Needs.tryGoOutside(player) then return true end
+        if AutoPilot_Needs.trySleep(player) then return true end
+        currentPriority = nil
+        return false
+    elseif currentPriority == "training" then
+        if AutoPilot_Needs.check(player) then return true end
+        currentPriority = nil
+        return false
+    elseif currentPriority == "status" then
+        currentPriority = nil
+        return false
+    end
+
+    return false
+end
+
+local function isCtrlDown()
+    local ok, val = pcall(function()
+        return isKeyDown and (isKeyDown(Keyboard.KEY_LCONTROL) or isKeyDown(Keyboard.KEY_RCONTROL))
+    end)
+    return ok and val
+end
 
 local function onTick()
     if mode == "off" then return end
 
-    -- Guard: module state is not splitscreen-safe; disable in splitscreen.
     if getPlayerCount and getPlayerCount() > 1 then return end
 
     tickCounter = tickCounter + 1
     if tickCounter < TICK_INTERVAL then return end
     tickCounter = 0
 
-    -- getPlayer() returns player index 0 only; splitscreen player 1+ is not
-    -- supported.  All automation targets the single local player.
     local player = getPlayer()
     if not player or player:isDead() then return end
 
-    -- Don't act while the character is asleep — PZ handles waking automatically
     local asleepOk, isAsleep = pcall(function() return player:isAsleep() end)
     if asleepOk and isAsleep then return end
 
-    -- 1. LLM housekeeping (write state, read command) — always runs in both modes
-    _runLLMCycle(player)
-
-    -- 2. Threat check — always runs in both modes (survival trumps everything)
     if _runThreatCheck(player) then return end
 
-    -- 3. Action cooldown
+    if decisionPending then
+        updatePromptDisplay(player)
+        if promptTimeoutCheck(player) then return end
+        return
+    end
+
+    if currentPriority then
+        _clearCurrentPriorityIfSatisfied(player)
+        if currentPriority and _runPriorityAction(player) then return end
+        if not currentPriority then
+            apLog("Priority cleared; continuing normal autopilot")
+        end
+    end
+
+    if _runThreatCheck(player) then return end
+
     if actionCooldown > 0 then
         actionCooldown = actionCooldown - 1
         return
     end
 
-    -- 4. Let running actions complete; only interrupt exercise for urgent needs
     if ISTimedActionQueue.isPlayerDoingAction(player) then
         local actionQueue = ISTimedActionQueue.getTimedActionQueue(player)
         local currentAction = actionQueue and actionQueue.queue and actionQueue.queue[1]
         local isExercise = currentAction and currentAction.Type == "ISFitnessAction"
         if isExercise and AutoPilot_Needs.shouldInterrupt(player) then
-            AutoPilot_LLM.log("[Main] Interrupting exercise for urgent need.")
+            apLog("Interrupting exercise for urgent need.")
             ISTimedActionQueue.clear(player)
         else
             return
         end
     end
 
-    -- 5. Survival needs — runs in BOTH modes (identical logic).
-    if _runNeedsCheck(player, mode == "pilot") then return end
-
-    -- 6. LLM/piped command — runs in BOTH modes
-    local cmd = AutoPilot_LLM.consumeCommand()
-    if cmd then
-        applyLLMCommand(player, cmd)
-        actionCooldown = ACTION_COOLDOWN_CYCLES
-        return
-    end
-end
-
--- ── Keybindings ──────────────────────────────────────────────────────────────
--- F7: cycle off → exercise → off
--- F8: cycle off → pilot → off   (or switch between exercise/pilot if already on)
-
-local function sayMode(player)
-    local label = mode:upper()
-    AutoPilot_LLM.log("[Main] Mode: " .. label)
-    if player then
-        if mode == "off" then
-            HaloTextHelper.addBadText(player, "AutoPilot: OFF")
-        else
-            HaloTextHelper.addGoodText(player, "AutoPilot: " .. label)
-        end
-    end
+    if _runNeedsCheck(player) then return end
 end
 
 local function onKeyPressed(key)
     local player = getPlayer()
 
-    if key == Keyboard.KEY_F7 then
-        if mode == "exercise" then
+    if not isCtrlDown() then
+        return
+    end
+
+    if key == Keyboard.KEY_1 then
+        if mode == "autopilot" then
             mode = "off"
+            clearPrompt()
+            currentPriority = nil
         else
-            mode = "exercise"
-            -- Auto-set home on first enable if not already set
-            if not AutoPilot_Home.isSet(player) then
+            mode = "autopilot"
+            if player and not AutoPilot_Home.isSet(player) then
                 AutoPilot_Home.set(player)
-                AutoPilot_LLM.log("[Main] AutoPilot enabled — home auto-set to current position.")
-                -- Phase 4: trigger one-time barricade check after home is set
-                AutoPilot_Barricade.doBarricade(player)
+                apLog("AutoPilot enabled — home set to current position.")
             end
         end
         sayMode(player)
 
-    elseif key == Keyboard.KEY_F8 then
-        if mode == "pilot" then
-            mode = "off"
-        else
-            mode = "pilot"
-            -- Auto-set home on first enable if not already set
-            if not AutoPilot_Home.isSet(player) then
-                AutoPilot_Home.set(player)
-                AutoPilot_LLM.log("[Main] AutoPilot enabled — home auto-set to current position.")
+    elseif key == Keyboard.KEY_2 then
+        if mode == "autopilot" and not decisionPending then
+            decisionPending = true
+            mode = "prompt"
+            decisionPrompt = "Choose priority"
+            decisionOptions = {"survival", "safety", "comfort", "training", "status"}
+            decisionCallback = function(option)
+                currentPriority = option
+                apLog("Selected prompt priority: " .. option)
             end
+            decisionStartTime = getGameTime():getCalender():getTimeInMillis() / 1000
+            sayMode(player)
         end
-        sayMode(player)
 
-    elseif key == Keyboard.KEY_H then
-        -- Set/reset home position while AutoPilot is active
+    elseif key >= Keyboard.KEY_3 and key <= Keyboard.KEY_7 then
+        if mode == "prompt" and decisionPending then
+            local idx = key - Keyboard.KEY_3 + 1
+            local option = decisionOptions[idx]
+            if option and decisionCallback then
+                decisionCallback(option)
+            end
+            clearPrompt()
+            mode = "autopilot"
+            sayMode(player)
+        end
+    end
+
+    if key == Keyboard.KEY_H then
         if mode ~= "off" and player then
             AutoPilot_Home.set(player)
         end
     end
 end
 
--- ── Event registration ────────────────────────────────────────────────────────
-
 Events.OnTick.Add(onTick)
 Events.OnKeyPressed.Add(onKeyPressed)
 
-AutoPilot_LLM.log("[Main] AutoPilot loaded. F7 = Exercise mode, F8 = Pilot mode.")
+print("[AutoPilot] AutoPilot loaded. Ctrl+1=Autopilot, Ctrl+2=Prompt, Ctrl+3-7=Prompt options, H=Set Home.")

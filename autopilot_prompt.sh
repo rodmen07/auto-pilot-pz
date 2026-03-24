@@ -6,8 +6,8 @@
 #   bash autopilot_prompt.sh "find food and water, then barricade the house"
 #   bash autopilot_prompt.sh "level carpentry by building stuff"
 #
-# The sidecar (auto_pilot_sidecar.py --pilot) reads this file and plans
-# multi-step actions to achieve the goal.
+# Sidecar support has been removed; prompt override is now built into AutoPilot.
+# Use 2 in-game to trigger the prompt, and 3-7 for options.
 
 PROMPT_FILE="$HOME/Zomboid/Lua/auto_pilot_prompt.txt"
 

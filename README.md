@@ -9,19 +9,22 @@ AFK auto-leveler for Strength and Fitness. Keeps your character alive through au
 
 1. Prerequisite: The mod is already installed at `~/Zomboid/mods/auto_pilot/`
 2. Launch Project Zomboid, enable **AutoPilot** in the mod list
-3. Load into a game and press **F7** to toggle on/off
+3. Load into a game and press **F3** to toggle autopilot on/off
 4. Watch the console (`ProjectZomboid64ShowConsole.bat`) for `[AutoPilot]` log messages
 
-### Optional: Run with AI sidecar
+### Controls (local autonomous survivor)
 
-```bash
-cd ~/Zomboid/mods/auto_pilot
-pip install anthropic
-set ANTHROPIC_API_KEY=sk-ant-...
-python auto_pilot_sidecar.py
-```
+- Ctrl+1: toggle autopilot on/off
+- Ctrl+2: prompt override (asks for priority)
+- Ctrl+3: select prompt priority 1 (survival)
+- Ctrl+4: select prompt priority 2 (safety)
+- Ctrl+5: select prompt priority 3 (comfort)
+- Ctrl+6: select prompt priority 4 (training)
+- Ctrl+7: select prompt priority 5 (status)
 
-The sidecar is **not required** — the mod runs fully autonomously without it. When running, the sidecar uses Claude to override the rule-based brain with AI-driven decisions.
+- H: set/reset home position while autopilot is active
+
+The mod is fully autonomous and no external AI service is needed. Autopilot will return to normal behavior automatically 30 seconds after the prompt if no selection is made.
 
 ### Cloud Agent -> Local Game Sync (Windows)
 
@@ -50,12 +53,11 @@ Six Lua modules in `42/media/lua/client/`:
 
 | Module | Purpose |
 |--------|---------|
-| `AutoPilot_Main.lua` | Orchestrator — OnTick loop, F7 toggle, LLM command dispatch |
-| `AutoPilot_Needs.lua` | Priority-based survival state machine |
+| `AutoPilot_Main.lua` | Orchestrator — OnTick loop, F3 autopilot toggle, prompt dispatch || `AutoPilot_Needs.lua` | Priority-based survival state machine |
 | `AutoPilot_Threat.lua` | Zombie detection, fight/flee logic |
 | `AutoPilot_Inventory.lua` | Item scanning, water sources, auto-loot |
 | `AutoPilot_Medical.lua` | Wound detection and auto-bandage |
-| `AutoPilot_LLM.lua` | File-based IPC with optional Python/Claude sidecar |
+| `AutoPilot_LLM.lua` | Minimal logger compatibility adapter (no sidecar IPC) |
 
 ### Priority Chain (AutoPilot_Needs)
 
@@ -150,15 +152,14 @@ Publish the mod for others to use. Completing this phase marks the **V1.0** publ
 
 ---
 
-## AI-Driven Architecture
+## Local-Only Architecture
 
 ### Current State
 
-The mod has a **dual-brain design**:
+The mod is now designed as a single local brain only:
 
-1. **Rule-based Lua brain** (primary) — The `AutoPilot_Needs` priority chain handles all decisions locally inside PZ. This is deterministic, zero-latency, and requires no external dependencies. It works today.
-
-2. **Claude LLM brain** (optional sidecar) — `auto_pilot_sidecar.py` polls game state every ~2s, asks Claude for the next action, and writes the command back via file IPC. When active, LLM commands override the rule-based brain.
+- **Rule-based Lua brain** — `AutoPilot_Needs` checks survival needs, threat response, and exercise decisions entirely locally.
+- **No sidecar required** — `auto_pilot_sidecar.py` support has been removed.
 
 ### The Constraint
 

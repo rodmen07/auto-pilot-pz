@@ -506,9 +506,8 @@ function AutoPilot_Needs.shouldInterrupt(player)
     return false
 end
 
---- Main survival needs check. Both modes call this.
---- @param skipExercise boolean  If true, skip the idle→exercise step (pilot mode).
-function AutoPilot_Needs.check(player, skipExercise)
+--- Main survival needs check.
+function AutoPilot_Needs.check(player)
     -- 1. Bleeding — treat immediately (fatal if untreated)
     if AutoPilot_Medical.hasCriticalWound(player) then
         if AutoPilot_Medical.check(player, true) then return true end
@@ -589,8 +588,7 @@ function AutoPilot_Needs.check(player, skipExercise)
         end
     end
 
-    -- 8. Idle -> exercise (exercise mode only)
-    if skipExercise then return false end
+    -- 8. Idle -> exercise (default behavior)
     return doExercise(player)
 end
 
@@ -642,4 +640,39 @@ function AutoPilot_Needs.getMoodleSnapshot(player)
         bored    = math.floor(AutoPilot_Utils.safeStat(player, CharacterStat.BOREDOM)),
         sad      = math.floor(AutoPilot_Utils.safeStat(player, CharacterStat.SANITY)),
     }
+end
+
+--- Force a single survival action if needed.
+function AutoPilot_Needs.forceSurvival(player)
+    return AutoPilot_Needs.check(player)
+end
+
+function AutoPilot_Needs.forceEat(player)
+    return doEat(player)
+end
+
+function AutoPilot_Needs.forceDrink(player)
+    return doDrink(player)
+end
+
+function AutoPilot_Needs.forceSleep(player)
+    return doSleep(player)
+end
+
+function AutoPilot_Needs.forceRest(player)
+    return doRest(player)
+end
+
+function AutoPilot_Needs.forceExercise(player)
+    return doExercise(player)
+end
+
+function AutoPilot_Needs.printStatus(player)
+    local moodles = AutoPilot_Needs.getMoodleSnapshot(player)
+    AutoPilot_LLM.log(string.format(
+        "[Needs] Status: health=%.0f%% endurance=%.0f%% hungry=%d thirsty=%d tired=%d bored=%d",
+        player:getHealth() * 100,
+        AutoPilot_Utils.safeStat(player, CharacterStat.ENDURANCE) * 100,
+        moodles.hungry, moodles.thirsty, moodles.tired, moodles.bored
+    ))
 end

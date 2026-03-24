@@ -71,7 +71,5 @@ if %RC% GEQ 8 (
     exit /b %RC%
 )
 
-copy /Y "%REPO_DIR%auto_pilot_sidecar.py" "%DEST%\auto_pilot_sidecar.py" >nul || exit /b 1
-
 echo Deploy complete.
 exit /b 0

@@ -6,7 +6,7 @@ Check each box when verified. A fresh character starts with no skills and no hom
 ## Setup
 - [ ] Mod loads without Lua errors in PZ console
 - [ ] F7 sets home base (chat log shows "[Home] Home set at X,Y,Z r=15")
-- [ ] F8 toggles bot on (chat log shows "[AutoPilot] Started")
+- [ ] 1 toggles autopilot on (chat log shows "[AutoPilot] Started")
 - [ ] H halts all queued actions
 
 ## Survival Needs
@@ -46,11 +46,11 @@ Check each box when verified. A fresh character starts with no skills and no hom
 - [ ] Bot actions affect only the local player (no cross-player item transfers)
 - [ ] Home ModData persists after reconnect
 
-## LLM Sidecar (optional)
-- [ ] `auto_pilot_sidecar.py` starts without error
-- [ ] State JSON updates every ~10 seconds (check auto_pilot_state.json)
-- [ ] Issuing a goal in PILOT mode produces a command within 30 seconds
-- [ ] `--model` CLI arg overrides default model
+## Prompt override
+- [ ] Press 2 to enter prompt override (modal)
+- [ ] Press 3-7 to select a priority during prompt
+- [ ] Priority selection ends and autopilot resumes
+- [ ] Prompt times out after 30 seconds and autopilot auto-resumes
 
 ## Clean-up
 - [ ] No Lua errors in console after 10+ minutes of bot operation

@@ -143,7 +143,7 @@ do
     local player = MockPlayer.new({
         stats = { HUNGER = 0.50, THIRST = 0.50, FATIGUE = 0.05, ENDURANCE = 0.90 },
     })
-    local result = AutoPilot_Needs.check(player, true)
+    local result = AutoPilot_Needs.check(player)
     assert_true("check() returns true when bleeding", result)
     assert_eq("action queued is 'bandage'", last_action_type(), "bandage")
 end
@@ -162,7 +162,7 @@ do
             ENDURANCE = 0.90,
         },
     })
-    local result = AutoPilot_Needs.check(player, true)
+    local result = AutoPilot_Needs.check(player)
     assert_true("check() returns true when thirsty", result)
     -- doDrink queues an ISEatFoodAction (PZ uses this for liquids too)
     assert_eq("action queued is 'eat' (drink via ISEatFoodAction)", last_action_type(), "eat")
@@ -185,7 +185,7 @@ do
             ENDURANCE = 0.90,
         },
     })
-    local result = AutoPilot_Needs.check(player, true)
+    local result = AutoPilot_Needs.check(player)
     assert_true("check() returns true when hungry", result)
     assert_eq("action queued is 'eat'", last_action_type(), "eat")
 end
@@ -204,7 +204,7 @@ do
     })
     -- No bed available (getCell() returns nil), so doSleep returns false.
     -- The test verifies the sleep path was entered (no eat/drink queued).
-    local result = AutoPilot_Needs.check(player, true)
+    local result = AutoPilot_Needs.check(player)
     assert_false("check() returns false when fatigued but no bed found", result)
     assert_eq("no eat/drink action queued on fatigue path", last_action_type(), nil)
 end
@@ -222,12 +222,12 @@ do
         },
         moodles = { ENDURANCE = 0 },
     })
-    AutoPilot_Needs.check(player, true)
+    AutoPilot_Needs.check(player)
     -- No furniture found → falls back to ISSitOnGround
     assert_eq("action queued is 'rest'", last_action_type(), "rest")
 end
 
--- 6. All needs met, skipExercise=false → exercise
+-- 6. All needs met → exercise
 print("\n-- Test 6: All needs met → exercise")
 do
     reset()
@@ -243,7 +243,7 @@ do
         moodles = { ENDURANCE = 0, Unhappy = 0 },
         perks   = { Strength = 3, Fitness = 3 },
     })
-    AutoPilot_Needs.check(player, false)    -- skipExercise = false
+    AutoPilot_Needs.check(player)    -- skipExercise = false
     assert_eq("action queued is 'exercise'", last_action_type(), "exercise")
 end
 
@@ -262,7 +262,7 @@ do
             ENDURANCE = 0.90,
         },
     })
-    local result = AutoPilot_Needs.check(player, true)
+    local result = AutoPilot_Needs.check(player)
     assert_true("check() returns true when bleeding+thirsty", result)
     assert_eq("bandage beats drink (bleeding is highest priority)", last_action_type(), "bandage")
 end
@@ -308,8 +308,8 @@ do
     assert_true("shouldInterrupt returns true when thirsty", result)
 end
 
--- 11. skipExercise=true → no exercise queued even when all needs are met
-print("\n-- Test 11: skipExercise flag suppresses exercise")
+-- 11. check() with no urgent needs queues exercise
+print("\n-- Test 11: check() queues exercise when no urgent needs")
 do
     reset()
     local player = MockPlayer.new({
@@ -324,9 +324,9 @@ do
         moodles = { ENDURANCE = 0, Unhappy = 0 },
         perks   = { Strength = 3, Fitness = 3 },
     })
-    local result = AutoPilot_Needs.check(player, true)  -- skipExercise = true
-    assert_false("check() returns false when skipExercise=true and no needs", result)
-    assert_eq("no exercise action queued", last_action_type(), nil)
+    local result = AutoPilot_Needs.check(player)
+    assert_true("check() returns true when no urgent needs and exercise queued", result)
+    assert_eq("exercise action queued", last_action_type(), "exercise")
 end
 
 -- 12. preferredExerciseType: lower Strength → prefer strength training
