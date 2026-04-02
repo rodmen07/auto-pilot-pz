@@ -6,7 +6,7 @@ Check each box when verified. A fresh character starts with no skills and no hom
 ## Setup
 - [ ] Mod loads without Lua errors in PZ console
 - [ ] F10 toggles autopilot on/off (HUD shows OFF/ON)
-- [ ] H sets or resets home base (chat log shows "[Home] Home set at X,Y,Z r=15")
+- [ ] First enable auto-sets home base (console shows "[Home] Home set at X, Y (z=Z, r=R)")
 
 ## Survival Needs
 - [ ] Bot eats when hungry (selects food from inventory or loots nearby)
@@ -35,9 +35,9 @@ Check each box when verified. A fresh character starts with no skills and no hom
 - [ ] Bot expands search after 5 empty cycles (set SUPPLY_RUN_TRIGGER=1 for faster test)
 
 ## Home & Barricade
-- [ ] Bot stays within 15-tile home radius for all non-combat activities
-- [ ] On F7, windows near home are nailed (requires nails + hammer in inventory)
-- [ ] Barricade does not repeat on second F7 press (ModData flag set)
+- [ ] Bot stays within home bounds for all non-combat activities
+- [ ] On first enable with nails + hammer, windows near home are queued for barricading
+- [ ] Barricade does not repeat on later toggles/re-enables (ModData flag set)
 - [ ] Home position reloads correctly after save/quit/reload
 
 ## Multiplayer (private server)

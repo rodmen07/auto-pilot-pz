@@ -376,9 +376,10 @@ local function doSleep(player)
                     if okType and typ then lower = lower .. typ:lower() end
                     if okName and name then lower = lower .. " " .. name:lower() end
                     if lower:find("painkill") or lower:find("aspirin") or lower:find("paracetamol") then
+                        local takePill = rawget(_G, "ISTakePillAction")
                         local okUse = pcall(function()
-                            if ISTakePillAction and ISTakePillAction.new then
-                                ISTimedActionQueue.add(ISTakePillAction:new(player, item))
+                            if takePill and takePill.new then
+                                ISTimedActionQueue.add(takePill:new(player, item))
                             else
                                 ISTimedActionQueue.add(ISEatFoodAction:new(player, item, 1))
                             end
@@ -534,7 +535,9 @@ local function doRead(player)
         -- Fallback debug checks (safe): query trait presence if possible
         local traitOk, hasIll = pcall(function()
             if player and player.HasTrait then return player:HasTrait("Illiterate") end
-            if player and player.getDescriptor and player:getDescriptor().hasTrait then return player:getDescriptor():hasTrait("Illiterate") end
+            if player and player.getDescriptor and player:getDescriptor().hasTrait then
+                return player:getDescriptor():hasTrait("Illiterate")
+            end
             return false
         end)
         print(("[Needs] literacy fallback checks: HasTrait ok=%s value=%s")
@@ -549,8 +552,8 @@ local function doRead(player)
     end
 
     -- Check if too dark to read
-    local ok, tooDark = pcall(function() return player:tooDarkToRead() end)
-    if ok and tooDark then
+    local darkOk, tooDark = pcall(function() return player:tooDarkToRead() end)
+    if darkOk and tooDark then
         print("[Needs] Too dark to read.")
         return false
     end

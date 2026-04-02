@@ -21,6 +21,36 @@ local telemetryEnabled = true
 local telemetryFilename = "auto_pilot_run.log"
 local telemetryFlag = "auto_pilot_run_end.json"
 
+local function hudAddText(player, text)
+    local halo = rawget(_G, "HaloTextHelper")
+    if halo and halo.addText then
+        halo.addText(player, text)
+    end
+end
+
+local function hudAddGood(player, text)
+    local halo = rawget(_G, "HaloTextHelper")
+    if halo and halo.addGoodText then
+        halo.addGoodText(player, text)
+    end
+end
+
+local function hudAddBad(player, text)
+    local halo = rawget(_G, "HaloTextHelper")
+    if halo and halo.addBadText then
+        halo.addBadText(player, text)
+    end
+end
+
+local function playConfirmSfx()
+    local getSm = rawget(_G, "getSoundManager")
+    if not getSm then return end
+    local ok, sm = pcall(getSm)
+    if ok and sm and sm.playSound then
+        pcall(function() sm:playSound("UIConfirm") end)
+    end
+end
+
 local function apLog(msg)
     if debugEnabled then
         print("[AutoPilot] " .. tostring(msg))
@@ -50,8 +80,8 @@ local function markRunEnd(reason)
     local status = {status = "dead", reason = reason, timestamp = os.time()}
     fw:write(
         "{"
-        .. "\"status\":\"dead\"," 
-        .. "\"reason\":\"" .. tostring(reason) .. "\"," 
+        .. "\"status\":\"dead\","
+        .. "\"reason\":\"" .. tostring(reason) .. "\","
         .. "\"timestamp\":" .. tostring(status.timestamp)
         .. "}"
     )
@@ -62,9 +92,9 @@ local function sayMode(player)
     local label = mode:upper()
     if player then
         if mode == "off" then
-            HaloTextHelper.addBadText(player, "AutoPilot: OFF")
+            hudAddBad(player, "AutoPilot: OFF")
         else
-            HaloTextHelper.addGoodText(player, "AutoPilot: " .. label)
+            hudAddGood(player, "AutoPilot: " .. label)
         end
     end
     apLog("Mode: " .. label)
@@ -81,7 +111,7 @@ local function updateStatusHUD(player)
 
     local latest = string.format("[AP] %s | H:%.0f%% T:%.0f%% F:%.0f%% Z:%d | F10 Toggle",
         statusLabel, hunger * 100, thirst * 100, fatigue * 100, zombies)
-    HaloTextHelper.addText(player, latest)
+    hudAddText(player, latest)
 end
 
 local function _runThreatCheck(player)
@@ -163,11 +193,10 @@ local function onKeyPressed(key)
         print("[AutoPilot] onKeyPressed key=" .. tostring(key))
         if KEYPRESS_VISUAL_DEBUG then
             local pl = getPlayer()
-            if pl then HaloTextHelper.addText(pl, "[AutoPilot] Key=" .. tostring(key)) end
+            if pl then hudAddText(pl, "[AutoPilot] Key=" .. tostring(key)) end
         end
         if KEYPRESS_SOUND_DEBUG then
-            local ok, sm = pcall(function() return getSoundManager() end)
-            if ok and sm and sm.playSound then pcall(function() sm:playSound("UIConfirm") end) end
+            playConfirmSfx()
         end
     end)
 

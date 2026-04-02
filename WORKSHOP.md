@@ -3,7 +3,7 @@
 [h1]AutoPilot[/h1]
 [b]Keeps your character alive and leveling while you're AFK.[/b]
 
-AutoPilot is a client-side mod for Project Zomboid Build 42 that runs a full survival and fitness routine automatically. Set your home base, toggle the bot, and walk away.
+AutoPilot is a client-side mod for Project Zomboid Build 42 that runs a full survival and fitness routine automatically. Toggle the bot and it auto-sets home on first enable.
 
 [h2]Features[/h2]
 
@@ -43,7 +43,7 @@ AutoPilot is a client-side mod for Project Zomboid Build 42 that runs a full sur
 
 [b]Home Base[/b]
 [list]
-[*]Press [b]F7[/b] to set home base at your current position (15-tile radius)
+[*]Home base is auto-set to your current position the first time you enable autopilot
 [*]Bot stays within home bounds for all activities
 [*]Barricades windows once after home is set (requires nails + hammer in inventory)
 [*]Home position persists across sessions via ModData
@@ -53,13 +53,12 @@ AutoPilot is a client-side mod for Project Zomboid Build 42 that runs a full sur
 [list]
 [*]No sidecar required — all decision logic runs inside the mod.
 [*]Toggle autopilot with [b]F10[/b].
-[*]Set/reset home anchor with [b]H[/b].
+[*]Home anchor is auto-set on first enable.
 [/list]
 
 [h2]Controls[/h2]
 [list]
 [*][b]F10[/b] — Toggle autopilot on/off
-[*][b]H[/b] — Set/reset home anchor
 [/list]
 
 [h2]Compatibility[/h2]

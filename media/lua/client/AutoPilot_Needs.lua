@@ -1,6 +1,7 @@
 -- AutoPilot_Needs.lua
 -- Handles survival needs and idle behaviour.
 --
+-- luacheck: globals getClimateManager
 -- SPLITSCREEN NOTE: Module-level variables (restCooldownMs, sleepCooldownMs,
 -- exerciseCycle, exerciseWaitLogMs) are shared across all local players.
 -- Splitscreen is NOT supported.
@@ -23,6 +24,7 @@ local _lastTrackedDay    = -1
 
 -- Phase 3: consecutive loot cycles with no food/drink found (triggers supply run)
 local _emptyLootCycles = 0
+local drinkCooldownMs = 0
 
 -- ── Thresholds ────────────────────────────────────────────────────────────────
 
@@ -65,19 +67,11 @@ end
 -- ── Actions ─────────────────────────────────────────────────────────────────
 
 local function doEat(player)
+    -- Prefer food close to current hunger need to avoid overfeeding.
     local hunger = AutoPilot_Utils.safeStat(player, CharacterStat.HUNGER)
-
-    -- First choice: hunger-appropriate portion control
     local food = AutoPilot_Inventory.getBestFoodForHunger(player, hunger)
-
-    -- Second choice: weight-aware adjustments (under/overweight)
-    if not food then
-        food = AutoPilot_Inventory.selectFoodByWeight(player)
-    end
-
-    -- Last resort: any safe food
-    food = food or AutoPilot_Inventory.getBestFood(player)
-
+        or AutoPilot_Inventory.selectFoodByWeight(player)
+        or AutoPilot_Inventory.getBestFood(player)
     if not food then
         print("[Needs] Hungry but no food in inventory — looting nearby.")
         local found = AutoPilot_Inventory.lootNearbyFood(player)
@@ -108,12 +102,24 @@ local function doEat(player)
 end
 
 local function doDrink(player)
+    local okNow, nowMs = pcall(function()
+        return getGameTime():getCalender():getTimeInMillis()
+    end)
+    local ms = okNow and nowMs or 0
+    if ms < drinkCooldownMs then
+        return false
+    end
+
     -- Priority 1: nearby water source — fill container first, then drink
     local waterObj = AutoPilot_Inventory.findWaterSource(player)
     if waterObj then
         _emptyLootCycles = 0
         AutoPilot_Inventory.refillWaterContainer(player, waterObj)
-        return AutoPilot_Inventory.drinkFromSource(player, waterObj)
+        local drank = AutoPilot_Inventory.drinkFromSource(player, waterObj)
+        if drank then
+            drinkCooldownMs = ms + 8000
+        end
+        return drank
     end
 
     -- Priority 2: Drink from inventory (filled glass/bottle)
@@ -122,6 +128,7 @@ local function doDrink(player)
         _emptyLootCycles = 0
         print("[Needs] Drinking: " .. tostring(drink:getName()))
         ISTimedActionQueue.add(ISEatFoodAction:new(player, drink, 1))
+        drinkCooldownMs = ms + 5000
         return true
     end
 
@@ -152,10 +159,6 @@ end
 -- Falls back to resting in place if nothing found.
 local restCooldownMs = 0
 local REST_SEARCH_DIST = 150
-
-AutoPilot_Needs = AutoPilot_Needs or {}
-AutoPilot_Needs.sleepRequestMs = 0
-local SLEEP_REQUEST_TIMEOUT_MS = 15000
 
 local function findRestFurniture(player)
     local px, py, pz = player:getX(), player:getY(), player:getZ()
@@ -289,16 +292,6 @@ local function doRest(player)
     return true
 end
 
--- Update sleeping timeout state from main onTick (when prior sleep action might have failed).
-function AutoPilot_Needs.sleepAttempting(startMs)
-    if startMs then
-        sleepAttempting = true
-        sleepAttemptStartMs = startMs
-    else
-        sleepAttempting = false
-    end
-end
-
 local sleepCooldownMs = 0
 
 local BED_SEARCH_DIST = 150
@@ -383,9 +376,10 @@ local function doSleep(player)
                     if okType and typ then lower = lower .. typ:lower() end
                     if okName and name then lower = lower .. " " .. name:lower() end
                     if lower:find("painkill") or lower:find("aspirin") or lower:find("paracetamol") then
+                        local takePill = rawget(_G, "ISTakePillAction")
                         local okUse = pcall(function()
-                            if ISTakePillAction and ISTakePillAction.new then
-                                ISTimedActionQueue.add(ISTakePillAction:new(player, item))
+                            if takePill and takePill.new then
+                                ISTimedActionQueue.add(takePill:new(player, item))
                             else
                                 ISTimedActionQueue.add(ISEatFoodAction:new(player, item, 1))
                             end
@@ -433,7 +427,6 @@ local function doSleep(player)
     if AdjacentFreeTileFinder.isTileOrAdjacent(player:getCurrentSquare(), bedSq) then
         local bedAction = ISGetOnBedAction:new(player, bedObj)
         ISTimedActionQueue.add(bedAction)
-        AutoPilot_Needs.sleepRequestMs = ms
         print("[Needs] Queued ISGetOnBedAction directly.")
     else
         local adjacent = AdjacentFreeTileFinder.Find(bedSq, player)
@@ -489,9 +482,69 @@ local function doGoOutside(player)
     return false
 end
 
+-- ── Weather/shelter helpers ─────────────────────────────────────────────────
+
+local function isRaining()
+    local ok, raining = pcall(function()
+        local cm = getClimateManager and getClimateManager()
+        if cm and cm.getIsRaining then return cm:getIsRaining() end
+        if cm and cm.getCurrentWeather and cm:getCurrentWeather() and cm:getCurrentWeather().isRaining then
+            return cm:getCurrentWeather():isRaining()
+        end
+        return false
+    end)
+    return ok and raining
+end
+
+local function doSeekShelter(player)
+    if not player then return false end
+
+    local sq = player:getCurrentSquare()
+    if not sq or not sq:isOutside() then
+        return false
+    end
+
+    if AutoPilot_Home.isSet(player) then
+        local inside = AutoPilot_Home.getNearestInside(player, function(s)
+            return s and s:isFree(false)
+        end)
+        if inside then
+            print("[Needs] Seeking shelter inside home.")
+            ISTimedActionQueue.add(ISWalkToTimedAction:new(player, inside))
+            return true
+        end
+    end
+
+    print("[Needs] No home shelter available; resting in place while outside.")
+    return doRest(player)
+end
+
 -- ── Reading (boredom/unhappiness relief) ────────────────────────────────────
 
 local function doRead(player)
+    local literate = false
+    local ok, lvlOrErr = pcall(function() return player:getPerkLevel(Perks.Literacy) end)
+    if ok and type(lvlOrErr) == "number" then
+        literate = lvlOrErr > 0
+    else
+        print("[Needs] literacy check pcall failed: " .. tostring(lvlOrErr))
+    end
+    if not literate then
+        print(("[Needs] Cannot read: player considered illiterate. PerkCheck ok=%s value=%s")
+            :format(tostring(ok), tostring(lvlOrErr)))
+        -- Fallback debug checks (safe): query trait presence if possible
+        local traitOk, hasIll = pcall(function()
+            if player and player.HasTrait then return player:HasTrait("Illiterate") end
+            if player and player.getDescriptor and player:getDescriptor().hasTrait then
+                return player:getDescriptor():hasTrait("Illiterate")
+            end
+            return false
+        end)
+        print(("[Needs] literacy fallback checks: HasTrait ok=%s value=%s")
+            :format(tostring(traitOk), tostring(hasIll)))
+        return false
+    end
+
     local book = AutoPilot_Inventory.getReadable(player)
     if not book then
         -- No readable in inventory — try looting one from nearby containers
@@ -499,8 +552,8 @@ local function doRead(player)
     end
 
     -- Check if too dark to read
-    local ok, tooDark = pcall(function() return player:tooDarkToRead() end)
-    if ok and tooDark then
+    local darkOk, tooDark = pcall(function() return player:tooDarkToRead() end)
+    if darkOk and tooDark then
         print("[Needs] Too dark to read.")
         return false
     end
@@ -676,6 +729,16 @@ function AutoPilot_Needs.check(player)
     local thirst = AutoPilot_Utils.safeStat(player, CharacterStat.THIRST)
     if thirst >= THIRST_STAT_THRESHOLD then
         return doDrink(player)
+    end
+
+    -- Environmental comfort guard: seek shelter if outside in bad conditions.
+    local currentSq = player:getCurrentSquare()
+    local tempDelta = AutoPilot_Inventory.bodyTemperature(player)
+    if currentSq and currentSq:isOutside() then
+        if isRaining() or tempDelta < AutoPilot_Constants.TEMP_TOO_COLD then
+            print("[Needs] Outdoors bad comfort (rain/cold) — seeking shelter.")
+            if doSeekShelter(player) then return true end
+        end
     end
 
     -- 3. Hunger (0.0=full, ~1.0=starving)
