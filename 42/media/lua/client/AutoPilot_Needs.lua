@@ -42,6 +42,8 @@ local ENDURANCE_EXERCISE_MIN = 0.50   -- don't start exercise below this
 local EXERCISE_MINUTES       = 20
 local OUTDOOR_SEARCH_DIST    = 150
 
+local PAIN_SLEEP_THRESHOLD   = 30   -- 0-100 scale: pain above this may prevent sleeping
+
 -- ── Helpers ─────────────────────────────────────────────────────────────────
 
 -- Safe moodle level getter — returns 0 if the moodle type doesn't exist or isn't active.
@@ -351,7 +353,53 @@ local function doSleep(player)
     local ms = ok and now or 0
     if ms < sleepCooldownMs then return true end
 
-    AutoPilot_LLM.log("[Needs] Sleeping...")
+    -- If pain is high, attempt medical relief or painkillers before sleeping.
+    local painVal = AutoPilot_Utils.safeStat(player, CharacterStat.PAIN)
+    if painVal >= PAIN_SLEEP_THRESHOLD then
+        print("[Needs] Sleep blocked by pain (" .. tostring(painVal) .. "). Attempting medical/pain relief.")
+        local okMed, medQueued = pcall(function() return AutoPilot_Medical.check(player, false) end)
+        if okMed and medQueued then
+            print("[Needs] Queued medical treatment to reduce pain.")
+            return true
+        end
+
+        -- Try to find painkillers in inventory (match type/name heuristics)
+        local inv = player:getInventory()
+        local items = inv and inv:getItems()
+        if items then
+            for i = 0, items:size() - 1 do
+                local item = items:get(i)
+                if item then
+                    local okType, typ = pcall(function() return item:getType() end)
+                    local okName, name = pcall(function() return item:getName() end)
+                    local lower = ""
+                    if okType and typ then lower = lower .. typ:lower() end
+                    if okName and name then lower = lower .. " " .. name:lower() end
+                    if lower:find("painkill") or lower:find("aspirin") or lower:find("paracetamol") then
+                        local okUse = pcall(function()
+                            if ISTakePillAction and ISTakePillAction.new then
+                                ISTimedActionQueue.add(ISTakePillAction:new(player, item))
+                            else
+                                ISTimedActionQueue.add(ISEatFoodAction:new(player, item, 1))
+                            end
+                        end)
+                        if okUse then
+                            local pname = (okName and name) or typ
+                            print("[Needs] Taking painkiller: " .. tostring(pname))
+                            return true
+                        end
+                    end
+                end
+            end
+        end
+
+        -- No treatment available; delay sleep attempts to avoid a busy loop.
+        sleepCooldownMs = ms + 60000
+        print("[Needs] No medical/painkiller available; delaying sleep for 60s.")
+        return false
+    end
+
+    print("[Needs] Sleeping...")
     ISTimedActionQueue.clear(player)
 
     local bedObj = _findBedNearby(player)

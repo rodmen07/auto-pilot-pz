@@ -16,18 +16,18 @@ end
 local function _markDone(player)
     player:getModData()[MODDATA_KEY] = true
     player:transmitModData()
-    AutoPilot_LLM.log("[Barricade] Home barricading complete — marked in ModData.")
+    print("[AutoPilot] [Barricade] Home barricading complete — marked in ModData.")
 end
 
 --- Queue barricade actions for all windows and doors within home bounds.
 --- Returns the number of actions queued.
 function AutoPilot_Barricade.doBarricade(player)
     if AutoPilot_Barricade.isDone(player) then
-        AutoPilot_LLM.log("[Barricade] Already barricaded — skipping.")
+        print("[AutoPilot] [Barricade] Already barricaded — skipping.")
         return 0
     end
     if not AutoPilot_Home.isSet(player) then
-        AutoPilot_LLM.log("[Barricade] Home not set — cannot barricade.")
+        print("[AutoPilot] [Barricade] Home not set — cannot barricade.")
         return 0
     end
 
@@ -59,11 +59,10 @@ function AutoPilot_Barricade.doBarricade(player)
         end)
 
     if count > 0 then
-        AutoPilot_LLM.log(("[Barricade] Queued %d barricade action(s)."):format(count))
+        print("[AutoPilot] " .. ("[Barricade] Queued %d barricade action(s)."):format(count))
         _markDone(player)
     else
-        AutoPilot_LLM.log("[Barricade] No barricadable windows found (or missing nails/hammer).")
+        print("[AutoPilot] [Barricade] No barricadable windows found (or missing nails/hammer).")
     end
     return count
 end
-

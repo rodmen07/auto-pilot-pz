@@ -18,7 +18,6 @@ safeRequire("AutoPilot_Constants")
 safeRequire("AutoPilot_Utils")
 
 -- Load subsystems (order matters: dependencies first)
-safeRequire("AutoPilot_LLM")
 safeRequire("AutoPilot_Home")
 safeRequire("AutoPilot_Map")
 safeRequire("AutoPilot_Inventory")

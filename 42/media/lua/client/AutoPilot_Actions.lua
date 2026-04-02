@@ -78,19 +78,19 @@ end
 local function handleWalkTo(player, param)
     -- Guard: if home is not set, block all walking (exercise in-place only)
     if not AutoPilot_Home.isSet(player) then
-        AutoPilot_LLM.log("[Actions] walk_to: blocked — home not set.")
+        print("[AutoPilot] [Actions] walk_to: blocked — home not set.")
         return false
     end
 
     local dir, dist = _parseDirection(param)
     if not dir then
-        AutoPilot_LLM.log("[Actions] walk_to: cannot parse '" .. tostring(param) .. "'")
+        print("[AutoPilot] [Actions] walk_to: cannot parse '" .. tostring(param) .. "'")
         return false
     end
 
     local dx, dy = _dirToOffset(dir, dist)
     if not dx then
-        AutoPilot_LLM.log("[Actions] walk_to: unknown direction '" .. dir .. "'")
+        print("[AutoPilot] [Actions] walk_to: unknown direction '" .. dir .. "'")
         return false
     end
 
@@ -100,7 +100,7 @@ local function handleWalkTo(player, param)
 
     local cell = getCell()
     if not cell then
-        AutoPilot_LLM.log("[Actions] walk_to: cell not loaded yet — skipping.")
+        print("[AutoPilot] [Actions] walk_to: cell not loaded yet — skipping.")
         return false
     end
 
@@ -109,18 +109,18 @@ local function handleWalkTo(player, param)
         return sq:isFree(false)
     end)
     if not targetSq then
-        AutoPilot_LLM.log("[Actions] walk_to: no walkable square near target.")
+        print("[AutoPilot] [Actions] walk_to: no walkable square near target.")
         return false
     end
 
     -- Clamp through home bounds; log a warning if the target was adjusted
     local clampedSq = AutoPilot_Home.clampSq(targetSq, player)
     if clampedSq == nil then
-        AutoPilot_LLM.log("[Actions] walk_to: target outside home bounds — no in-bounds square found.")
+        print("[AutoPilot] [Actions] walk_to: target outside home bounds — no in-bounds square found.")
         return false
     end
     if clampedSq ~= targetSq then
-        AutoPilot_LLM.log(string.format(
+        print("[AutoPilot] " .. string.format(
             "[Actions] walk_to: clamped to home bounds (%d,%d → %d,%d).",
             targetSq:getX(), targetSq:getY(), clampedSq:getX(), clampedSq:getY()))
         targetSq = clampedSq
@@ -231,7 +231,7 @@ local HANDLERS = {
             return false
         end)
         if not bestContainer then
-            AutoPilot_LLM.log("[Actions] bulk_loot: no container found nearby.")
+            print("[AutoPilot] [Actions] bulk_loot: no container found nearby.")
             return false
         end
         -- Walk to the container before looting.
@@ -259,12 +259,12 @@ local HANDLERS = {
 function AutoPilot_Actions.execute(player, name, param)
     local fn = HANDLERS[name]
     if not fn then
-        AutoPilot_LLM.log("[Actions] Unknown action: " .. tostring(name))
+        print("[AutoPilot] [Actions] Unknown action: " .. tostring(name))
         return false
     end
     local ok, result = pcall(fn, player, param or "")
     if not ok then
-        AutoPilot_LLM.log("[Actions] Error in '" .. tostring(name)
+        print("[AutoPilot] [Actions] Error in '" .. tostring(name)
             .. "': " .. tostring(result))
         return false
     end
@@ -279,7 +279,7 @@ end
 --- @param stepsStr  string  e.g. "walk_to:north 30|loot_item:axe|eat"
 function AutoPilot_Actions.executeChain(player, stepsStr)
     if not stepsStr or stepsStr == "" then
-        AutoPilot_LLM.log("[Actions] executeChain: empty steps string.")
+        print("[AutoPilot] [Actions] executeChain: empty steps string.")
         return
     end
 
@@ -294,7 +294,7 @@ function AutoPilot_Actions.executeChain(player, stepsStr)
             param = param and param:match("^%s*(.-)%s*$") or ""
 
             if name ~= "" then
-                AutoPilot_LLM.log("[Actions] Chain[" .. (count + 1) .. "]: "
+                print("[AutoPilot] [Actions] Chain[" .. (count + 1) .. "]: "
                     .. name .. (param ~= "" and (":" .. param) or ""))
                 AutoPilot_Actions.execute(player, name, param)
                 count = count + 1
@@ -302,7 +302,7 @@ function AutoPilot_Actions.executeChain(player, stepsStr)
         end
     end
 
-    AutoPilot_LLM.log("[Actions] Chain complete: " .. count .. " step(s) queued.")
+    print("[AutoPilot] [Actions] Chain complete: " .. count .. " step(s) queued.")
 end
 
 --- Returns a list of "name:param" strings for the state JSON.

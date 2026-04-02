@@ -320,7 +320,7 @@ local function _queueTransfer(player, item, container, label)
             player, item, container, player:getInventory()))
     end)
     if not ok then
-        AutoPilot_LLM.log("[Inventory] ISInventoryTransferAction failed for "
+        print("[Inventory] ISInventoryTransferAction failed for "
             .. label .. " — skipping direct transfer (MP-unsafe).")
     end
     return ok
@@ -374,10 +374,10 @@ function AutoPilot_Inventory.lootNearbyReadable(player)
         return false
     end)
     if found then
-        AutoPilot_LLM.log("[Inventory] Looting readable: " .. tostring(found:getName()))
+        print("[Inventory] Looting readable: " .. tostring(found:getName()))
         return _queueTransfer(player, found, foundContainer, "readable")
     end
-    AutoPilot_LLM.log("[Inventory] No readable items found in nearby containers.")
+    print("[Inventory] No readable items found in nearby containers.")
     return false
 end
 
@@ -396,10 +396,10 @@ function AutoPilot_Inventory.lootNearbyFood(player)
         return false  -- scan all squares to find the best
     end)
     if best then
-        AutoPilot_LLM.log("[Inventory] Looting food: " .. tostring(best:getName()))
+        print("[Inventory] Looting food: " .. tostring(best:getName()))
         return _queueTransfer(player, best, bestContainer, "food")
     end
-    AutoPilot_LLM.log("[Inventory] No food found in nearby containers.")
+    print("[Inventory] No food found in nearby containers.")
     return false
 end
 
@@ -418,10 +418,10 @@ function AutoPilot_Inventory.lootNearbyDrink(player)
         return false
     end)
     if found then
-        AutoPilot_LLM.log("[Inventory] Looting drink: " .. tostring(found:getName()))
+        print("[Inventory] Looting drink: " .. tostring(found:getName()))
         return _queueTransfer(player, found, foundContainer, "drink")
     end
-    AutoPilot_LLM.log("[Inventory] No drinks found in nearby containers.")
+    print("[Inventory] No drinks found in nearby containers.")
     return false
 end
 
@@ -485,7 +485,7 @@ function AutoPilot_Inventory.drinkFromSource(player, waterObj)
     local tainted = false
     local ok = pcall(function() tainted = waterObj:isTaintedWater() end)
     if ok and tainted then
-        AutoPilot_LLM.log("[Inventory] Skipping tainted water source.")
+        print("[Inventory] Skipping tainted water source.")
         return false
     end
 
@@ -504,7 +504,7 @@ function AutoPilot_Inventory.drinkFromSource(player, waterObj)
         ISTimedActionQueue.add(ISTakeWaterAction:new(player, nil, waterObj, tainted))
     end)
     if drinkOk then
-        AutoPilot_LLM.log("[Inventory] Drinking from water source.")
+        print("[Inventory] Drinking from water source.")
     end
     return drinkOk
 end
@@ -553,7 +553,7 @@ function AutoPilot_Inventory.refillWaterContainer(player, waterObj)
     local tainted = false
     local ok = pcall(function() tainted = waterObj:isTaintedWater() end)
     if ok and tainted then
-        AutoPilot_LLM.log("[Inventory] Not refilling from tainted water source.")
+        print("[Inventory] Not refilling from tainted water source.")
         return false
     end
 
@@ -566,7 +566,7 @@ function AutoPilot_Inventory.refillWaterContainer(player, waterObj)
         ISTimedActionQueue.add(ISTakeWaterAction:new(player, container, waterObj, tainted))
     end)
     if fillOk then
-        AutoPilot_LLM.log("[Inventory] Refilling " .. tostring(container:getName()) .. " from water source.")
+        print("[Inventory] Refilling " .. tostring(container:getName()) .. " from water source.")
     end
     return fillOk
 end
@@ -626,7 +626,7 @@ function AutoPilot_Inventory.searchItem(player, keyword)
     end
     AutoPilot_Inventory._lastSearchResults = names
 
-    AutoPilot_LLM.log("[Inventory] Search '" .. keyword .. "': found "
+    print("[Inventory] Search '" .. keyword .. "': found "
         .. #results .. " items")
     return results
 end
@@ -636,12 +636,12 @@ end
 function AutoPilot_Inventory.lootItem(player, keyword)
     local results = AutoPilot_Inventory.searchItem(player, keyword)
     if #results == 0 then
-        AutoPilot_LLM.log("[Inventory] Loot: nothing matching '" .. keyword .. "' found.")
+        print("[Inventory] Loot: nothing matching '" .. keyword .. "' found.")
         return false
     end
 
     local best = results[1]
-    AutoPilot_LLM.log("[Inventory] Looting: " .. best.name)
+    print("[Inventory] Looting: " .. best.name)
     return _queueTransfer(player, best.item, best.container, best.name)
 end
 
@@ -649,7 +649,7 @@ end
 -- keyword: partial name match for the inventory item to place.
 function AutoPilot_Inventory.placeItem(player, keyword)
     if not keyword or keyword == "" then
-        AutoPilot_LLM.log("[Inventory] placeItem: no keyword given.")
+        print("[Inventory] placeItem: no keyword given.")
         return false
     end
 
@@ -671,7 +671,7 @@ function AutoPilot_Inventory.placeItem(player, keyword)
     end
 
     if not target then
-        AutoPilot_LLM.log("[Inventory] placeItem: '"
+        print("[Inventory] placeItem: '"
             .. keyword .. "' not found in inventory.")
         return false
     end
@@ -702,13 +702,13 @@ function AutoPilot_Inventory.placeItem(player, keyword)
     end)
 
     if not bestContainer then
-        AutoPilot_LLM.log("[Inventory] placeItem: no container found nearby.")
+        print("[Inventory] placeItem: no container found nearby.")
         return false
     end
 
     -- Walk to the container's square first, then transfer
     local objSq = bestObj:getSquare()
-    AutoPilot_LLM.log("[Inventory] Placing '"
+    print("[Inventory] Placing '"
         .. tostring(target:getName()) .. "' into container at ("
         .. tostring(objSq:getX()) .. ","
         .. tostring(objSq:getY()) .. ").")
@@ -724,7 +724,7 @@ function AutoPilot_Inventory.placeItem(player, keyword)
             player, target, inv, bestContainer))
     end)
     if not ok then
-        AutoPilot_LLM.log("[Inventory] ISInventoryTransferAction failed for placeItem: "
+        print("[Inventory] ISInventoryTransferAction failed for placeItem: "
             .. tostring(err) .. " — skipping direct transfer (MP-unsafe).")
         return false
     end
@@ -776,18 +776,18 @@ function AutoPilot_Inventory.equipBestExerciseItem(player)
     -- Already holding suitable gear?
     for _, entry in ipairs(AutoPilot_Constants.EXERCISE_EQUIPMENT) do
         if inv:getFirstTypeRecurse(entry.keyword) then
-            AutoPilot_LLM.log("[Inv] Already holding " .. entry.keyword)
+            print("[Inv] Already holding " .. entry.keyword)
             return entry.tier
         end
     end
     local item, tier = _findExerciseEquipment(player)
     if not item then
-        AutoPilot_LLM.log("[Inv] No exercise equipment found in home area.")
+        print("[Inv] No exercise equipment found in home area.")
         return "none"
     end
     local srcContainer = item:getContainer()
     if not srcContainer then
-        AutoPilot_LLM.log("[Inv] Exercise item has no container — skipping transfer.")
+        print("[Inv] Exercise item has no container — skipping transfer.")
         return "none"
     end
     -- Walk to the equipment container before transferring.
@@ -809,7 +809,7 @@ function AutoPilot_Inventory.equipBestExerciseItem(player)
     end
     ISTimedActionQueue.add(ISInventoryTransferAction:new(
         player, item, srcContainer, inv))
-    AutoPilot_LLM.log("[Inv] Queued transfer of " .. item:getType()
+    print("[Inv] Queued transfer of " .. item:getType()
         .. " (" .. (tier or "?") .. ")")
     return tier or "none"
 end
@@ -886,7 +886,7 @@ function AutoPilot_Inventory.bulkLoot(player, container, keywords)
         end
     end
     if count > 0 then
-        AutoPilot_LLM.log(("[Inv] Bulk looted %d items from container."):format(count))
+        print(("[Inv] Bulk looted %d items from container."):format(count))
     end
     return count
 end
@@ -935,18 +935,18 @@ end
 function AutoPilot_Inventory.checkAndSwapWeapon(player)
     local cond = AutoPilot_Inventory.equippedWeaponCondition(player)
     if cond >= AutoPilot_Constants.WEAPON_CONDITION_MIN then return false end
-    AutoPilot_LLM.log(("[Inv] Weapon condition %.2f < %.2f — seeking replacement."):format(
+    print(("[Inv] Weapon condition %.2f < %.2f — seeking replacement."):format(
         cond, AutoPilot_Constants.WEAPON_CONDITION_MIN))
     local replacement = AutoPilot_Inventory.bestMeleeWeapon(player)
     if not replacement then
-        AutoPilot_LLM.log("[Inv] No replacement weapon found in inventory.")
+        print("[Inv] No replacement weapon found in inventory.")
         return false
     end
     local ok = pcall(function()
         ISTimedActionQueue.add(ISEquipWeaponAction:new(player, replacement, 50, true))
     end)
     if ok then
-        AutoPilot_LLM.log("[Inv] Queued equip of " .. replacement:getType())
+        print("[Inv] Queued equip of " .. replacement:getType())
         return true
     end
     return false
@@ -992,19 +992,19 @@ end
 function AutoPilot_Inventory.adjustClothing(player)
     local temp = AutoPilot_Inventory.bodyTemperature(player)
     if temp > AutoPilot_Constants.TEMP_TOO_HOT then
-        AutoPilot_LLM.log(("[Inv] Too hot (%.1f) — seeking cool clothing."):format(temp))
+        print(("[Inv] Too hot (%.1f) — seeking cool clothing."):format(temp))
         local item = AutoPilot_Inventory.findClothing(player, false)
         if item then
             ISTimedActionQueue.add(ISWearClothing:new(player, item, 50))
-            AutoPilot_LLM.log("[Inv] Queued: wear " .. item:getType())
+            print("[Inv] Queued: wear " .. item:getType())
             return true
         end
     elseif temp < AutoPilot_Constants.TEMP_TOO_COLD then
-        AutoPilot_LLM.log(("[Inv] Too cold (%.1f) — seeking warm clothing."):format(temp))
+        print(("[Inv] Too cold (%.1f) — seeking warm clothing."):format(temp))
         local item = AutoPilot_Inventory.findClothing(player, true)
         if item then
             ISTimedActionQueue.add(ISWearClothing:new(player, item, 50))
-            AutoPilot_LLM.log("[Inv] Queued: wear " .. item:getType())
+            print("[Inv] Queued: wear " .. item:getType())
             return true
         end
     end

@@ -36,7 +36,7 @@ local function loadFromModData(player)
         local py = math.floor(player:getY())
         local dist2 = (data.x - px)^2 + (data.y - py)^2
         if dist2 > 300 * 300 then
-            AutoPilot_LLM.log("[Home] ModData home rejected: too far from current position.")
+            print("[AutoPilot] [Home] ModData home rejected: too far from current position.")
             return false
         end
         home_x = data.x
@@ -74,8 +74,7 @@ function AutoPilot_Home.set(player)
     home_r = HOME_DEFAULT_RADIUS
     saveToModData(player)
     -- Use log only — player:Say() is world-visible in MP and reveals AFK status.
-    AutoPilot_LLM.log(string.format(
-        "[Home] Home set at %d, %d (z=%d, r=%d).", home_x, home_y, home_z, home_r))
+    print(string.format("[AutoPilot] [Home] Home set at %d, %d (z=%d, r=%d).", home_x, home_y, home_z, home_r))
 end
 
 --- Returns true if a home position has been registered.
@@ -127,7 +126,7 @@ function AutoPilot_Home.clampSq(targetSq, player)
     end)
     if sq then return sq end
 
-    AutoPilot_LLM.log("[Home] clampSq: no free in-bounds square found near edge.")
+    print("[AutoPilot] [Home] clampSq: no free in-bounds square found near edge.")
     return nil
 end
 
