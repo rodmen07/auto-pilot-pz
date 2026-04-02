@@ -29,9 +29,12 @@ local PROMPT_TIMEOUT = 30 -- seconds
 
 -- Current priority override active after prompt
 local currentPriority = nil
-
 -- Debug/log state
-local debugEnabled = false
+-- Debug/log state
+local debugEnabled = true
+-- Visual/audible feedback for keypresses
+local KEYPRESS_VISUAL_DEBUG = true
+local KEYPRESS_SOUND_DEBUG = true
 local helpVisible = false
 local helpStartTime = 0
 local HELP_TIMEOUT = 20 -- seconds
@@ -112,7 +115,7 @@ end
 
 local function updateHelpDisplay(player)
     if not helpVisible then return end
-    local text = "[AutoPilot Help] Ctrl+0=Help, Ctrl+1=Auto, Ctrl+2=Prompt, Ctrl+3-7=Priority. H=Home.\n"
+    local text = "[AutoPilot Help] Ctrl+0=Help, Ctrl+1=Auto, Ctrl+2=Prompt, Ctrl+3-7=Priority. F10=Home.\n"
     text = text .. "Survival: thirst/hunger/wounds/sleep/rest/brain. Safety: evade when threatened.\n"
     text = text .. "Ctrl+0 again to close.\n"
     if player then
@@ -318,6 +321,17 @@ local function onTick()
 end
 
 local function onKeyPressed(key)
+    pcall(function()
+        print("[AutoPilot] onKeyPressed key=" .. tostring(key))
+        if KEYPRESS_VISUAL_DEBUG then
+            local pl = getPlayer()
+            if pl then HaloTextHelper.addText(pl, "[AutoPilot] Key=" .. tostring(key)) end
+        end
+        if KEYPRESS_SOUND_DEBUG then
+            local ok, sm = pcall(function() return getSoundManager() end)
+            if ok and sm and sm.playSound then pcall(function() sm:playSound("UIConfirm") end) end
+        end
+    end)
     local player = getPlayer()
 
     if not isCtrlDown() then
@@ -371,14 +385,16 @@ local function onKeyPressed(key)
         return
     end
 
-    if key == Keyboard.KEY_H then
+    if key == Keyboard.KEY_F10 then
         if mode ~= "off" and player then
             AutoPilot_Home.set(player)
+            showHomeConfirmation(player, "Home updated")
         end
+        return
     end
 end
 
 Events.OnTick.Add(onTick)
 Events.OnKeyPressed.Add(onKeyPressed)
 
-print("[AutoPilot] AutoPilot loaded. Ctrl+1=Autopilot, Ctrl+2=Prompt, Ctrl+3-7=Prompt options, H=Set Home.")
+print("[AutoPilot] AutoPilot loaded. F3=Autopilot, F4=Prompt, F5-F9=Prompt options, F10=Set Home.")
