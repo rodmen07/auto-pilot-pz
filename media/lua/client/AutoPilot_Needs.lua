@@ -733,7 +733,15 @@ function AutoPilot_Needs.check(player)
 
     -- Environmental comfort guard: seek shelter if outside in bad conditions.
     local currentSq = player:getCurrentSquare()
-    local tempDelta = AutoPilot_Inventory.bodyTemperature(player)
+    local tempDelta = 0
+    if AutoPilot_Inventory and AutoPilot_Inventory.bodyTemperature then
+        local okTemp, t = pcall(function()
+            return AutoPilot_Inventory.bodyTemperature(player)
+        end)
+        if okTemp and type(t) == "number" then
+            tempDelta = t
+        end
+    end
     if currentSq and currentSq:isOutside() then
         if isRaining() or tempDelta < AutoPilot_Constants.TEMP_TOO_COLD then
             print("[Needs] Outdoors bad comfort (rain/cold) — seeking shelter.")
