@@ -17,10 +17,6 @@ dofile("42/media/lua/client/AutoPilot_Constants.lua")
 -- These modules are used by AutoPilot_Needs.lua. We replace them with minimal
 -- stubs that the tests can reconfigure per case.
 
-AutoPilot_LLM = {
-    log = function(_msg) end,   -- silence all log output during tests
-}
-
 -- Internal state flag; tests flip _bleeding to simulate wounds.
 AutoPilot_Medical = {
     _bleeding = false,

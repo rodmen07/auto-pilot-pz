@@ -164,7 +164,7 @@ function AutoPilot_Home.getNearestInside(player, predicate, radius)
     return bestSq
 end
 
---- Returns the current home values for LLM state JSON.
+--- Returns the current home values for state JSON.
 --- All values may be nil if home has not been set.
 function AutoPilot_Home.getState()
     AutoPilot_Home.isSet(nil)  -- cache-only check; player not available here

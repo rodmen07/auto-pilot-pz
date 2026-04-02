@@ -1,6 +1,6 @@
 --- AutoPilot_Map.lua
 --- Tracks visited buildings and depleted containers to avoid wasted re-loot trips.
--- SPLITSCREEN-UNSAFE: uses getPlayer(0) via AutoPilot_LLM references; single-player only.
+-- SPLITSCREEN-UNSAFE: single-player only.
 
 AutoPilot_Map = {}
 
@@ -38,10 +38,10 @@ end
 --- Clear all depletion tracking (e.g. after an in-game day passes — containers respawn).
 function AutoPilot_Map.resetDepleted()
     _depletedSquares = {}
-    AutoPilot_LLM.log("[Map] Depletion cache cleared.")
+    print("[Map] Depletion cache cleared.")
 end
 
---- Return counts for LLM state reporting.
+--- Return counts for state reporting.
 function AutoPilot_Map.getStats()
     local depleted = 0
     for _ in pairs(_depletedSquares) do depleted = depleted + 1 end

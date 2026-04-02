@@ -11,7 +11,6 @@
 #
 # What gets copied:
 #   42/          — Lua mod files (the whole B42 folder)
-#   auto_pilot_sidecar.py — Python sidecar
 #
 # What is NOT copied (dev-only, not needed by PZ):
 #   .luacheckrc, schemas/, tests/, check.sh, deploy.sh, requirements*.txt

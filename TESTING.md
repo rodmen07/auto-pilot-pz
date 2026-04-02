@@ -5,9 +5,8 @@ Check each box when verified. A fresh character starts with no skills and no hom
 
 ## Setup
 - [ ] Mod loads without Lua errors in PZ console
-- [ ] F7 sets home base (chat log shows "[Home] Home set at X,Y,Z r=15")
-- [ ] 1 toggles autopilot on (chat log shows "[AutoPilot] Started")
-- [ ] H halts all queued actions
+- [ ] F10 toggles autopilot on/off (HUD shows OFF/ON)
+- [ ] H sets or resets home base (chat log shows "[Home] Home set at X,Y,Z r=15")
 
 ## Survival Needs
 - [ ] Bot eats when hungry (selects food from inventory or loots nearby)
@@ -32,7 +31,7 @@ Check each box when verified. A fresh character starts with no skills and no hom
 
 ## Looting
 - [ ] Bot loots food from nearby container within home bounds
-- [ ] Bot skips container after confirming empty (check depleted_squares in LLM state)
+- [ ] Bot skips container after confirming empty (check depleted_squares in state logs)
 - [ ] Bot expands search after 5 empty cycles (set SUPPLY_RUN_TRIGGER=1 for faster test)
 
 ## Home & Barricade
@@ -46,13 +45,6 @@ Check each box when verified. A fresh character starts with no skills and no hom
 - [ ] Bot actions affect only the local player (no cross-player item transfers)
 - [ ] Home ModData persists after reconnect
 
-## Prompt override
-- [ ] Press 2 to enter prompt override (modal)
-- [ ] Press 3-7 to select a priority during prompt
-- [ ] Priority selection ends and autopilot resumes
-- [ ] Prompt times out after 30 seconds and autopilot auto-resumes
-
 ## Clean-up
 - [ ] No Lua errors in console after 10+ minutes of bot operation
 - [ ] No performance degradation (FPS stable over time)
-- [ ] `auto_pilot_sidecar.log` contains no unhandled exceptions

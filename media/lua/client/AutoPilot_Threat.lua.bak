@@ -99,12 +99,12 @@ local function doFlee(player, zombies)
     if destSq then
         -- Let ISWalkToTimedAction handle movement speed internally (MP-safe).
         ISTimedActionQueue.add(ISWalkToTimedAction:new(player, destSq))
-        AutoPilot_LLM.log("[Threat] FLEE — " .. #zombies .. " zombie(s), " ..
+        print("[Threat] FLEE — " .. #zombies .. " zombie(s), " ..
             AutoPilot_Threat.countNegativeMoodles(player) .. " negative stats elevated.")
         return true
     end
 
-    AutoPilot_LLM.log("[Threat] FLEE failed — no reachable square; falling back to fight.")
+    print("[Threat] FLEE failed — no reachable square; falling back to fight.")
     return false
 end
 
@@ -112,7 +112,7 @@ end
 -- In safehouse mode (home set), always flee instead of fighting.
 local function doFight(player, zombies)
     if AutoPilot_Home.isSet(player) then
-        AutoPilot_LLM.log("[Threat] Safehouse mode — redirecting FIGHT to FLEE.")
+        print("[Threat] Safehouse mode — redirecting FIGHT to FLEE.")
         doFlee(player, zombies)
         return
     end
@@ -140,7 +140,7 @@ local function doFight(player, zombies)
         ISTimedActionQueue.add(ISWalkToTimedAction:new(player, targetSq))
     end
 
-    AutoPilot_LLM.log("[Threat] FIGHT — " .. #zombies .. " zombie(s) nearby.")
+    print("[Threat] FIGHT — " .. #zombies .. " zombie(s) nearby.")
 end
 
 -- Force fight regardless of moodle state (used by LLM overrides).
@@ -168,7 +168,7 @@ function AutoPilot_Threat.check(player)
 
     -- Always flee if critically wounded (actively bleeding)
     if AutoPilot_Medical.hasCriticalWound(player) then
-        AutoPilot_LLM.log("[Threat] FLEE — critical wound (bleeding).")
+        print("[Threat] FLEE — critical wound (bleeding).")
         if not doFlee(player, zombies) then doFight(player, zombies) end
         return true
     end
@@ -176,7 +176,7 @@ function AutoPilot_Threat.check(player)
     -- Flee if unarmed and outnumbered
     local weapon = AutoPilot_Inventory.getBestWeapon(player)
     if not weapon and #zombies > 1 then
-        AutoPilot_LLM.log("[Threat] FLEE — unarmed and " .. #zombies .. " zombies.")
+        print("[Threat] FLEE — unarmed and " .. #zombies .. " zombies.")
         if not doFlee(player, zombies) then doFight(player, zombies) end
         return true
     end

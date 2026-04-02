@@ -102,17 +102,17 @@ AutoPilot_Constants.TICK_INTERVAL = 15
 -- 4 cycles × 15 ticks × (1 s / 20 ticks) = 3 s cooldown after any action.
 AutoPilot_Constants.ACTION_COOLDOWN_CYCLES = 4
 
--- LLM state-write interval (evaluation cycles).
+-- State-write interval (evaluation cycles).
 -- 14 cycles × 15 ticks × (1 s / 20 ticks) ≈ 10.5 s between state snapshots.
-AutoPilot_Constants.LLM_WRITE_INTERVAL = 14
+AutoPilot_Constants.STATE_WRITE_INTERVAL = 14
 
 -- Exercise set duration sent to ISFitnessAction (game minutes).
 AutoPilot_Constants.EXERCISE_MINUTES = 20
 
--- Max search results stored for LLM state reporting after searchItem.
+-- Max search results stored for state reporting after searchItem.
 AutoPilot_Constants.SEARCH_RESULTS_MAX = 10
 
--- Max inventory item names included in the LLM state snapshot.
+-- Max inventory item names included in the state snapshot.
 AutoPilot_Constants.INVENTORY_SUMMARY_MAX = 20
 
 -- ---------------------------------------------------------------------------

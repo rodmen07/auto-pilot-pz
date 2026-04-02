@@ -52,16 +52,14 @@ AutoPilot is a client-side mod for Project Zomboid Build 42 that runs a full sur
 [b]Local Autonomous Survivor Mode[/b]
 [list]
 [*]No sidecar required — all decision logic runs inside the mod.
-[*]Send prompt override with [b]2[/b] and choose a priority with [b]3[/b]-[b]7[/b].
-[*]Select from survival, safety, comfort, training, status.
+[*]Toggle autopilot with [b]F10[/b].
+[*]Set/reset home anchor with [b]H[/b].
 [/list]
 
 [h2]Controls[/h2]
 [list]
-[*][b]Ctrl+1[/b] — Toggle autopilot on/off
-[*][b]Ctrl+2[/b] — Enter prompt override
-[*][b]Ctrl+3[/b]-[b]Ctrl+7[/b] — Prompt options (when prompt active)
-[*][b]H[/b]  — Halt all queued actions immediately
+[*][b]F10[/b] — Toggle autopilot on/off
+[*][b]H[/b] — Set/reset home anchor
 [/list]
 
 [h2]Compatibility[/h2]
@@ -75,7 +73,6 @@ AutoPilot is a client-side mod for Project Zomboid Build 42 that runs a full sur
 [h2]Requirements[/h2]
 [list]
 [*]Project Zomboid Build 42.15.3+
-[*]LLM sidecar (optional): Python 3.10+, [code]pip install anthropic[/code], Anthropic API key
 [/list]
 
 [h2]Source & Issues[/h2]

@@ -79,7 +79,7 @@ local function lootNearbyBandage(player)
                                 return item:isCanBandage()
                             end)
                             if ok and canBandage then
-                                AutoPilot_LLM.log("[Medical] Looting bandage: " ..
+                                print("[Medical] Looting bandage: " ..
                                     tostring(item:getName()))
                                 local xferOk = pcall(function()
                                     ISTimedActionQueue.add(
@@ -88,7 +88,7 @@ local function lootNearbyBandage(player)
                                             player:getInventory()))
                                 end)
                                 if not xferOk then
-                                    AutoPilot_LLM.log(
+                                    print(
                                         "[Medical] ISInventoryTransferAction failed — skipping (MP-unsafe).")
                                 else
                                     result = true
@@ -104,7 +104,7 @@ local function lootNearbyBandage(player)
     end)
 
     if result then return true end
-    AutoPilot_LLM.log("[Medical] No bandages found in nearby containers.")
+    print("[Medical] No bandages found in nearby containers.")
     return false
 end
 
@@ -112,7 +112,7 @@ end
 local function doTreatWound(player, bodyPart)
     local bandage = findBandage(player)
     if not bandage then
-        AutoPilot_LLM.log("[Medical] No bandage in inventory — searching nearby containers.")
+        print("[Medical] No bandage in inventory — searching nearby containers.")
         if lootNearbyBandage(player) then
             bandage = findBandage(player)
         end
@@ -124,7 +124,7 @@ local function doTreatWound(player, bodyPart)
         partName = BodyPartType.getDisplayName(bodyPart:getType())
     end)
 
-    AutoPilot_LLM.log("[Medical] Treating wound on " .. partName ..
+    print("[Medical] Treating wound on " .. partName ..
         " with " .. tostring(bandage:getName()))
 
     local ok, _ = pcall(function()
@@ -213,7 +213,7 @@ function AutoPilot_Medical.hasCriticalWound(player)
     return false
 end
 
---- Returns a snapshot of wound state for LLM state reporting.
+--- Returns a snapshot of wound state for state reporting.
 function AutoPilot_Medical.getWoundSnapshot(player)
     local snapshot = { bleeding = 0, scratched = 0, deep_wounded = 0, bitten = false, burnt = 0 }
 
@@ -250,4 +250,4 @@ function AutoPilot_Medical.getWoundSnapshot(player)
     return snapshot
 end
 
-AutoPilot_LLM.log("[Medical] AutoPilot_Medical module loaded.")
+print("[Medical] AutoPilot_Medical module loaded.")

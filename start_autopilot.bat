@@ -13,7 +13,5 @@ start "" "steam://rungameid/108600"
 
 echo.
 echo In-game controls:
-echo   Ctrl+1 - Toggle autopilot on/off
-echo   Ctrl+2 - Prompt override (choose priority)
-echo   Ctrl+3-7 - Prompt options (when active)
+echo   F10 - Toggle autopilot on/off
 echo   H  - Set home position

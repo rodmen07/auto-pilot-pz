@@ -73,14 +73,14 @@ local function doEat(player)
         or AutoPilot_Inventory.selectFoodByWeight(player)
         or AutoPilot_Inventory.getBestFood(player)
     if not food then
-        AutoPilot_LLM.log("[Needs] Hungry but no food in inventory — looting nearby.")
+        print("[Needs] Hungry but no food in inventory — looting nearby.")
         local found = AutoPilot_Inventory.lootNearbyFood(player)
         if not found then
             _emptyLootCycles = _emptyLootCycles + 1
-            AutoPilot_LLM.log(("[Needs] Empty loot cycle %d/%d."):format(
+            print(("[Needs] Empty loot cycle %d/%d."):format(
                 _emptyLootCycles, AutoPilot_Constants.SUPPLY_RUN_TRIGGER))
             if _emptyLootCycles >= AutoPilot_Constants.SUPPLY_RUN_TRIGGER then
-                AutoPilot_LLM.log("[Needs] Supply run triggered — expanding food loot radius.")
+                print("[Needs] Supply run triggered — expanding food loot radius.")
                 local foodPred = function(item)
                     return item:isFood() and not item:isRotten()
                         and (item:getCalories() or 0) > 0
@@ -94,9 +94,9 @@ local function doEat(player)
         return false
     end
     _emptyLootCycles = 0
-    AutoPilot_LLM.log("[Needs] Best food: " .. tostring(food:getName())
+    print("[Needs] Best food: " .. tostring(food:getName())
         .. " (cal=" .. tostring(food:getCalories()) .. ")")
-    AutoPilot_LLM.log("[Needs] Eating: " .. tostring(food:getName()))
+    print("[Needs] Eating: " .. tostring(food:getName()))
     ISTimedActionQueue.add(ISEatFoodAction:new(player, food, 1))
     return true
 end
@@ -126,21 +126,21 @@ local function doDrink(player)
     local drink = AutoPilot_Inventory.getBestDrink(player)
     if drink then
         _emptyLootCycles = 0
-        AutoPilot_LLM.log("[Needs] Drinking: " .. tostring(drink:getName()))
+        print("[Needs] Drinking: " .. tostring(drink:getName()))
         ISTimedActionQueue.add(ISEatFoodAction:new(player, drink, 1))
         drinkCooldownMs = ms + 5000
         return true
     end
 
     -- Priority 3: Loot a drink from nearby containers
-    AutoPilot_LLM.log("[Needs] Thirsty but no drink — attempting to loot nearby.")
+    print("[Needs] Thirsty but no drink — attempting to loot nearby.")
     local found = AutoPilot_Inventory.lootNearbyDrink(player)
     if not found then
         _emptyLootCycles = _emptyLootCycles + 1
-        AutoPilot_LLM.log(("[Needs] Empty loot cycle %d/%d."):format(
+        print(("[Needs] Empty loot cycle %d/%d."):format(
             _emptyLootCycles, AutoPilot_Constants.SUPPLY_RUN_TRIGGER))
         if _emptyLootCycles >= AutoPilot_Constants.SUPPLY_RUN_TRIGGER then
-            AutoPilot_LLM.log("[Needs] Supply run triggered — expanding drink loot radius.")
+            print("[Needs] Supply run triggered — expanding drink loot radius.")
             local drinkPred = function(item)
                 return item:isFood() and not item:isRotten()
                     and item:getThirstChange() and item:getThirstChange() < 0
@@ -226,13 +226,13 @@ local function doRest(player)
 
     local target = findRestFurniture(player)
     if not target then
-        AutoPilot_LLM.log("[Needs] Exhausted but no valid rest furniture found; skipping rest.")
+        print("[Needs] Exhausted but no valid rest furniture found; skipping rest.")
         return false
     end
 
     local targetSq = target:getSquare()
     if not targetSq then
-        AutoPilot_LLM.log("[Needs] Rest target has no square; skipping rest.")
+        print("[Needs] Rest target has no square; skipping rest.")
         return false
     end
 
@@ -247,7 +247,7 @@ local function doRest(player)
     end)
 
     if okBed and isBed then
-        AutoPilot_LLM.log("[Needs] Exhausted — using nearby bed to recover.")
+        print("[Needs] Exhausted — using nearby bed to recover.")
         if AdjacentFreeTileFinder.isTileOrAdjacent(player:getCurrentSquare(), targetSq) then
             ISTimedActionQueue.add(ISGetOnBedAction:new(player, target))
             queued = true
@@ -260,7 +260,7 @@ local function doRest(player)
             end
         end
     else
-        AutoPilot_LLM.log("[Needs] Exhausted — resting using nearby furniture.")
+        print("[Needs] Exhausted — resting using nearby furniture.")
 
         if ISPathFindAction and ISPathFindAction.pathToSitOnFurniture then
             local okPath, pathAction = pcall(function()
@@ -284,7 +284,7 @@ local function doRest(player)
     end
 
     if not queued then
-        AutoPilot_LLM.log("[Needs] Unable to queue a safe rest action.")
+        print("[Needs] Unable to queue a safe rest action.")
         return false
     end
 
@@ -407,16 +407,16 @@ local function doSleep(player)
         -- Forcing sleep via setAsleep is client-only; the server never learns of
         -- the state change, causing fatigue desync in MP.  Retry next cycle.
         if AutoPilot_Home.isSet(player) then
-            AutoPilot_LLM.log(
+            print(
                 "[Needs] No bed found inside home bounds — cannot force sleep (MP-unsafe); will retry.")
         else
-            AutoPilot_LLM.log("[Needs] No bed found — cannot force sleep (MP-unsafe); will retry.")
+            print("[Needs] No bed found — cannot force sleep (MP-unsafe); will retry.")
         end
         return false
     end
 
     local bedSq = bedObj:getSquare()
-    AutoPilot_LLM.log("[Needs] Found bed — walking to it.")
+    print("[Needs] Found bed — walking to it.")
 
     -- Build 42 beds are multi-tile sprite grids. Walk to an adjacent tile first,
     -- then queue ISGetOnBedAction — mirrors ISWorldObjectContextMenu.onConfirmSleep.
@@ -426,7 +426,7 @@ local function doSleep(player)
     if AdjacentFreeTileFinder.isTileOrAdjacent(player:getCurrentSquare(), bedSq) then
         local bedAction = ISGetOnBedAction:new(player, bedObj)
         ISTimedActionQueue.add(bedAction)
-        AutoPilot_LLM.log("[Needs] Queued ISGetOnBedAction directly.")
+        print("[Needs] Queued ISGetOnBedAction directly.")
     else
         local adjacent = AdjacentFreeTileFinder.Find(bedSq, player)
         if adjacent then
@@ -440,7 +440,7 @@ local function doSleep(player)
                 ISTimedActionQueue.add(bedAction)
             end
         else
-            AutoPilot_LLM.log("[Needs] Bed unreachable — no adjacent free tile found.")
+            print("[Needs] Bed unreachable — no adjacent free tile found.")
             return false
         end
     end
@@ -457,11 +457,11 @@ local function doGoOutside(player)
     if not cell then return false end
     local curSq = cell:getGridSquare(px, py, pz)
     if curSq and curSq:isOutside() then
-        AutoPilot_LLM.log("[Needs] Already outside — boredom will decrease naturally.")
+        print("[Needs] Already outside — boredom will decrease naturally.")
         return false
     end
 
-    AutoPilot_LLM.log("[Needs] Bored — finding outdoor square.")
+    print("[Needs] Bored — finding outdoor square.")
 
     -- Home set: only search within home bounds
     if AutoPilot_Home.isSet(player) then
@@ -472,12 +472,12 @@ local function doGoOutside(player)
             ISTimedActionQueue.add(ISWalkToTimedAction:new(player, outsideSq))
             return true
         end
-        AutoPilot_LLM.log("[Needs] No outdoor square found inside home bounds — skipping.")
+        print("[Needs] No outdoor square found inside home bounds — skipping.")
         return false
     end
 
     -- No home set: skip outdoor walk for safety (containment guard)
-    AutoPilot_LLM.log("[Needs] No home set — skipping outdoor walk.")
+    print("[Needs] No home set — skipping outdoor walk.")
     return false
 end
 
@@ -508,13 +508,13 @@ local function doSeekShelter(player)
             return s and s:isFree(false)
         end)
         if inside then
-            AutoPilot_LLM.log("[Needs] Seeking shelter inside home.")
+            print("[Needs] Seeking shelter inside home.")
             ISTimedActionQueue.add(ISWalkToTimedAction:new(player, inside))
             return true
         end
     end
 
-    AutoPilot_LLM.log("[Needs] No home shelter available; resting in place while outside.")
+    print("[Needs] No home shelter available; resting in place while outside.")
     return doRest(player)
 end
 
@@ -526,10 +526,10 @@ local function doRead(player)
     if ok and type(lvlOrErr) == "number" then
         literate = lvlOrErr > 0
     else
-        AutoPilot_LLM.log("[Needs] literacy check pcall failed: " .. tostring(lvlOrErr))
+        print("[Needs] literacy check pcall failed: " .. tostring(lvlOrErr))
     end
     if not literate then
-        AutoPilot_LLM.log(("[Needs] Cannot read: player considered illiterate. PerkCheck ok=%s value=%s")
+        print(("[Needs] Cannot read: player considered illiterate. PerkCheck ok=%s value=%s")
             :format(tostring(ok), tostring(lvlOrErr)))
         -- Fallback debug checks (safe): query trait presence if possible
         local traitOk, hasIll = pcall(function()
@@ -537,7 +537,7 @@ local function doRead(player)
             if player and player.getDescriptor and player:getDescriptor().hasTrait then return player:getDescriptor():hasTrait("Illiterate") end
             return false
         end)
-        AutoPilot_LLM.log(("[Needs] literacy fallback checks: HasTrait ok=%s value=%s")
+        print(("[Needs] literacy fallback checks: HasTrait ok=%s value=%s")
             :format(tostring(traitOk), tostring(hasIll)))
         return false
     end
@@ -551,11 +551,11 @@ local function doRead(player)
     -- Check if too dark to read
     local ok, tooDark = pcall(function() return player:tooDarkToRead() end)
     if ok and tooDark then
-        AutoPilot_LLM.log("[Needs] Too dark to read.")
+        print("[Needs] Too dark to read.")
         return false
     end
 
-    AutoPilot_LLM.log("[Needs] Reading: " .. tostring(book:getName()))
+    print("[Needs] Reading: " .. tostring(book:getName()))
     local readOk, _ = pcall(function()
         ISTimedActionQueue.add(ISReadABook:new(player, book))
     end)
@@ -585,14 +585,14 @@ local function doExercise(player)
     end
     -- Phase 2: daily cap gate
     if _exerciseSetsToday >= AutoPilot_Constants.EXERCISE_DAILY_CAP then
-        AutoPilot_LLM.log(("[Needs] Daily exercise cap %d reached — resting."):format(
+        print(("[Needs] Daily exercise cap %d reached — resting."):format(
             AutoPilot_Constants.EXERCISE_DAILY_CAP))
         return false
     end
     -- Phase 2: endurance gate
     local _endurance = AutoPilot_Utils.safeStat(player, CharacterStat.ENDURANCE)
     if _endurance < AutoPilot_Constants.EXERCISE_ENDURANCE_MIN then
-        AutoPilot_LLM.log(("[Needs] Endurance %.2f < %.2f — skipping exercise."):format(
+        print(("[Needs] Endurance %.2f < %.2f — skipping exercise."):format(
             _endurance, AutoPilot_Constants.EXERCISE_ENDURANCE_MIN))
         return false
     end
@@ -606,7 +606,7 @@ local function doExercise(player)
         end)
         local ms = ok and now or 0
         if ms >= exerciseWaitLogMs then
-            AutoPilot_LLM.log(string.format(
+            print(string.format(
                 "[Needs] Waiting for endurance to recover (%.0f%%) before exercising.",
                 endurance * 100))
             exerciseWaitLogMs = ms + 30000
@@ -620,17 +620,17 @@ local function doExercise(player)
     local exercises
     if strLevel <= fitLevel then
         exercises = STRENGTH_EXERCISES
-        AutoPilot_LLM.log(string.format("[Needs] Exercise — training Strength (STR %d / FIT %d)",
+        print(string.format("[Needs] Exercise — training Strength (STR %d / FIT %d)",
             strLevel, fitLevel))
     else
         exercises = FITNESS_EXERCISES
-        AutoPilot_LLM.log(string.format("[Needs] Exercise — training Fitness (STR %d / FIT %d)",
+        print(string.format("[Needs] Exercise — training Fitness (STR %d / FIT %d)",
             strLevel, fitLevel))
     end
 
     -- Guard: exercises table must be non-empty before indexing.
     if #exercises == 0 then
-        AutoPilot_LLM.log("[Needs] No exercises defined for current focus — skipping.")
+        print("[Needs] No exercises defined for current focus — skipping.")
         return false
     end
     local exType = exercises[((exerciseCycle - 1) % #exercises) + 1]
@@ -642,7 +642,7 @@ local function doExercise(player)
     end
 
     if not exeData then
-        AutoPilot_LLM.log("[Needs] FitnessExercises data not found for: " .. exType)
+        print("[Needs] FitnessExercises data not found for: " .. exType)
         return false
     end
 
@@ -661,14 +661,14 @@ local function doExercise(player)
     if ok and action then
         -- Phase 2: equip best available exercise gear before starting
         local _tier = AutoPilot_Inventory.equipBestExerciseItem(player)
-        AutoPilot_LLM.log(("[Needs] Exercise tier: %s"):format(_tier))
+        print(("[Needs] Exercise tier: %s"):format(_tier))
         ISTimedActionQueue.addGetUpAndThen(player, action)
         _exerciseSetsToday = _exerciseSetsToday + 1
-        AutoPilot_LLM.log(("[Needs] Exercise set %d/%d queued."):format(
+        print(("[Needs] Exercise set %d/%d queued."):format(
             _exerciseSetsToday, AutoPilot_Constants.EXERCISE_DAILY_CAP))
         return true
     else
-        AutoPilot_LLM.log("[Needs] ISFitnessAction failed for: " .. exType .. " — " .. tostring(action))
+        print("[Needs] ISFitnessAction failed for: " .. exType .. " — " .. tostring(action))
         return false
     end
 end
@@ -733,7 +733,7 @@ function AutoPilot_Needs.check(player)
     local tempDelta = AutoPilot_Inventory.bodyTemperature(player)
     if currentSq and currentSq:isOutside() then
         if isRaining() or tempDelta < AutoPilot_Constants.TEMP_TOO_COLD then
-            AutoPilot_LLM.log("[Needs] Outdoors bad comfort (rain/cold) — seeking shelter.")
+            print("[Needs] Outdoors bad comfort (rain/cold) — seeking shelter.")
             if doSeekShelter(player) then return true end
         end
     end
@@ -741,11 +741,11 @@ function AutoPilot_Needs.check(player)
     -- 3. Hunger (0.0=full, ~1.0=starving)
     local hunger = AutoPilot_Utils.safeStat(player, CharacterStat.HUNGER)
     if hunger >= HUNGER_STAT_THRESHOLD then
-        AutoPilot_LLM.log(string.format(
+        print(string.format(
             "[Needs] Hunger triggered (%.0f%%). Attempting to eat.", hunger * 100))
         local ate = doEat(player)
         if ate then return true end
-        AutoPilot_LLM.log("[Needs] doEat returned false — no food available, continuing.")
+        print("[Needs] doEat returned false — no food available, continuing.")
     end
 
     -- 4. Wounds — treat non-bleeding wounds (scratches, bites, deep wounds)
@@ -776,7 +776,7 @@ function AutoPilot_Needs.check(player)
         if unhappyLvl >= AutoPilot_Constants.HAPPINESS_LOW_THRESHOLD then
             local tastyFood = AutoPilot_Inventory.preferTastyFood(player)
             if tastyFood then
-                AutoPilot_LLM.log("[Needs] Unhappy — eating tasty food: "
+                print("[Needs] Unhappy — eating tasty food: "
                     .. tostring(tastyFood:getName()))
                 ISTimedActionQueue.add(ISEatFoodAction:new(player, tastyFood, 1))
                 return true
@@ -818,16 +818,16 @@ function AutoPilot_Needs.preferredExerciseType(player)
     end)
     if not ok or strLvl == nil or fitLvl == nil then return "either" end
     if strLvl < fitLvl then
-        AutoPilot_LLM.log(("[Needs] STR %d < FIT %d — preferring strength."):format(strLvl, fitLvl))
+        print(("[Needs] STR %d < FIT %d — preferring strength."):format(strLvl, fitLvl))
         return "strength"
     elseif fitLvl < strLvl then
-        AutoPilot_LLM.log(("[Needs] FIT %d < STR %d — preferring fitness."):format(fitLvl, strLvl))
+        print(("[Needs] FIT %d < STR %d — preferring fitness."):format(fitLvl, strLvl))
         return "fitness"
     end
     return "either"
 end
 
--- Returns a snapshot of current stat levels for LLM state reporting.
+-- Returns a snapshot of current stat levels for state reporting.
 -- B42: Uses player:getStats():get(CharacterStat.XXX) pattern.
 function AutoPilot_Needs.getMoodleSnapshot(player)
     return {
@@ -870,7 +870,7 @@ end
 
 function AutoPilot_Needs.printStatus(player)
     local moodles = AutoPilot_Needs.getMoodleSnapshot(player)
-    AutoPilot_LLM.log(string.format(
+    print(string.format(
         "[Needs] Status: health=%.0f%% endurance=%.0f%% hungry=%d thirsty=%d tired=%d bored=%d",
         player:getHealth() * 100,
         AutoPilot_Utils.safeStat(player, CharacterStat.ENDURANCE) * 100,

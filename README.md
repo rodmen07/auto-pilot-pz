@@ -9,24 +9,16 @@ AFK auto-leveler for Strength and Fitness. Keeps your character alive through au
 
 1. Prerequisite: The mod is already installed at `~/Zomboid/mods/auto_pilot/`
 2. Launch Project Zomboid, enable **AutoPilot** in the mod list
-3. Load into a game and press **Ctrl+1** to start/stop autopilot
+3. Load into a game and press **F10** to start/stop autopilot
 4. Press **H** once to set your home anchor
 4. Watch the console (`ProjectZomboid64ShowConsole.bat`) for `[AutoPilot]` log messages
 
 ### Controls (local autonomous survivor)
 
-- Ctrl+1: toggle autopilot on/off
-- Ctrl+2: prompt override (asks for priority)
-- Ctrl+3: select prompt priority 1 (survival)
-- Ctrl+4: select prompt priority 2 (safety)
-- Ctrl+5: select prompt priority 3 (comfort)
-- Ctrl+6: select prompt priority 4 (training)
-- Ctrl+7: select prompt priority 5 (status)
-
+- F10: toggle autopilot on/off
 - H: set/reset home position while autopilot is active
-- Ctrl+0: show/hide quick help overlay
 
-The mod is fully autonomous and no external AI service is needed. Autopilot will return to normal behavior automatically 30 seconds after the prompt if no selection is made.
+The mod is fully autonomous and no external AI service is needed.
 
 ### Cloud Agent -> Local Game Sync (Windows)
 
@@ -40,7 +32,7 @@ sync_after_merge.bat
 What this does:
 
 1. Fetches and fast-forwards your local `main` from `origin/main`
-2. If your repo is not the same as the live game mod folder, deploys `42/` + `auto_pilot_sidecar.py` into `%USERPROFILE%\Zomboid\mods\auto_pilot`
+2. If your repo is not the same as the live game mod folder, deploys `42/` into `%USERPROFILE%\Zomboid\mods\auto_pilot`
 
 Notes:
 
@@ -55,11 +47,12 @@ Six Lua modules in `42/media/lua/client/`:
 
 | Module | Purpose |
 |--------|---------|
-| `AutoPilot_Main.lua` | Orchestrator — OnTick loop, F3 autopilot toggle, prompt dispatch || `AutoPilot_Needs.lua` | Priority-based survival state machine |
+| `AutoPilot_Main.lua` | Orchestrator — OnTick loop, F10 autopilot toggle |
+| `AutoPilot_Needs.lua` | Priority-based survival state machine |
 | `AutoPilot_Threat.lua` | Zombie detection, fight/flee logic |
 | `AutoPilot_Inventory.lua` | Item scanning, water sources, auto-loot |
 | `AutoPilot_Medical.lua` | Wound detection and auto-bandage |
-| `AutoPilot_LLM.lua` | Minimal logger compatibility adapter (no sidecar IPC) |
+
 
 ### Priority Chain (AutoPilot_Needs)
 
@@ -72,17 +65,9 @@ Six Lua modules in `42/media/lua/client/`:
 7. **Bored** — read literature, then go outside
 8. **Idle** — exercise (Strength if STR <= FIT, else Fitness)
 
-### Optional LLM Sidecar
+### Local-Only Runtime
 
-The mod works fully autonomously without the sidecar. Optionally, run the Python sidecar for Claude-driven decision making:
-
-```bash
-# pip install anthropic
-# set ANTHROPIC_API_KEY=sk-ant-...    //only need to run these two initially
-python auto_pilot_sidecar.py
-```
-
-**Note:** PZ's Lua is completely sandboxed (no HTTP, no sockets). File-based IPC is the only mechanism for external communication — the sidecar polls `auto_pilot_state.json` and writes `auto_pilot_cmd.json`.
+The mod runs fully autonomously in Lua with no sidecar component.
 
 ---
 
@@ -102,8 +87,8 @@ Added the two critical missing survival systems that would kill the character be
 | Refill water containers | Done | `refillWaterContainer()` — finds non-full bottles, fills from nearby water source |
 | Reading for boredom | Done | `doRead()` — reads literature via `ISReadABook` before going outside |
 | Updated priority chain | Done | 8-step priority: bleeding > thirst > hunger > wounds > exhaustion > sleep > boredom > exercise |
-| Expanded LLM state snapshot | Done | Now includes wound data + water source availability |
-| Updated schemas & sidecar | Done | `bandage` action added, wound/water fields in state |
+| Expanded state snapshot | Done | Includes wound data + water source availability |
+| Updated schemas | Done | `bandage` action added, wound/water fields in state |
 
 ### Phase 2: Level Faster (Exercise Optimization) — COMPLETE *(v0.1.2)*
 
@@ -161,7 +146,7 @@ Publish the mod for others to use. Completing this phase marks the **V1.0** publ
 The mod is now designed as a single local brain only:
 
 - **Rule-based Lua brain** — `AutoPilot_Needs` checks survival needs, threat response, and exercise decisions entirely locally.
-- **No sidecar required** — `auto_pilot_sidecar.py` support has been removed.
+- **No sidecar required** — all logic runs inside the Lua mod.
 
 ### The Constraint
 
@@ -173,22 +158,9 @@ PZ's Lua runtime (Kahlua, a Java-embedded Lua 5.1) is **completely network-isola
 
 This means **there is no way to call an API from inside the mod**. External communication must go through the filesystem.
 
-### IPC Flow
+### Runtime
 
-```
-PZ Game (Lua)                           Python Sidecar
-    |                                        |
-    |-- writes auto_pilot_state.json ------->|
-    |   (every ~10s: health, moodles,        |
-    |    zombies, inventory, wounds)          |
-    |                                        |-- calls Claude API
-    |                                        |
-    |<-- reads auto_pilot_cmd.json ----------|
-    |   (action: eat/drink/sleep/exercise/   |
-    |    fight/flee/bandage/rest/idle)        |
-    |                                        |
-    |-- applies command on next idle tick    |
-```
+All decisions are made in-game by the Lua modules on each autopilot tick.
 
 ### Future Options Explored
 
@@ -196,11 +168,9 @@ PZ Game (Lua)                           Python Sidecar
 |----------|-------------|-------|
 | HTTP from Lua | Impossible | Kahlua sandbox blocks all network access |
 | Java bridge to `HttpURLConnection` | Impossible | Only whitelisted game classes exposed |
-| Sidecar as `.exe` (PyInstaller) | Viable | Bundle sidecar as single executable, no Python install needed |
-| Auto-launch sidecar with PZ | Viable | Batch script or Steam launch options to start both |
-| Embedded rule engine improvements | Current focus | Make the Lua brain smart enough that AI is optional |
+| Embedded rule engine improvements | Current focus | Continue improving autonomous survival and training behavior |
 
-The pragmatic path: keep improving the rule-based system (Phases 2-4) so the mod is fully autonomous, while keeping the sidecar as an optional power-user feature. Packaging the sidecar as a standalone `.exe` is the most likely next step for AI integration UX.
+The pragmatic path is to keep improving the rule-based system so the mod remains fully autonomous.
 
 ---
 
@@ -224,15 +194,12 @@ auto_pilot/
       AutoPilot_Threat.lua
       AutoPilot_Inventory.lua
       AutoPilot_Medical.lua
-      AutoPilot_LLM.lua
     mod.info
     poster.png
   schemas/
     cmd.schema.json
     state.schema.json
   tests/
-    test_sidecar.py
-  auto_pilot_sidecar.py
   .luacheckrc
   check.sh
   deploy.sh

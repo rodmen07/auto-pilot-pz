@@ -14,7 +14,6 @@ import re
 import unittest
 
 CONSOLE_LOG = pathlib.Path.home() / "Zomboid" / "console.txt"
-SIDECAR_LOG = pathlib.Path.home() / "Zomboid" / "Lua" / "auto_pilot_sidecar.log"
 
 # Patterns that indicate AutoPilot Lua errors
 LUA_ERROR_PATTERNS = [
@@ -67,8 +66,8 @@ class TestConsoleLogErrors(unittest.TestCase):
             if "Exception" in line and "auto_pilot" in line.lower()
         ]
         self.assertEqual(java_errors, [],
-                         f"Java exceptions related to AutoPilot:\n"
-                         + "\n".join(java_errors[:10]))
+                 "Java exceptions related to AutoPilot:\n"
+                 + "\n".join(java_errors[:10]))
 
     def test_mod_loaded_successfully(self):
         loaded = any("AutoPilot loaded" in line for line in self.autopilot_lines)
@@ -106,44 +105,6 @@ class TestActionSpamDetection(unittest.TestCase):
                 max_consecutive, threshold,
                 f"Detected {label}: '{pattern_str}' appeared "
                 f"{max_consecutive} times consecutively (threshold={threshold})")
-
-
-@unittest.skipUnless(SIDECAR_LOG.exists(), "No sidecar log found")
-class TestSidecarLogErrors(unittest.TestCase):
-    """Check sidecar log for API errors and crashes."""
-
-    @classmethod
-    def setUpClass(cls):
-        cls.lines = _read_log(SIDECAR_LOG)
-
-    def test_no_api_errors_in_last_session(self):
-        """Check only lines after the last 'sidecar starting' marker."""
-        last_start = 0
-        for i, line in enumerate(self.lines):
-            if "sidecar starting" in line:
-                last_start = i
-
-        session_lines = self.lines[last_start:]
-        api_errors = [
-            line.strip() for line in session_lines
-            if "API error" in line or "Unexpected error" in line
-        ]
-        self.assertEqual(api_errors, [],
-                         f"Sidecar errors in last session:\n"
-                         + "\n".join(api_errors[:10]))
-
-    def test_commands_were_sent(self):
-        """At least one command should have been sent in the last session."""
-        last_start = 0
-        for i, line in enumerate(self.lines):
-            if "sidecar starting" in line:
-                last_start = i
-
-        session_lines = self.lines[last_start:]
-        commands = [line for line in session_lines if ">>>" in line]
-        self.assertGreater(len(commands), 0,
-                           "No commands were sent in the last sidecar session")
-
 
 if __name__ == "__main__":
     unittest.main()

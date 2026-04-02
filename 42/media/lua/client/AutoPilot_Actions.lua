@@ -1,7 +1,7 @@
 -- AutoPilot_Actions.lua
--- Chainable action registry for the AutoPilot LLM system.
+-- Chainable action registry for AutoPilot.
 --
--- Chain wire format (written by sidecar, read by LLM.lua):
+-- Chain wire format:
 --   {"action":"chain","steps":"walk_to:north 30|loot_item:axe|eat","reason":"..."}
 --
 -- Steps are pipe-delimited. Each step is "actionName:param" or just "actionName".
