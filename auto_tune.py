@@ -5,7 +5,7 @@ import re
 import shutil
 import subprocess
 import sys
-import time
+from typing import Any
 
 # Configurable paths
 ROOT = os.path.abspath(os.path.dirname(__file__))
@@ -45,8 +45,8 @@ def restore_files():
         shutil.copyfile(BACKUP_THREAT, THREAT_FILE)
 
 
-def write_needs(thirst, hunger):
-    text = []
+def write_needs(thirst: float, hunger: float) -> None:
+    text: list[str] = []
     with open(NEEDS_FILE, 'r', encoding='utf-8') as f:
         for line in f:
             m = pattern_thirst.match(line)
@@ -62,8 +62,8 @@ def write_needs(thirst, hunger):
         f.writelines(text)
 
 
-def write_threat(flee):
-    text = []
+def write_threat(flee: int) -> None:
+    text: list[str] = []
     with open(THREAT_FILE, 'r', encoding='utf-8') as f:
         for line in f:
             m = pattern_flee.match(line)
@@ -75,20 +75,23 @@ def write_threat(flee):
         f.writelines(text)
 
 
-def run_automate(runs, timeout):
-    proc = subprocess.run([sys.executable, AUTOMATE_SCRIPT, '--runs', str(runs), '--timeout', str(timeout)], cwd=ROOT)
-    return proc.returncode == 0
+def run_automate(runs: int, timeout: int) -> bool:
+    try:
+        subprocess.run([sys.executable, AUTOMATE_SCRIPT, '--runs', str(runs), '--timeout', str(timeout)], cwd=ROOT, check=True)
+        return True
+    except subprocess.CalledProcessError:
+        return False
 
 
-def load_summary():
+def load_summary() -> dict[str, Any] | None:
     summary_path = os.path.join(ROOT, 'auto_pilot_runs_summary.json')
     if not os.path.exists(summary_path):
         return None
-    with open(summary_path, 'r') as f:
+    with open(summary_path, 'r', encoding='utf-8') as f:
         return json.load(f)
 
 
-def load_tune_results():
+def load_tune_results() -> list[dict[str, Any]]:
     if not os.path.exists(RESULT_FILE):
         return []
     with open(RESULT_FILE, 'r', encoding='utf-8') as f:
@@ -96,8 +99,8 @@ def load_tune_results():
         return data.get('all', [])
 
 
-def init_best_from_results(all_results):
-    best = {'score': -1, 'params': None, 'result': None}
+def init_best_from_results(all_results: list[dict[str, Any]]) -> dict[str, Any]:
+    best: dict[str, Any] = {'score': -1, 'params': None, 'result': None}
     for entry in all_results:
         score = entry.get('score')
         if score is None:
@@ -115,17 +118,17 @@ def init_best_from_results(all_results):
     return best
 
 
-def save_tune_results(best, all_results):
+def save_tune_results(best: dict[str, Any], all_results: list[dict[str, Any]]) -> None:
     with open(RESULT_FILE, 'w', encoding='utf-8') as f:
         json.dump({'best': best, 'all': all_results}, f, indent=2)
 
 
-def evaluate_summary(summary):
+def evaluate_summary(summary: dict[str, Any] | None) -> tuple[float, int, float, int, int]:
     if not summary or 'results' not in summary:
         return 0, 0, 0.0, 0, 0
-    survival_values = []
+    survival_values: list[float] = []
     deaths = 0
-    ff_ratios = []
+    ff_ratios: list[float] = []
     timeouts = 0
     for r in summary['results']:
         status = r.get('status')
@@ -159,7 +162,7 @@ def main():
             ok = run_automate(runs=3, timeout=600)
             if not ok:
                 print("automate.py exited non-zero; marking tuple as incomplete.")
-                entry = {
+                entry: dict[str, Any] = {
                     'thirst': thirst,
                     'hunger': hunger,
                     'flee_moodle_limit': flee,
@@ -175,7 +178,7 @@ def main():
             summary = load_summary()
             if not summary:
                 print("No summary generated for this run.")
-                entry = {
+                entry: dict[str, Any] = {
                     'thirst': thirst,
                     'hunger': hunger,
                     'flee_moodle_limit': flee,
@@ -199,7 +202,7 @@ def main():
                 f"ff_active_ratio_mean={ff_active_ratio_mean:.2f}, score={score}"
             )
 
-            entry = {
+            entry: dict[str, Any] = {
                 'thirst': thirst,
                 'hunger': hunger,
                 'flee_moodle_limit': flee,

@@ -111,9 +111,18 @@ local function reset()
     AutoPilot_Inventory.findWaterSource    = function(_player) return nil end
     AutoPilot_Inventory.getBestDrink       = function(_player) return nil end
     AutoPilot_Inventory.lootNearbyDrink    = function(_player) return false end
+    AutoPilot_Inventory.getBestFoodForHunger = function(_player, _hunger) return nil end
     AutoPilot_Inventory.selectFoodByWeight = function(_player) return nil end
     AutoPilot_Inventory.getBestFood        = function(_player) return nil end
     AutoPilot_Inventory.lootNearbyFood     = function(_player) return false end
+    AutoPilot_Inventory.bodyTemperature    = function(_player) return 0 end
+end
+
+local function makeArray(items)
+    return {
+        size = function(self) return #items end,
+        get = function(self, i) return items[i + 1] end,
+    }
 end
 
 -- Return the action-type string of the last item queued, or nil.
@@ -346,6 +355,106 @@ do
     })
     local pref3 = AutoPilot_Needs.preferredExerciseType(player3)
     assert_eq("returns 'either' when STR == FIT", pref3, "either")
+end
+
+-- 13. Hunger path should tolerate missing getBestFoodForHunger helper
+print("\n-- Test 13: Hunger fallback when getBestFoodForHunger is missing")
+do
+    reset()
+    AutoPilot_Inventory.getBestFoodForHunger = nil
+    local foodItem = {
+        getName = function() return "Canned Beans" end,
+        getCalories = function() return 400 end,
+    }
+    AutoPilot_Inventory.getBestFood = function(_player) return foodItem end
+    local player = MockPlayer.new({
+        stats = {
+            HUNGER    = 0.35,
+            THIRST    = 0.05,
+            FATIGUE   = 0.05,
+            ENDURANCE = 0.90,
+        },
+    })
+    local result = AutoPilot_Needs.check(player)
+    assert_true("check() still returns true when helper is missing", result)
+    assert_eq("fallback food selection queues eat", last_action_type(), "eat")
+end
+
+-- 14. Missing bodyTemperature helper should not crash needs check
+print("\n-- Test 14: Missing bodyTemperature helper")
+do
+    reset()
+    AutoPilot_Inventory.bodyTemperature = nil
+    local player = MockPlayer.new({
+        stats = {
+            HUNGER    = 0.05,
+            THIRST    = 0.05,
+            FATIGUE   = 0.05,
+            ENDURANCE = 0.90,
+            BOREDOM   = 0,
+            SANITY    = 0,
+        },
+        moodles = { ENDURANCE = 0, Unhappy = 0 },
+        perks = { Strength = 4, Fitness = 4 },
+    })
+    local result = AutoPilot_Needs.check(player)
+    assert_true("check() succeeds when bodyTemperature helper is missing", result)
+end
+
+-- 15. Pain + fatigue should queue medical treatment before bed search
+print("\n-- Test 15: Painful fatigue queues medical treatment")
+do
+    reset()
+    local oldCheck = AutoPilot_Medical.check
+    AutoPilot_Medical.check = function(_player, bleedingOnly)
+        if bleedingOnly then return false end
+        table.insert(ISTimedActionQueue_calls, { type = "bandage" })
+        return true
+    end
+    local player = MockPlayer.new({
+        stats = {
+            HUNGER    = 0.05,
+            THIRST    = 0.05,
+            FATIGUE   = 0.85,
+            ENDURANCE = 0.90,
+            PAIN      = 80,
+        },
+    })
+    local result = AutoPilot_Needs.check(player)
+    assert_true("check() returns true when pain relief treatment is queued", result)
+    assert_eq("medical treatment is queued before sleep", last_action_type(), "bandage")
+    AutoPilot_Medical.check = oldCheck
+end
+
+-- 16. Pain + fatigue should consume painkiller if medical does not queue treatment
+print("\n-- Test 16: Painful fatigue uses painkiller fallback")
+do
+    reset()
+    local oldCheck = AutoPilot_Medical.check
+    AutoPilot_Medical.check = function(_player, _bleedingOnly) return false end
+
+    local pill = {
+        getType = function() return "Painkillers" end,
+        getName = function() return "Painkillers" end,
+    }
+    local player = MockPlayer.new({
+        stats = {
+            HUNGER    = 0.05,
+            THIRST    = 0.05,
+            FATIGUE   = 0.90,
+            ENDURANCE = 0.90,
+            PAIN      = 95,
+        },
+    })
+    local inv = {
+        getItems = function(self) return makeArray({ pill }) end,
+    }
+    player.getInventory = function(self) return inv end
+
+    local result = AutoPilot_Needs.check(player)
+    assert_true("check() returns true when painkiller fallback is used", result)
+    assert_eq("painkiller fallback queues eat action", last_action_type(), "eat")
+    AutoPilot_Medical.check = oldCheck
 end
 
 -- ── Summary ───────────────────────────────────────────────────────────────────

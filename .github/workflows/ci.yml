@@ -19,7 +19,7 @@ jobs:
           python-version: "3.12"
 
       - name: Install Python dependencies
-        run: pip install anthropic pytest
+        run: pip install -r requirements-dev.txt
 
       - name: Install Lua and luacheck
         run: |
@@ -59,4 +59,3 @@ jobs:
 
       - name: Python tests
         run: python -m pytest tests/ -v --ignore=tests/test_priority_logic.lua --ignore=tests/lua_mock_pz.lua
-

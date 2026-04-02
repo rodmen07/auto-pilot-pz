@@ -12,6 +12,7 @@ CharacterStat = {
     THIRST    = "THIRST",
     FATIGUE   = "FATIGUE",
     ENDURANCE = "ENDURANCE",
+    PAIN      = "PAIN",
     BOREDOM   = "BOREDOM",
     SANITY    = "SANITY",
 }
