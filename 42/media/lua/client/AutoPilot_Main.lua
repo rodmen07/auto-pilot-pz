@@ -115,7 +115,7 @@ end
 
 local function updateHelpDisplay(player)
     if not helpVisible then return end
-    local text = "[AutoPilot Help] Ctrl+0=Help, Ctrl+1=Auto, Ctrl+2=Prompt, Ctrl+3-7=Priority. F10=Home.\n"
+    local text = "[AutoPilot Help] Ctrl+0=Help, Ctrl+1=Auto, Ctrl+2=Prompt, Ctrl+3-7=Priority. Alt+F10=Toggle AutoPilot, F10=Home.\n"
     text = text .. "Survival: thirst/hunger/wounds/sleep/rest/brain. Safety: evade when threatened.\n"
     text = text .. "Ctrl+0 again to close.\n"
     if player then
@@ -239,6 +239,13 @@ local function isCtrlDown()
     return ok and val
 end
 
+local function isAltDown()
+    local ok, val = pcall(function()
+        return isKeyDown and (isKeyDown(Keyboard.KEY_LMENU) or isKeyDown(Keyboard.KEY_RMENU))
+    end)
+    return ok and val
+end
+
 local function onTick()
     if mode == "off" then return end
 
@@ -334,6 +341,23 @@ local function onKeyPressed(key)
     end)
     local player = getPlayer()
 
+    -- Alt+F10: toggle autopilot (user-requested special binding)
+    if isAltDown() and key == Keyboard.KEY_F10 then
+        if mode == "autopilot" then
+            mode = "off"
+            clearPrompt()
+            currentPriority = nil
+        else
+            mode = "autopilot"
+            if player and not AutoPilot_Home.isSet(player) then
+                AutoPilot_Home.set(player)
+                apLog("AutoPilot enabled — home set to current position.")
+            end
+        end
+        sayMode(player)
+        return
+    end
+
     if not isCtrlDown() then
         return
     end
@@ -397,4 +421,4 @@ end
 Events.OnTick.Add(onTick)
 Events.OnKeyPressed.Add(onKeyPressed)
 
-print("[AutoPilot] AutoPilot loaded. F3=Autopilot, F4=Prompt, F5-F9=Prompt options, F10=Set Home.")
+print("[AutoPilot] AutoPilot loaded. Alt+F10=Toggle AutoPilot, Ctrl+1=Auto, Ctrl+2=Prompt, Ctrl+3-7=Prompt options, F10=Set Home.")
