@@ -69,9 +69,25 @@ end
 local function doEat(player)
     -- Prefer food close to current hunger need to avoid overfeeding.
     local hunger = AutoPilot_Utils.safeStat(player, CharacterStat.HUNGER)
-    local food = AutoPilot_Inventory.getBestFoodForHunger(player, hunger)
-        or AutoPilot_Inventory.selectFoodByWeight(player)
-        or AutoPilot_Inventory.getBestFood(player)
+    local food = nil
+    if AutoPilot_Inventory and AutoPilot_Inventory.getBestFoodForHunger then
+        local ok, selected = pcall(function()
+            return AutoPilot_Inventory.getBestFoodForHunger(player, hunger)
+        end)
+        if ok then food = selected end
+    end
+    if not food and AutoPilot_Inventory and AutoPilot_Inventory.selectFoodByWeight then
+        local ok, selected = pcall(function()
+            return AutoPilot_Inventory.selectFoodByWeight(player)
+        end)
+        if ok then food = selected end
+    end
+    if not food and AutoPilot_Inventory and AutoPilot_Inventory.getBestFood then
+        local ok, selected = pcall(function()
+            return AutoPilot_Inventory.getBestFood(player)
+        end)
+        if ok then food = selected end
+    end
     if not food then
         print("[Needs] Hungry but no food in inventory — looting nearby.")
         local found = AutoPilot_Inventory.lootNearbyFood(player)

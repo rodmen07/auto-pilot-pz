@@ -41,6 +41,7 @@ AutoPilot_Inventory = {
     getBestDrink          = function(_player) return nil end,
     lootNearbyDrink       = function(_player) return false end,
     supplyRunLoot         = function(_player, _pred) end,
+    getBestFoodForHunger  = function(_player, _hunger) return nil end,
     selectFoodByWeight    = function(_player) return nil end,
     getBestFood           = function(_player) return nil end,
     lootNearbyFood        = function(_player) return false end,
