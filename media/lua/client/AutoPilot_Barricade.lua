@@ -4,6 +4,9 @@
 
 AutoPilot_Barricade = {}
 
+local function _apNoop(...) end
+local print = _apNoop
+
 local MODDATA_KEY = "AutoPilot_Barricaded"
 
 --- Return true if barricading has already been completed for this home.

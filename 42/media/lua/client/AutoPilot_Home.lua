@@ -13,6 +13,9 @@
 
 AutoPilot_Home = {}
 
+local function _apNoop(...) end
+local print = _apNoop
+
 local HOME_DEFAULT_RADIUS = 150
 local PLAYER_MODDATA_KEY  = "AutoPilot_Home"
 

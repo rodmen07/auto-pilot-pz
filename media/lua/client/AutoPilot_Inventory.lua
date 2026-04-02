@@ -6,6 +6,9 @@
 
 AutoPilot_Inventory = {}
 
+local function _apNoop(...) end
+local print = _apNoop
+
 local LOOT_SEARCH_RADIUS   = 150  -- tiles to search for loot containers (one cell radius)
 local WATER_SEARCH_RADIUS  = 150  -- tiles to scan for sinks / rain barrels (one cell radius)
 local PLACE_SEARCH_DIST    = 50   -- tiles to find a container for placeItem
@@ -109,7 +112,6 @@ function AutoPilot_Inventory.getBestFoodForHunger(player, currentHunger)
         return best
     end
 
-    -- Fallback: if we could not find food close to hunger target, return any safe food.
     return AutoPilot_Inventory.getBestFood(player)
 end
 
@@ -374,10 +376,10 @@ function AutoPilot_Inventory.lootNearbyReadable(player)
         return false
     end)
     if found then
-        print("[Inventory] Looting readable: " .. tostring(found:getName()))
+            print("[Inventory] Looting readable: " .. tostring(found:getName()))
         return _queueTransfer(player, found, foundContainer, "readable")
     end
-    print("[Inventory] No readable items found in nearby containers.")
+        print("[Inventory] No readable items found in nearby containers.")
     return false
 end
 
@@ -396,10 +398,10 @@ function AutoPilot_Inventory.lootNearbyFood(player)
         return false  -- scan all squares to find the best
     end)
     if best then
-        print("[Inventory] Looting food: " .. tostring(best:getName()))
+            print("[Inventory] Looting food: " .. tostring(best:getName()))
         return _queueTransfer(player, best, bestContainer, "food")
     end
-    print("[Inventory] No food found in nearby containers.")
+        print("[Inventory] No food found in nearby containers.")
     return false
 end
 
@@ -418,10 +420,10 @@ function AutoPilot_Inventory.lootNearbyDrink(player)
         return false
     end)
     if found then
-        print("[Inventory] Looting drink: " .. tostring(found:getName()))
+            print("[Inventory] Looting drink: " .. tostring(found:getName()))
         return _queueTransfer(player, found, foundContainer, "drink")
     end
-    print("[Inventory] No drinks found in nearby containers.")
+        print("[Inventory] No drinks found in nearby containers.")
     return false
 end
 
@@ -482,12 +484,8 @@ end
 function AutoPilot_Inventory.drinkFromSource(player, waterObj)
     if not waterObj then return false end
 
-    local tainted = false
-    local ok = pcall(function() tainted = waterObj:isTaintedWater() end)
-    if ok and tainted then
-        print("[Inventory] Skipping tainted water source.")
-        return false
-    end
+    local ok, tainted = pcall(function() return waterObj:isTaintedWater() end)
+    if not ok then tainted = false end
 
     -- Walk adjacent to the water source
     local sq = waterObj:getSquare()
@@ -550,12 +548,8 @@ function AutoPilot_Inventory.refillWaterContainer(player, waterObj)
 
     if not container then return false end
 
-    local tainted = false
-    local ok = pcall(function() tainted = waterObj:isTaintedWater() end)
-    if ok and tainted then
-        print("[Inventory] Not refilling from tainted water source.")
-        return false
-    end
+    local ok, tainted = pcall(function() return waterObj:isTaintedWater() end)
+    if not ok then tainted = false end
 
     local sq = waterObj:getSquare()
     if sq then
@@ -626,7 +620,7 @@ function AutoPilot_Inventory.searchItem(player, keyword)
     end
     AutoPilot_Inventory._lastSearchResults = names
 
-    print("[Inventory] Search '" .. keyword .. "': found "
+        print("[Inventory] Search '" .. keyword .. "': found "
         .. #results .. " items")
     return results
 end
@@ -636,12 +630,12 @@ end
 function AutoPilot_Inventory.lootItem(player, keyword)
     local results = AutoPilot_Inventory.searchItem(player, keyword)
     if #results == 0 then
-        print("[Inventory] Loot: nothing matching '" .. keyword .. "' found.")
+            print("[Inventory] Loot: nothing matching '" .. keyword .. "' found.")
         return false
     end
 
     local best = results[1]
-    print("[Inventory] Looting: " .. best.name)
+        print("[Inventory] Looting: " .. best.name)
     return _queueTransfer(player, best.item, best.container, best.name)
 end
 
@@ -649,7 +643,7 @@ end
 -- keyword: partial name match for the inventory item to place.
 function AutoPilot_Inventory.placeItem(player, keyword)
     if not keyword or keyword == "" then
-        print("[Inventory] placeItem: no keyword given.")
+            print("[Inventory] placeItem: no keyword given.")
         return false
     end
 
@@ -671,7 +665,7 @@ function AutoPilot_Inventory.placeItem(player, keyword)
     end
 
     if not target then
-        print("[Inventory] placeItem: '"
+            print("[Inventory] placeItem: '"
             .. keyword .. "' not found in inventory.")
         return false
     end
@@ -702,13 +696,13 @@ function AutoPilot_Inventory.placeItem(player, keyword)
     end)
 
     if not bestContainer then
-        print("[Inventory] placeItem: no container found nearby.")
+            print("[Inventory] placeItem: no container found nearby.")
         return false
     end
 
     -- Walk to the container's square first, then transfer
     local objSq = bestObj:getSquare()
-    print("[Inventory] Placing '"
+        print("[Inventory] Placing '"
         .. tostring(target:getName()) .. "' into container at ("
         .. tostring(objSq:getX()) .. ","
         .. tostring(objSq:getY()) .. ").")
@@ -724,7 +718,7 @@ function AutoPilot_Inventory.placeItem(player, keyword)
             player, target, inv, bestContainer))
     end)
     if not ok then
-        print("[Inventory] ISInventoryTransferAction failed for placeItem: "
+            print("[Inventory] ISInventoryTransferAction failed for placeItem: "
             .. tostring(err) .. " — skipping direct transfer (MP-unsafe).")
         return false
     end
@@ -776,18 +770,18 @@ function AutoPilot_Inventory.equipBestExerciseItem(player)
     -- Already holding suitable gear?
     for _, entry in ipairs(AutoPilot_Constants.EXERCISE_EQUIPMENT) do
         if inv:getFirstTypeRecurse(entry.keyword) then
-            print("[Inv] Already holding " .. entry.keyword)
+                print("[Inv] Already holding " .. entry.keyword)
             return entry.tier
         end
     end
     local item, tier = _findExerciseEquipment(player)
     if not item then
-        print("[Inv] No exercise equipment found in home area.")
+            print("[Inv] No exercise equipment found in home area.")
         return "none"
     end
     local srcContainer = item:getContainer()
     if not srcContainer then
-        print("[Inv] Exercise item has no container — skipping transfer.")
+            print("[Inv] Exercise item has no container — skipping transfer.")
         return "none"
     end
     -- Walk to the equipment container before transferring.
@@ -809,7 +803,7 @@ function AutoPilot_Inventory.equipBestExerciseItem(player)
     end
     ISTimedActionQueue.add(ISInventoryTransferAction:new(
         player, item, srcContainer, inv))
-    print("[Inv] Queued transfer of " .. item:getType()
+        print("[Inv] Queued transfer of " .. item:getType()
         .. " (" .. (tier or "?") .. ")")
     return tier or "none"
 end
@@ -935,18 +929,18 @@ end
 function AutoPilot_Inventory.checkAndSwapWeapon(player)
     local cond = AutoPilot_Inventory.equippedWeaponCondition(player)
     if cond >= AutoPilot_Constants.WEAPON_CONDITION_MIN then return false end
-    print(("[Inv] Weapon condition %.2f < %.2f — seeking replacement."):format(
+        print(("[Inv] Weapon condition %.2f < %.2f — seeking replacement."):format(
         cond, AutoPilot_Constants.WEAPON_CONDITION_MIN))
     local replacement = AutoPilot_Inventory.bestMeleeWeapon(player)
     if not replacement then
-        print("[Inv] No replacement weapon found in inventory.")
+            print("[Inv] No replacement weapon found in inventory.")
         return false
     end
     local ok = pcall(function()
         ISTimedActionQueue.add(ISEquipWeaponAction:new(player, replacement, 50, true))
     end)
     if ok then
-        print("[Inv] Queued equip of " .. replacement:getType())
+            print("[Inv] Queued equip of " .. replacement:getType())
         return true
     end
     return false
@@ -992,19 +986,19 @@ end
 function AutoPilot_Inventory.adjustClothing(player)
     local temp = AutoPilot_Inventory.bodyTemperature(player)
     if temp > AutoPilot_Constants.TEMP_TOO_HOT then
-        print(("[Inv] Too hot (%.1f) — seeking cool clothing."):format(temp))
+            print(("[Inv] Too hot (%.1f) — seeking cool clothing."):format(temp))
         local item = AutoPilot_Inventory.findClothing(player, false)
         if item then
             ISTimedActionQueue.add(ISWearClothing:new(player, item, 50))
-            print("[Inv] Queued: wear " .. item:getType())
+                print("[Inv] Queued: wear " .. item:getType())
             return true
         end
     elseif temp < AutoPilot_Constants.TEMP_TOO_COLD then
-        print(("[Inv] Too cold (%.1f) — seeking warm clothing."):format(temp))
+            print(("[Inv] Too cold (%.1f) — seeking warm clothing."):format(temp))
         local item = AutoPilot_Inventory.findClothing(player, true)
         if item then
             ISTimedActionQueue.add(ISWearClothing:new(player, item, 50))
-            print("[Inv] Queued: wear " .. item:getType())
+                print("[Inv] Queued: wear " .. item:getType())
             return true
         end
     end

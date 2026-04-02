@@ -18,6 +18,9 @@
 
 AutoPilot_Needs = {}
 
+local function _apNoop(...) end
+local print = _apNoop
+
 -- Phase 2: daily exercise tracking (resets on day rollover)
 local _exerciseSetsToday = 0
 local _lastTrackedDay    = -1

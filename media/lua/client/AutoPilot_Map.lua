@@ -4,6 +4,9 @@
 
 AutoPilot_Map = {}
 
+local function _apNoop(...) end
+local print = _apNoop
+
 -- Set of "x,y,z" string keys for squares whose containers were found empty.
 local _depletedSquares = {}
 -- Max depleted entries before oldest are pruned (memory cap).

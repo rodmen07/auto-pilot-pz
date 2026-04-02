@@ -14,6 +14,9 @@
 
 AutoPilot_Actions = {}
 
+local function _apNoop(...) end
+local print = _apNoop
+
 -- ── Schema ────────────────────────────────────────────────────────────────────
 -- Sent to Claude in every state snapshot so it knows what chain steps exist.
 -- Format: {name, param (empty = no param needed), desc}

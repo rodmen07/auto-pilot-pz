@@ -2,6 +2,9 @@
 
 AutoPilot = {}
 
+local function _apNoop(...) end
+local print = _apNoop
+
 local TICK_INTERVAL = 15
 local tickCounter = 0
 
@@ -9,17 +12,6 @@ local tickCounter = 0
 local mode = "off"
 local actionCooldown = 0
 local ACTION_COOLDOWN_CYCLES = 4
-
--- Debug/log state
-local debugEnabled = true
-
--- Visual/audible feedback for keypresses
-local KEYPRESS_VISUAL_DEBUG = true
-local KEYPRESS_SOUND_DEBUG = true
-
-local telemetryEnabled = true
-local telemetryFilename = "auto_pilot_run.log"
-local telemetryFlag = "auto_pilot_run_end.json"
 
 local function hudAddText(player, text)
     local halo = rawget(_G, "HaloTextHelper")
@@ -42,51 +34,7 @@ local function hudAddBad(player, text)
     end
 end
 
-local function playConfirmSfx()
-    local getSm = rawget(_G, "getSoundManager")
-    if not getSm then return end
-    local ok, sm = pcall(getSm)
-    if ok and sm and sm.playSound then
-        pcall(function() sm:playSound("UIConfirm") end)
-    end
-end
-
-local function apLog(msg)
-    if debugEnabled then
-        print("[AutoPilot] " .. tostring(msg))
-    end
-end
-
-local function writeTelemetryEntry(entry)
-    if not telemetryEnabled then return end
-    local ok, fw = pcall(function() return getFileWriter(telemetryFilename, true, false) end)
-    if not ok or not fw then return end
-    if type(entry) == "table" then
-        local parts = {}
-        for k, v in pairs(entry) do
-            table.insert(parts, tostring(k) .. "=" .. tostring(v))
-        end
-        fw:write(table.concat(parts, ",") .. "\n")
-    else
-        fw:write(tostring(entry) .. "\n")
-    end
-    fw:close()
-end
-
-local function markRunEnd(reason)
-    if not telemetryEnabled then return end
-    local fw = getFileWriter(telemetryFlag, false, false)
-    if not fw then return end
-    local status = {status = "dead", reason = reason, timestamp = os.time()}
-    fw:write(
-        "{"
-        .. "\"status\":\"dead\","
-        .. "\"reason\":\"" .. tostring(reason) .. "\","
-        .. "\"timestamp\":" .. tostring(status.timestamp)
-        .. "}"
-    )
-    fw:close()
-end
+local function apLog(_) end
 
 local function sayMode(player)
     local label = mode:upper()
@@ -145,26 +93,11 @@ local function onTick()
 
     local deadOk, isDead = pcall(function() return player:isDead() end)
     if deadOk and isDead then
-        markRunEnd("dead")
         return
     end
 
     local asleepOk, isAsleep = pcall(function() return player:isAsleep() end)
     if asleepOk and isAsleep then return end
-
-    if telemetryEnabled then
-        local hunger = AutoPilot_Utils.safeStat(player, CharacterStat.HUNGER)
-        local thirst = AutoPilot_Utils.safeStat(player, CharacterStat.THIRST)
-        local fatigue = AutoPilot_Utils.safeStat(player, CharacterStat.FATIGUE)
-        local zombies = #AutoPilot_Threat.getNearbyZombies(player)
-        writeTelemetryEntry({
-            mode = mode,
-            hunger = hunger,
-            thirst = thirst,
-            fatigue = fatigue,
-            zombies = zombies
-        })
-    end
 
     if _runThreatCheck(player) then return end
 
@@ -189,17 +122,6 @@ local function onTick()
 end
 
 local function onKeyPressed(key)
-    pcall(function()
-        print("[AutoPilot] onKeyPressed key=" .. tostring(key))
-        if KEYPRESS_VISUAL_DEBUG then
-            local pl = getPlayer()
-            if pl then hudAddText(pl, "[AutoPilot] Key=" .. tostring(key)) end
-        end
-        if KEYPRESS_SOUND_DEBUG then
-            playConfirmSfx()
-        end
-    end)
-
     local player = getPlayer()
     if key ~= Keyboard.KEY_F10 then return end
 
@@ -217,5 +139,3 @@ end
 
 Events.OnTick.Add(onTick)
 Events.OnKeyPressed.Add(onKeyPressed)
-
-print("[AutoPilot] AutoPilot loaded. F10=Toggle AutoPilot.")

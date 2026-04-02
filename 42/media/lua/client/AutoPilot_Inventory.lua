@@ -6,6 +6,9 @@
 
 AutoPilot_Inventory = {}
 
+local function _apNoop(...) end
+local print = _apNoop
+
 local LOOT_SEARCH_RADIUS   = 150  -- tiles to search for loot containers (one cell radius)
 local WATER_SEARCH_RADIUS  = 150  -- tiles to scan for sinks / rain barrels (one cell radius)
 local PLACE_SEARCH_DIST    = 50   -- tiles to find a container for placeItem

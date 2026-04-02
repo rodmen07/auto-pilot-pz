@@ -7,6 +7,9 @@
 
 AutoPilot_Medical = {}
 
+local function _apNoop(...) end
+local print = _apNoop
+
 -- ── Bandage item types, ordered by quality (best first) ─────────────────────
 -- item:isCanBandage() is the authoritative check; this list guides selection.
 local BANDAGE_PRIORITY = {

@@ -4,3 +4,6 @@ __pycache__/
 *.egg-info/
 .env
 .claude/
+auto_pilot_run_*.json
+auto_pilot_runs_summary.json
+auto_tune_results.json
