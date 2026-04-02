@@ -240,8 +240,28 @@ local function doRest(player)
 
     if ms < restCooldownMs then return true end  -- still resting, skip silently
 
+    local function queueGroundRest()
+        if not ISSitOnGround or not ISSitOnGround.new then
+            return false
+        end
+        local okSit, sitAction = pcall(function()
+            local sq = player and player.getCurrentSquare and player:getCurrentSquare() or nil
+            return ISSitOnGround:new(player, sq)
+        end)
+        if okSit and sitAction then
+            print("[Needs] Exhausted — no furniture found; sitting on ground to recover.")
+            ISTimedActionQueue.add(sitAction)
+            return true
+        end
+        return false
+    end
+
     local target = findRestFurniture(player)
     if not target then
+        if queueGroundRest() then
+            restCooldownMs = ms + 60000
+            return true
+        end
         print("[Needs] Exhausted but no valid rest furniture found; skipping rest.")
         return false
     end
@@ -300,6 +320,10 @@ local function doRest(player)
     end
 
     if not queued then
+        if queueGroundRest() then
+            restCooldownMs = ms + 60000
+            return true
+        end
         print("[Needs] Unable to queue a safe rest action.")
         return false
     end
