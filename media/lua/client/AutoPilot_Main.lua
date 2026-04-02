@@ -1,13 +1,4 @@
 -- AutoPilot_Main.lua
--- Entry point. Registers the OnTick event and orchestrates all sub-modules.
---
--- luacheck: globals HaloTextHelper isKeyDown
--- Updated for local autonomous survivor mode with prompt override.
--- Ctrl+1: autopilot on/off
--- Ctrl+2: prompt override (modal)
--- Ctrl+3-7: prompt option selection
---
--- Sidecar/LLM logic removed; all behavior is local.
 
 AutoPilot = {}
 
@@ -123,7 +114,7 @@ end
 
 local function updateHelpDisplay(player)
     if not helpVisible then return end
-    local text = "[AutoPilot Help] Ctrl+0=Help, Ctrl+1=Auto, Ctrl+2=Prompt, Ctrl+3-7=Priority. Alt+F10=Toggle AutoPilot, F10=Home.\n"
+    local text = "[AutoPilot Help] Alt+F10=Toggle AutoPilot, Ctrl+0=Help, Ctrl+2=Prompt, Ctrl+3-7=Priority. F10=Home.\n"
     text = text .. "Survival: thirst/hunger/wounds/sleep/rest/brain. Safety: evade when threatened.\n"
     text = text .. "Ctrl+0 again to close.\n"
     if player then
@@ -379,21 +370,9 @@ local function onKeyPressed(key)
         return
     end
 
-    if key == Keyboard.KEY_1 then
-        if mode == "autopilot" then
-            mode = "off"
-            clearPrompt()
-            currentPriority = nil
-        else
-            mode = "autopilot"
-            if player and not AutoPilot_Home.isSet(player) then
-                AutoPilot_Home.set(player)
-                apLog("AutoPilot enabled — home set to current position.")
-            end
-        end
-        sayMode(player)
-
-    elseif key == Keyboard.KEY_2 then
+    -- NOTE: Ctrl+1 autopilot mapping removed to avoid duplicate mappings.
+    -- Use Alt+F10 exclusively for toggling autopilot. Ctrl+2/3-7 remain.
+    if key == Keyboard.KEY_2 then
         if mode == "autopilot" and not decisionPending then
             decisionPending = true
             mode = "prompt"
@@ -438,4 +417,4 @@ end
 Events.OnTick.Add(onTick)
 Events.OnKeyPressed.Add(onKeyPressed)
 
-print("[AutoPilot] AutoPilot loaded. Alt+F10=Toggle AutoPilot, Ctrl+1=Auto, Ctrl+2=Prompt, Ctrl+3-7=Prompt options, F10=Set Home.")
+print("[AutoPilot] AutoPilot loaded. Alt+F10=Toggle AutoPilot, Ctrl+2=Prompt, Ctrl+3-7=Prompt options, F10=Set Home.")
