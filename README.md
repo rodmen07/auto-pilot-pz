@@ -9,7 +9,8 @@ AFK auto-leveler for Strength and Fitness. Keeps your character alive through au
 
 1. Prerequisite: The mod is already installed at `~/Zomboid/mods/auto_pilot/`
 2. Launch Project Zomboid, enable **AutoPilot** in the mod list
-3. Load into a game and press **F3** to toggle autopilot on/off
+3. Load into a game and press **Ctrl+1** to start/stop autopilot
+4. Press **H** once to set your home anchor
 4. Watch the console (`ProjectZomboid64ShowConsole.bat`) for `[AutoPilot]` log messages
 
 ### Controls (local autonomous survivor)
@@ -23,6 +24,7 @@ AFK auto-leveler for Strength and Fitness. Keeps your character alive through au
 - Ctrl+7: select prompt priority 5 (status)
 
 - H: set/reset home position while autopilot is active
+- Ctrl+0: show/hide quick help overlay
 
 The mod is fully autonomous and no external AI service is needed. Autopilot will return to normal behavior automatically 30 seconds after the prompt if no selection is made.
 

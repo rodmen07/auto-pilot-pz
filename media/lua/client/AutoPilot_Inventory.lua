@@ -58,6 +58,61 @@ function AutoPilot_Inventory.getBestFood(player)
     return best
 end
 
+--- Choose best food item for current hunger level to avoid large overeating.
+function AutoPilot_Inventory.getBestFoodForHunger(player, currentHunger)
+    local target = (currentHunger or 0) * 100
+    local inv = player:getInventory()
+    local items = inv:getItems()
+    local best = nil
+    local bestDelta = math.huge
+
+    for i = 0, items:size() - 1 do
+        local item = items:get(i)
+        if item and item:isFood() and not item:isRotten() then
+            local frozen = false
+            pcall(function() frozen = item:isFrozen() end)
+            if not frozen then
+                local needsCooking = false
+                pcall(function()
+                    needsCooking = item:isIsCookable() and not item:isCooked()
+                end)
+                if not needsCooking then
+                    local unhappy = 0
+                    pcall(function()
+                        unhappy = item:getUnhappyChange() or 0
+                    end)
+                    local boring = 0
+                    pcall(function()
+                        boring = item:getBoredomChange() or 0
+                    end)
+                    if unhappy <= 0 and boring <= 0 then
+                        local hungerChange = 0
+                        pcall(function() hungerChange = math.abs(item:getHungerChange() or 0) end)
+
+                        -- Avoid gross overeating relative to current hunger
+                        -- (e.g., do not choose 90+ hunger food when only ~25 hunger needed)
+                        local maxAcceptable = math.max(25, target * 1.5)
+                        if hungerChange <= maxAcceptable then
+                            local delta = math.abs(target - hungerChange)
+                            if delta < bestDelta then
+                                bestDelta = delta
+                                best = item
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    if best then
+        return best
+    end
+
+    -- Fallback: if we could not find food close to hunger target, return any safe food.
+    return AutoPilot_Inventory.getBestFood(player)
+end
+
 --- Phase 3: Select the best food item considering player weight.
 --- Underweight: prioritise high-calorie food; overweight: prefer low-calorie.
 --- Applies the same frozen/needs-cooking safety filters as getBestFood.
@@ -427,8 +482,12 @@ end
 function AutoPilot_Inventory.drinkFromSource(player, waterObj)
     if not waterObj then return false end
 
-    local ok, tainted = pcall(function() return waterObj:isTaintedWater() end)
-    if not ok then tainted = false end
+    local tainted = false
+    local ok = pcall(function() tainted = waterObj:isTaintedWater() end)
+    if ok and tainted then
+        AutoPilot_LLM.log("[Inventory] Skipping tainted water source.")
+        return false
+    end
 
     -- Walk adjacent to the water source
     local sq = waterObj:getSquare()
@@ -491,8 +550,12 @@ function AutoPilot_Inventory.refillWaterContainer(player, waterObj)
 
     if not container then return false end
 
-    local ok, tainted = pcall(function() return waterObj:isTaintedWater() end)
-    if not ok then tainted = false end
+    local tainted = false
+    local ok = pcall(function() tainted = waterObj:isTaintedWater() end)
+    if ok and tainted then
+        AutoPilot_LLM.log("[Inventory] Not refilling from tainted water source.")
+        return false
+    end
 
     local sq = waterObj:getSquare()
     if sq then

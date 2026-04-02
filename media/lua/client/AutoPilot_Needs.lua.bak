@@ -63,19 +63,9 @@ end
 -- ── Actions ─────────────────────────────────────────────────────────────────
 
 local function doEat(player)
-    local hunger = AutoPilot_Utils.safeStat(player, CharacterStat.HUNGER)
-
-    -- First choice: hunger-appropriate portion control
-    local food = AutoPilot_Inventory.getBestFoodForHunger(player, hunger)
-
-    -- Second choice: weight-aware adjustments (under/overweight)
-    if not food then
-        food = AutoPilot_Inventory.selectFoodByWeight(player)
-    end
-
-    -- Last resort: any safe food
-    food = food or AutoPilot_Inventory.getBestFood(player)
-
+    -- Phase 3: weight-aware selector; falls back to nil if nothing matches
+    local food = AutoPilot_Inventory.selectFoodByWeight(player)
+        or AutoPilot_Inventory.getBestFood(player)
     if not food then
         AutoPilot_LLM.log("[Needs] Hungry but no food in inventory — looting nearby.")
         local found = AutoPilot_Inventory.lootNearbyFood(player)
@@ -151,10 +141,6 @@ end
 local restCooldownMs = 0
 local REST_SEARCH_DIST = 150
 
-AutoPilot_Needs = AutoPilot_Needs or {}
-AutoPilot_Needs.sleepRequestMs = 0
-local SLEEP_REQUEST_TIMEOUT_MS = 15000
-
 local function findRestFurniture(player)
     local px, py, pz = player:getX(), player:getY(), player:getZ()
     local bestObj  = nil
@@ -219,82 +205,12 @@ local function doRest(player)
 
     if ms < restCooldownMs then return true end  -- still resting, skip silently
 
-    local target = findRestFurniture(player)
-    if not target then
-        AutoPilot_LLM.log("[Needs] Exhausted but no valid rest furniture found; skipping rest.")
-        return false
-    end
-
-    local targetSq = target:getSquare()
-    if not targetSq then
-        AutoPilot_LLM.log("[Needs] Rest target has no square; skipping rest.")
-        return false
-    end
-
     ISTimedActionQueue.clear(player)
-
-    local queued = false
-
-    local okBed, isBed = pcall(function()
-        return target:getSprite()
-            and target:getSprite():getProperties()
-                :has(IsoFlagType.bed)
-    end)
-
-    if okBed and isBed then
-        AutoPilot_LLM.log("[Needs] Exhausted — using nearby bed to recover.")
-        if AdjacentFreeTileFinder.isTileOrAdjacent(player:getCurrentSquare(), targetSq) then
-            ISTimedActionQueue.add(ISGetOnBedAction:new(player, target))
-            queued = true
-        else
-            local adjacent = AdjacentFreeTileFinder.Find(targetSq, player)
-            if adjacent then
-                ISTimedActionQueue.add(ISWalkToTimedAction:new(player, adjacent))
-                ISTimedActionQueue.add(ISGetOnBedAction:new(player, target))
-                queued = true
-            end
-        end
-    else
-        AutoPilot_LLM.log("[Needs] Exhausted — resting using nearby furniture.")
-
-        if ISPathFindAction and ISPathFindAction.pathToSitOnFurniture then
-            local okPath, pathAction = pcall(function()
-                return ISPathFindAction:pathToSitOnFurniture(player, target, nil)
-            end)
-            if okPath and pathAction then
-                ISTimedActionQueue.add(pathAction)
-                queued = true
-            end
-        end
-
-        if ISRestAction and ISRestAction.new then
-            local okRest, restAction = pcall(function()
-                return ISRestAction:new(player, target, nil)
-            end)
-            if okRest and restAction then
-                ISTimedActionQueue.add(restAction)
-                queued = true
-            end
-        end
-    end
-
-    if not queued then
-        AutoPilot_LLM.log("[Needs] Unable to queue a safe rest action.")
-        return false
-    end
+    AutoPilot_LLM.log("[Needs] Exhausted — resting in place.")
+    ISTimedActionQueue.add(ISSitOnGround:new(player, nil))
 
     restCooldownMs = ms + 60000   -- 60s: give endurance time to recover
     return true
-end
-
--- Update sleeping timeout state from main onTick (when prior sleep action might have failed).
-function AutoPilot_Needs.sleepAttempting(startMs)
-    if startMs then
-        sleepAttempting = true
-        sleepAttemptStartMs = startMs
-    else
-        sleepAttempting = false
-    end
 end
 
 local sleepCooldownMs = 0
@@ -383,22 +299,13 @@ local function doSleep(player)
     player:setVariable("ExerciseEnded", true)
 
     if AdjacentFreeTileFinder.isTileOrAdjacent(player:getCurrentSquare(), bedSq) then
-        local bedAction = ISGetOnBedAction:new(player, bedObj)
-        ISTimedActionQueue.add(bedAction)
-        AutoPilot_Needs.sleepRequestMs = ms
-        AutoPilot_LLM.log("[Needs] Queued ISGetOnBedAction directly.")
+        ISTimedActionQueue.add(ISGetOnBedAction:new(player, bedObj))
     else
         local adjacent = AdjacentFreeTileFinder.Find(bedSq, player)
         if adjacent then
             local walkAction = ISWalkToTimedAction:new(player, adjacent)
-            local bedAction = ISGetOnBedAction:new(player, bedObj)
-            if walkAction.addAfter then
-                walkAction:addAfter(bedAction)
-                ISTimedActionQueue.add(walkAction)
-            else
-                ISTimedActionQueue.add(walkAction)
-                ISTimedActionQueue.add(bedAction)
-            end
+            ISTimedActionQueue.add(walkAction)
+            ISTimedActionQueue.add(ISGetOnBedAction:new(player, bedObj))
         else
             AutoPilot_LLM.log("[Needs] Bed unreachable — no adjacent free tile found.")
             return false

@@ -3,20 +3,30 @@
 
 print("[AutoPilot] Boot.lua loading...")
 
+local function safeRequire(name)
+	local ok, res = pcall(require, name)
+	if not ok then
+		print("[AutoPilot] require failed: " .. tostring(name) .. " error: " .. tostring(res))
+	else
+		print("[AutoPilot] required: " .. tostring(name))
+	end
+	return ok, res
+end
+
 -- Load constants first
-require "AutoPilot_Constants"
-require "AutoPilot_Utils"
+safeRequire("AutoPilot_Constants")
+safeRequire("AutoPilot_Utils")
 
 -- Load subsystems (order matters: dependencies first)
-require "AutoPilot_LLM"
-require "AutoPilot_Home"
-require "AutoPilot_Map"
-require "AutoPilot_Inventory"
-require "AutoPilot_Medical"
-require "AutoPilot_Needs"
-require "AutoPilot_Threat"
-require "AutoPilot_Barricade"
-require "AutoPilot_Actions"
+safeRequire("AutoPilot_LLM")
+safeRequire("AutoPilot_Home")
+safeRequire("AutoPilot_Map")
+safeRequire("AutoPilot_Inventory")
+safeRequire("AutoPilot_Medical")
+safeRequire("AutoPilot_Needs")
+safeRequire("AutoPilot_Threat")
+safeRequire("AutoPilot_Barricade")
+safeRequire("AutoPilot_Actions")
 
 -- Load main module last (registers events)
-require "AutoPilot_Main"
+safeRequire("AutoPilot_Main")

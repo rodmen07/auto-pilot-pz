@@ -1,5 +1,5 @@
 -- AutoPilot_Main.lua
--- Alt+F10: autopilot on/off
+-- F10: autopilot on/off
 
 AutoPilot = {}
 
@@ -35,14 +35,6 @@ local telemetryEnabled = true
 local telemetryCounter = 0
 local telemetryFilename = "auto_pilot_run.log"
 local telemetryFlag = "auto_pilot_run_end.json"
--- Timestamp of the last Alt key press (ms) — used as a short fallback when
--- modifier state isn't visible during the F10 event due to event ordering.
-local lastAltPressMs = 0
-
-local function nowMs()
-    local ok, now = pcall(function() return getGameTime():getCalender():getTimeInMillis() end)
-    return ok and now or 0
-end
 
 local function apLog(msg)
     if debugEnabled then
@@ -115,7 +107,8 @@ end
 
 local function updateHelpDisplay(player)
     if not helpVisible then return end
-    local text = "[AutoPilot Help] Alt+F10=Toggle AutoPilot, Ctrl+0=Help, Ctrl+2=Prompt, Ctrl+3-7=Priority. F10=Home.\n"
+    local statusLabel = (mode == "autopilot") and "ON" or "OFF"
+    local text = "[AutoPilot Help] F10=Toggle AutoPilot (Status: " .. statusLabel .. ") | Ctrl+0=Help, Ctrl+2=Prompt, Ctrl+3-7=Priority.\n"
     text = text .. "Survival: thirst/hunger/wounds/sleep/rest/brain. Safety: evade when threatened.\n"
     text = text .. "Ctrl+0 again to close.\n"
     if player then
@@ -239,12 +232,6 @@ local function isCtrlDown()
     return ok and val
 end
 
-local function isAltDown()
-    local ok, val = pcall(function()
-        return isKeyDown and (isKeyDown(Keyboard.KEY_LMENU) or isKeyDown(Keyboard.KEY_RMENU))
-    end)
-    return ok and val
-end
 
 local function onTick()
     if mode == "off" then return end
@@ -340,18 +327,9 @@ local function onKeyPressed(key)
         end
     end)
     local player = getPlayer()
-    local now = nowMs()
 
-    -- Record Alt key presses for a short-window fallback in case the modifier
-    -- state isn't visible when the F10 event arrives (race between key events).
-    if key == Keyboard.KEY_LMENU or key == Keyboard.KEY_RMENU
-        or key == Keyboard.KEY_LALT or key == Keyboard.KEY_RALT then
-        lastAltPressMs = now
-    end
-
-    -- Alt+F10: toggle autopilot (user-requested special binding)
-    local altRecently = (now - (lastAltPressMs or 0)) <= 500
-    if key == Keyboard.KEY_F10 and (isAltDown() or altRecently) then
+    -- F10: toggle autopilot (single-key mapping)
+    if key == Keyboard.KEY_F10 then
         if mode == "autopilot" then
             mode = "off"
             clearPrompt()
@@ -372,7 +350,7 @@ local function onKeyPressed(key)
     end
 
     -- NOTE: Ctrl+1 autopilot mapping removed to avoid duplicate mappings.
-    -- Use Alt+F10 exclusively for toggling autopilot. Ctrl+2/3-7 remain.
+    -- Use F10 for toggling autopilot. Ctrl+2/3-7 remain.
     if key == Keyboard.KEY_2 then
         if mode == "autopilot" and not decisionPending then
             decisionPending = true
@@ -406,16 +384,10 @@ local function onKeyPressed(key)
         return
     end
 
-    if key == Keyboard.KEY_F10 then
-        if mode ~= "off" and player then
-            AutoPilot_Home.set(player)
-            showHomeConfirmation(player, "Home updated")
-        end
-        return
-    end
+    -- (F10 handled above as toggle)
 end
 
 Events.OnTick.Add(onTick)
 Events.OnKeyPressed.Add(onKeyPressed)
 
-print("[AutoPilot] AutoPilot loaded. Alt+F10=Toggle AutoPilot, Ctrl+2=Prompt, Ctrl+3-7=Prompt options, F10=Set Home.")
+print("[AutoPilot] AutoPilot loaded. F10=Toggle AutoPilot, Ctrl+2=Prompt, Ctrl+3-7=Prompt options.")
