@@ -43,6 +43,14 @@ local telemetryEnabled = true
 local telemetryCounter = 0
 local telemetryFilename = "auto_pilot_run.log"
 local telemetryFlag = "auto_pilot_run_end.json"
+-- Timestamp of the last Alt key press (ms) — used as a short fallback when
+-- modifier state isn't visible during the F10 event due to event ordering.
+local lastAltPressMs = 0
+
+local function nowMs()
+    local ok, now = pcall(function() return getGameTime():getCalender():getTimeInMillis() end)
+    return ok and now or 0
+end
 
 local function apLog(msg)
     if debugEnabled then
@@ -340,9 +348,18 @@ local function onKeyPressed(key)
         end
     end)
     local player = getPlayer()
+    local now = nowMs()
+
+    -- Record Alt key presses for a short-window fallback in case the modifier
+    -- state isn't visible when the F10 event arrives (race between key events).
+    if key == Keyboard.KEY_LMENU or key == Keyboard.KEY_RMENU
+        or key == Keyboard.KEY_LALT or key == Keyboard.KEY_RALT then
+        lastAltPressMs = now
+    end
 
     -- Alt+F10: toggle autopilot (user-requested special binding)
-    if isAltDown() and key == Keyboard.KEY_F10 then
+    local altRecently = (now - (lastAltPressMs or 0)) <= 500
+    if key == Keyboard.KEY_F10 and (isAltDown() or altRecently) then
         if mode == "autopilot" then
             mode = "off"
             clearPrompt()
