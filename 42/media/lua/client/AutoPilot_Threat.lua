@@ -114,9 +114,14 @@ local function doFlee(player, zombies)
 end
 
 -- Fight the nearest zombie: equip best weapon, then walk toward it.
--- In safehouse mode (home set), always flee instead of fighting.
+-- In safehouse mode (home set), always flee instead of fighting.  This is
+-- intentional: when a home anchor exists the bot's priority is to retreat to
+-- safety rather than engage, minimising the risk of taking damage far from
+-- medical supplies.  Safehouse-mode flee is therefore the *only* combat
+-- response regardless of moodle state — doFight is never reached.
 local function doFight(player, zombies)
     if AutoPilot_Home.isSet(player) then
+        -- Safehouse mode: convert all fight intents to flee toward home center.
         print("[Threat] Safehouse mode — redirecting FIGHT to FLEE.")
         doFlee(player, zombies)
         return

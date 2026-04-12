@@ -185,6 +185,16 @@ function AutoPilot_Telemetry.onDeath(player)
     _writeEndMarker(pnum, "dead", "player_died")
 end
 
+--- Call when autopilot is disabled or the game session ends while autopilot is
+-- still active (e.g. main-menu return, new-game queue).  Writes a
+-- "timeout"-status end marker so benchmark analysis can distinguish a clean
+-- session end from an in-game death.
+-- @param player  IsoPlayer|nil  Pass nil to write for player 0.
+function AutoPilot_Telemetry.onShutdown(player)
+    local pnum = player and _pn(player) or 0
+    _writeEndMarker(pnum, "timeout", "session_end")
+end
+
 --- Return the current run-tick count for a player (defaults to player 0).
 -- @param player  IsoPlayer|nil
 function AutoPilot_Telemetry.getRunTick(player)

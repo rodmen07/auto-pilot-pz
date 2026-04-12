@@ -52,13 +52,16 @@ AutoPilot is a client-side mod for Project Zomboid Build 42 that runs a full sur
 [b]Local Autonomous Survivor Mode[/b]
 [list]
 [*]No sidecar required — all decision logic runs inside the mod.
-[*]Toggle autopilot with [b]F10[/b].
+[*]Toggle autopilot with [b]F10[/b] (keyboard/mouse player).
+[*]Controller players (splitscreen) toggle with [b]Back/Select double-tap[/b].
+[*]AutoPilot starts enabled by default — no setup needed.
 [*]Home anchor is auto-set on first enable.
 [/list]
 
 [h2]Controls[/h2]
 [list]
-[*][b]F10[/b] — Toggle autopilot on/off
+[*][b]F10[/b] — Toggle autopilot on/off (keyboard/mouse player)
+[*][b]Back / Select × 2[/b] — Toggle autopilot (controller players in splitscreen)
 [/list]
 
 [h2]Compatibility[/h2]
@@ -66,7 +69,15 @@ AutoPilot is a client-side mod for Project Zomboid Build 42 that runs a full sur
 [*]Build 42 only
 [*]Client-side — no server mod required
 [*]Safe for private multiplayer servers (client authority only; no cross-player actions)
-[*]Single-player and splitscreen: single-player only (splitscreen support not implemented)
+[*]Splitscreen: up to 4 local players, each with an independent autopilot instance
+[/list]
+
+[h2]Known Limitations[/h2]
+[list]
+[*]No server-side authority — autopilot actions are local to each client; the server is not aware of the bot.
+[*]No cross-player item transfers in splitscreen — each player's bot only uses their own inventory.
+[*]Telemetry log ([i]~/Zomboid/Lua/auto_pilot_run.log[/i]) grows unbounded; delete it between benchmark sessions.
+[*]The launcher scripts ([i]start_autopilot.bat[/i], [i]sync_after_merge.bat[/i]) are developer tools — they are not required for normal gameplay.
 [/list]
 
 [h2]Requirements[/h2]

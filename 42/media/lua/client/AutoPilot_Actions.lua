@@ -18,8 +18,13 @@ local function _apNoop(...) end
 local print = _apNoop
 
 -- ── Schema ────────────────────────────────────────────────────────────────────
--- Sent to Claude in every state snapshot so it knows what chain steps exist.
--- Format: {name, param (empty = no param needed), desc}
+-- LEGACY / INTERNAL USE ONLY.
+-- This table was originally sent to the Claude sidecar in every state snapshot
+-- so the LLM knew what chain steps were available.  The sidecar architecture
+-- has been retired; all decision logic now runs locally in AutoPilot_Needs.lua.
+-- The table is kept because getSchemaNames() is still used internally to build
+-- the list of valid action names, and executeChain() remains available for
+-- future extensibility.  No external process reads this at runtime.
 AutoPilot_Actions.SCHEMA = {
     { name = "walk_to",     param = "direction [distance]",
       desc = "Walk toward a compass direction. E.g. 'north 30'" },

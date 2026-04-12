@@ -94,6 +94,7 @@ LUA_TEST_FILES=(
     "tests/test_threat_logic.lua"
     "tests/test_medical_logic.lua"
     "tests/test_home_map_barricade.lua"
+    "tests/test_main_logic.lua"
 )
 
 if [[ -n "$LUA_BIN" ]]; then

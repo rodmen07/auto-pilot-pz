@@ -17,10 +17,10 @@ The mod uses a **single local Lua brain**:
 - `AutoPilot_Medical.lua`: Wound detection and auto-bandage.
 
 # Technical Guidelines
-- **API**: Use direct Build 42 getters (`getHunger()`, `getThirst()`).
+- **API**: Use `player:getStats():get(CharacterStat.X)` for all stat access (B42 pattern); never use deprecated direct getters (`getHunger()`, `getThirst()`, etc.).
 - **Medical**: Use body part methods like `bleeding()`, `scratched()`, `deepWounded()`.
 - **Safety**: Wrap PZ API calls in `pcall` to prevent crashes during game updates.
 
 
 # Status
-Current version: V1.0 (Public Release).
+Current version: V1.1 (Public Release — GitHub + Steam Workshop).

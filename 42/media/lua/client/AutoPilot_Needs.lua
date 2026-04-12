@@ -26,7 +26,10 @@ local _exerciseSetsToday = {}
 local _lastTrackedDay    = {}
 
 -- Phase 3: consecutive loot cycles with no food/drink found (triggers supply run)
-local _emptyLootCycles = {}
+-- These counters are intentionally separate so that drink failures do not
+-- inflate the food counter (and vice versa).
+local _emptyFoodLootCycles = {}
+local _emptyDrinkLootCycles = {}
 local drinkCooldownMs  = {}
 
 -- ── Thresholds ────────────────────────────────────────────────────────────────
@@ -106,24 +109,24 @@ local function doEat(player)
         print("[Needs] Hungry but no food in inventory — looting nearby.")
         local found = AutoPilot_Inventory.lootNearbyFood(player)
         if not found then
-            _emptyLootCycles[pn] = (_emptyLootCycles[pn] or 0) + 1
-            print(("[Needs] Empty loot cycle %d/%d."):format(
-                _emptyLootCycles[pn], AutoPilot_Constants.SUPPLY_RUN_TRIGGER))
-            if _emptyLootCycles[pn] >= AutoPilot_Constants.SUPPLY_RUN_TRIGGER then
+            _emptyFoodLootCycles[pn] = (_emptyFoodLootCycles[pn] or 0) + 1
+            print(("[Needs] Empty food loot cycle %d/%d."):format(
+                _emptyFoodLootCycles[pn], AutoPilot_Constants.SUPPLY_RUN_TRIGGER))
+            if _emptyFoodLootCycles[pn] >= AutoPilot_Constants.SUPPLY_RUN_TRIGGER then
                 print("[Needs] Supply run triggered — expanding food loot radius.")
                 local foodPred = function(item)
                     return item:isFood() and not item:isRotten()
                         and (item:getCalories() or 0) > 0
                 end
                 AutoPilot_Inventory.supplyRunLoot(player, foodPred)
-                _emptyLootCycles[pn] = 0
+                _emptyFoodLootCycles[pn] = 0
             end
         else
-            _emptyLootCycles[pn] = 0
+            _emptyFoodLootCycles[pn] = 0
         end
         return false
     end
-    _emptyLootCycles[pn] = 0
+    _emptyFoodLootCycles[pn] = 0
     print("[Needs] Best food: " .. tostring(food:getName())
         .. " (cal=" .. tostring(food:getCalories()) .. ")")
     print("[Needs] Eating: " .. tostring(food:getName()))
@@ -144,7 +147,7 @@ local function doDrink(player)
     -- Priority 1: nearby water source — fill container first, then drink
     local waterObj = AutoPilot_Inventory.findWaterSource(player)
     if waterObj then
-        _emptyLootCycles[pn] = 0
+        _emptyDrinkLootCycles[pn] = 0
         AutoPilot_Inventory.refillWaterContainer(player, waterObj)
         local drank = AutoPilot_Inventory.drinkFromSource(player, waterObj)
         if drank then
@@ -156,7 +159,7 @@ local function doDrink(player)
     -- Priority 2: Drink from inventory (filled glass/bottle)
     local drink = AutoPilot_Inventory.getBestDrink(player)
     if drink then
-        _emptyLootCycles[pn] = 0
+        _emptyDrinkLootCycles[pn] = 0
         print("[Needs] Drinking: " .. tostring(drink:getName()))
         ISTimedActionQueue.add(ISEatFoodAction:new(player, drink, 1))
         drinkCooldownMs[pn] = ms + 5000
@@ -167,20 +170,20 @@ local function doDrink(player)
     print("[Needs] Thirsty but no drink — attempting to loot nearby.")
     local found = AutoPilot_Inventory.lootNearbyDrink(player)
     if not found then
-        _emptyLootCycles[pn] = (_emptyLootCycles[pn] or 0) + 1
-        print(("[Needs] Empty loot cycle %d/%d."):format(
-            _emptyLootCycles[pn], AutoPilot_Constants.SUPPLY_RUN_TRIGGER))
-        if _emptyLootCycles[pn] >= AutoPilot_Constants.SUPPLY_RUN_TRIGGER then
+        _emptyDrinkLootCycles[pn] = (_emptyDrinkLootCycles[pn] or 0) + 1
+        print(("[Needs] Empty drink loot cycle %d/%d."):format(
+            _emptyDrinkLootCycles[pn], AutoPilot_Constants.SUPPLY_RUN_TRIGGER))
+        if _emptyDrinkLootCycles[pn] >= AutoPilot_Constants.SUPPLY_RUN_TRIGGER then
             print("[Needs] Supply run triggered — expanding drink loot radius.")
             local drinkPred = function(item)
                 return item:isFood() and not item:isRotten()
                     and item:getThirstChange() and item:getThirstChange() < 0
             end
             AutoPilot_Inventory.supplyRunLoot(player, drinkPred)
-            _emptyLootCycles[pn] = 0
+            _emptyDrinkLootCycles[pn] = 0
         end
     else
-        _emptyLootCycles[pn] = 0
+        _emptyDrinkLootCycles[pn] = 0
     end
     return false
 end
@@ -836,7 +839,7 @@ function AutoPilot_Needs.check(player)
 
     -- Phase 4: temperature comfort check
     AutoPilot_Telemetry.setDecision("clothing", "temperature", player)
-    if AutoPilot_Inventory.adjustClothing(player) then return end
+    if AutoPilot_Inventory.adjustClothing(player) then return true end
 
     -- 5. Tired — already checked above (before rest cooldown gate)
 
@@ -888,11 +891,11 @@ end
 AutoPilot_Needs.trySleep    = doSleep
 AutoPilot_Needs.tryGoOutside = doGoOutside
 
---- Return how many consecutive empty loot cycles have accumulated (Phase 3).
+--- Return how many consecutive empty food loot cycles have accumulated (Phase 3).
 --- Accepts an optional player to scope to that player's counter; defaults to player 0.
 function AutoPilot_Needs.getEmptyLootCycles(player)
     local pn = player and _pn(player) or 0
-    return _emptyLootCycles[pn] or 0
+    return _emptyFoodLootCycles[pn] or 0
 end
 
 --- Return how many exercise sets have been performed today.

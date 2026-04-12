@@ -1,11 +1,13 @@
-# In-Game Test Checklist — AutoPilot V1.0
+# In-Game Test Checklist — AutoPilot V1.1
 
 Run these on a **fresh save** (no existing mods, default sandbox settings) before Workshop upload.
 Check each box when verified. A fresh character starts with no skills and no home base.
 
 ## Setup
 - [ ] Mod loads without Lua errors in PZ console
-- [ ] F10 toggles autopilot on/off (HUD shows OFF/ON)
+- [ ] F10 toggles autopilot on/off for keyboard/mouse player (HUD shows OFF/ON)
+- [ ] Controller players (splitscreen) toggle with Back/Select double-tap
+- [ ] AutoPilot starts **enabled by default** — no F10 required on first load
 - [ ] First enable auto-sets home base (console shows "[Home] Home set at X, Y (z=Z, r=R)")
 
 ## Survival Needs
@@ -44,6 +46,11 @@ Check each box when verified. A fresh character starts with no skills and no hom
 - [ ] Mod loads on client; no errors on server console
 - [ ] Bot actions affect only the local player (no cross-player item transfers)
 - [ ] Home ModData persists after reconnect
+
+## Splitscreen
+- [ ] Up to 4 local players each run their own independent autopilot instance
+- [ ] Joypad Back/Select double-tap toggles autopilot for players 1-3
+- [ ] Each player's home anchor is set independently
 
 ## Clean-up
 - [ ] No Lua errors in console after 10+ minutes of bot operation

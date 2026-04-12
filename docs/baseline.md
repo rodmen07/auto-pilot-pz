@@ -1,6 +1,6 @@
-# AutoPilot Baseline Policy — V1.0
+# AutoPilot Baseline Policy — V1.1
 
-This document freezes the **control policy** for AutoPilot V1.0.
+This document freezes the **control policy** for AutoPilot V1.1.
 It serves as the reference baseline for all future learning and self-augmentation work.
 Any proposed policy change must be benchmarked against this document before promotion.
 
