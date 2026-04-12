@@ -2,37 +2,43 @@
 -- Structured per-tick telemetry writer for run logging and offline benchmark analysis.
 --
 -- Writes one key=value CSV line per evaluation cycle to:
---   ~/Zomboid/Lua/auto_pilot_run.log   (appended)
+--   ~/Zomboid/Lua/auto_pilot_run.log         (player 0)
+--   ~/Zomboid/Lua/auto_pilot_run_p1.log      (player 1, splitscreen)
+--   ~/Zomboid/Lua/auto_pilot_run_p2.log      ...
 -- and a JSON end-marker to:
---   ~/Zomboid/Lua/auto_pilot_run_end.json  (overwritten on death)
+--   ~/Zomboid/Lua/auto_pilot_run_end.json    (player 0)
+--   ~/Zomboid/Lua/auto_pilot_run_p1_end.json (player 1, etc.)
 --
 -- File I/O uses getFileWriter() — the only game-safe file API in PZ's sandbox.
 -- All operations are wrapped in pcall to prevent crashes on any I/O failure.
---
--- Load order note: 'T' sorts after 'N','M','I','H','C','B','A' and before 'Th','U'.
--- All references to other AutoPilot globals are inside function bodies and are
--- resolved at call time — load order is not a concern.
 
 AutoPilot_Telemetry = {}
 
-local LOG_FILE = "auto_pilot_run.log"
-local END_FILE = "auto_pilot_run_end.json"
+-- ── Per-player state ───────────────────────────────────────────────────────────
+-- Keys are playerNum (0-based integer from player:getPlayerNum()).
 
--- Monotonically increasing counter: incremented once per evaluation cycle.
-local _runTick = 0
+local _runTick       = {}   -- [playerNum] -> monotonically increasing counter
+local _pendingAction = {}   -- [playerNum] -> action label set by setDecision()
+local _pendingReason = {}   -- [playerNum] -> reason label set by setDecision()
 
--- Decision set by the Needs/Threat modules before returning so that logTick
--- can record the actual action rather than a coarse "needs" label.
-local _pendingAction = "idle"
-local _pendingReason = ""
+-- ── Helpers ────────────────────────────────────────────────────────────────────
+
+local function _pn(player)
+    local ok, n = pcall(function() return player:getPlayerNum() end)
+    return (ok and type(n) == "number") and n or 0
+end
+
+local function _logFile(pnum)
+    if pnum == 0 then return "auto_pilot_run.log" end
+    return "auto_pilot_run_p" .. pnum .. ".log"
+end
+
+local function _endFile(pnum)
+    if pnum == 0 then return "auto_pilot_run_end.json" end
+    return "auto_pilot_run_p" .. pnum .. "_end.json"
+end
 
 -- ── Reason-class classifier ───────────────────────────────────────────────────
--- Maps well-known action labels to a broad category used for offline analysis.
--- "survival"  — the character was fulfilling a basic biological need
--- "combat"    — a zombie threat was being handled
--- "wellness"  — morale/happiness/clothing/pain management
--- "exercise"  — intentional fitness training
--- "idle"      — no action taken; covers cooldown and busy ticks too
 local REASON_CLASS = {
     eat        = "survival",
     drink      = "survival",
@@ -59,10 +65,9 @@ local function _classifyAction(action)
     return REASON_CLASS[action] or "idle"
 end
 
--- Append a single text line to the log file.
-local function _appendLine(line)
+local function _appendLine(pnum, line)
     pcall(function()
-        local w = getFileWriter(LOG_FILE, true, false)
+        local w = getFileWriter(_logFile(pnum), true, false)
         if w then
             w:write(line .. "\n")
             w:close()
@@ -70,18 +75,18 @@ local function _appendLine(line)
     end)
 end
 
--- Overwrite the run-end JSON marker file.
-local function _writeEndMarker(status, reason)
+local function _writeEndMarker(pnum, status, reason)
     local ok, ts = pcall(function()
         return getGameTime():getCalender():getTimeInMillis() / 1000
     end)
     local timestamp = ok and ts or 0
+    local tick = _runTick[pnum] or 0
     local json = string.format(
-        '{"status":"%s","reason":"%s","ticks":%d,"timestamp":%d}',
-        status, reason, _runTick, math.floor(timestamp)
+        '{"player":%d,"status":"%s","reason":"%s","ticks":%d,"timestamp":%d}',
+        pnum, status, reason, tick, math.floor(timestamp)
     )
     pcall(function()
-        local w = getFileWriter(END_FILE, false, false)
+        local w = getFileWriter(_endFile(pnum), false, false)
         if w then
             w:write(json .. "\n")
             w:close()
@@ -89,8 +94,6 @@ local function _writeEndMarker(status, reason)
     end)
 end
 
--- Collect a lightweight player stat snapshot.  All getters are pcall-wrapped
--- to be safe during cell loading or on any missing API surface.
 local function _collectStats(player)
     local hunger    = AutoPilot_Utils.safeStat(player, CharacterStat.HUNGER)
     local thirst    = AutoPilot_Utils.safeStat(player, CharacterStat.THIRST)
@@ -128,60 +131,60 @@ end
 -- ── Public API ────────────────────────────────────────────────────────────────
 
 --- Set the pending decision that the next logTick() call will record.
--- Called by AutoPilot_Needs and AutoPilot_Threat immediately before the
--- action that may return true, so the recorded label is accurate even when
--- logTick() is called from Main after the action completes.
+-- The optional player parameter scopes the pending decision to that player's
+-- log; defaults to player 0 when nil.
 --
--- @param action  string  Decision label (e.g. "eat", "drink", "flee")
--- @param reason  string  Short trigger description (e.g. "hunger_thresh")
-function AutoPilot_Telemetry.setDecision(action, reason)
-    _pendingAction = action or "idle"
-    _pendingReason = reason or ""
+-- @param action  string     Decision label (e.g. "eat", "flee")
+-- @param reason  string     Short trigger description (e.g. "hunger_thresh")
+-- @param player  IsoPlayer  (optional) the player this decision belongs to
+function AutoPilot_Telemetry.setDecision(action, reason, player)
+    local pnum = player and _pn(player) or 0
+    _pendingAction[pnum] = action or "idle"
+    _pendingReason[pnum] = reason or ""
 end
 
---- Log one evaluation cycle.
--- Increments the internal run-tick counter and appends a structured line to the
--- log file.  When `action` is nil the pending decision set by setDecision() is
--- used and then cleared, so the label reflects the actual action taken.
--- The `ff` field is "active" when zombies are nearby, "normal" otherwise.
+--- Log one evaluation cycle for a player.
+-- Increments the per-player run-tick counter and appends a structured line
+-- to that player's log file.
 --
 -- @param player  IsoPlayer
 -- @param action  string|nil  Override label; nil uses the pending decision.
 -- @param reason  string|nil  Override trigger; nil uses the pending reason.
 function AutoPilot_Telemetry.logTick(player, action, reason)
-    _runTick = _runTick + 1
-    -- Consume pending decision if no explicit override was supplied.
-    action = action or _pendingAction
-    reason = reason or _pendingReason
-    _pendingAction = "idle"
-    _pendingReason = ""
+    local pnum = player and _pn(player) or 0
+    _runTick[pnum] = (_runTick[pnum] or 0) + 1
 
-    local s  = _collectStats(player)
-    local ff = (s.zombies > 0) and "active" or "normal"
+    action = action or _pendingAction[pnum] or "idle"
+    reason = reason or _pendingReason[pnum] or ""
+    _pendingAction[pnum] = "idle"
+    _pendingReason[pnum] = ""
+
+    local s   = _collectStats(player)
+    local ff  = (s.zombies > 0) and "active" or "normal"
     local cls = _classifyAction(action)
 
     local line = string.format(
-        "mode=autopilot,ff=%s,run_tick=%d,action=%s,reason=%s,class=%s,"
+        "player=%d,mode=autopilot,ff=%s,run_tick=%d,action=%s,reason=%s,class=%s,"
         .. "hunger=%d,thirst=%d,fatigue=%d,endurance=%d,"
         .. "zombies=%d,bleeding=%d,str=%d,fit=%d",
-        ff, _runTick, action, reason, cls,
+        pnum, ff, _runTick[pnum], action, reason, cls,
         s.hunger, s.thirst, s.fatigue, s.endurance,
         s.zombies, s.bleeding, s.str, s.fit
     )
-    _appendLine(line)
+    _appendLine(pnum, line)
 end
 
---- Call exactly once when the player dies.
--- Logs a final "dead" tick and writes the run-end JSON marker so that the
--- external Python harness can detect natural run termination.
---
+--- Call exactly once when a player dies.
 -- @param player  IsoPlayer
 function AutoPilot_Telemetry.onDeath(player)
     AutoPilot_Telemetry.logTick(player, "dead", "player_died")
-    _writeEndMarker("dead", "player_died")
+    local pnum = player and _pn(player) or 0
+    _writeEndMarker(pnum, "dead", "player_died")
 end
 
---- Return the current run-tick count (number of evaluation cycles logged so far).
-function AutoPilot_Telemetry.getRunTick()
-    return _runTick
+--- Return the current run-tick count for a player (defaults to player 0).
+-- @param player  IsoPlayer|nil
+function AutoPilot_Telemetry.getRunTick(player)
+    local pnum = player and _pn(player) or 0
+    return _runTick[pnum] or 0
 end

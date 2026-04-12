@@ -2,9 +2,8 @@
 -- Handles survival needs and idle behaviour.
 --
 -- luacheck: globals getClimateManager
--- SPLITSCREEN NOTE: Module-level variables (restCooldownMs, sleepCooldownMs,
--- exerciseCycle, exerciseWaitLogMs) are shared across all local players.
--- Splitscreen is NOT supported.
+-- SPLITSCREEN: Module-level state variables are now per-player tables keyed by
+-- playerNum (player:getPlayerNum()).  Up to 4 local players are supported.
 --
 -- Priority order (highest -> lowest):
 --   1. Bleeding      -> bandage immediately (fatal if untreated)
@@ -21,13 +20,14 @@ AutoPilot_Needs = {}
 local function _apNoop(...) end
 local print = _apNoop
 
+-- Per-player state tables (keyed by playerNum from player:getPlayerNum()).
 -- Phase 2: daily exercise tracking (resets on day rollover)
-local _exerciseSetsToday = 0
-local _lastTrackedDay    = -1
+local _exerciseSetsToday = {}
+local _lastTrackedDay    = {}
 
 -- Phase 3: consecutive loot cycles with no food/drink found (triggers supply run)
-local _emptyLootCycles = 0
-local drinkCooldownMs = 0
+local _emptyLootCycles = {}
+local drinkCooldownMs  = {}
 
 -- ── Thresholds ────────────────────────────────────────────────────────────────
 -- All policy numbers are defined in AutoPilot_Constants.  The local aliases
@@ -52,6 +52,13 @@ local PAIN_SLEEP_THRESHOLD   = AutoPilot_Constants.PAIN_SLEEP_THRESHOLD
 
 -- ── Helpers ─────────────────────────────────────────────────────────────────
 
+-- Derive a 0-based player number from a player object.
+-- pcall-wrapped so it is safe when player:getPlayerNum() is absent (e.g. tests).
+local function _pn(player)
+    local ok, n = pcall(function() return player:getPlayerNum() end)
+    return (ok and type(n) == "number") and n or 0
+end
+
 -- Safe moodle level getter — returns 0 if the moodle type doesn't exist or isn't active.
 -- B42 stores moodles in a Map; missing entries cause a Java NPE, so we pcall.
 local function safeMoodleLevel(player, moodleType)
@@ -74,6 +81,7 @@ end
 
 local function doEat(player)
     -- Prefer food close to current hunger need to avoid overfeeding.
+    local pn = _pn(player)
     local hunger = AutoPilot_Utils.safeStat(player, CharacterStat.HUNGER)
     local food = nil
     if AutoPilot_Inventory and AutoPilot_Inventory.getBestFoodForHunger then
@@ -98,24 +106,24 @@ local function doEat(player)
         print("[Needs] Hungry but no food in inventory — looting nearby.")
         local found = AutoPilot_Inventory.lootNearbyFood(player)
         if not found then
-            _emptyLootCycles = _emptyLootCycles + 1
+            _emptyLootCycles[pn] = (_emptyLootCycles[pn] or 0) + 1
             print(("[Needs] Empty loot cycle %d/%d."):format(
-                _emptyLootCycles, AutoPilot_Constants.SUPPLY_RUN_TRIGGER))
-            if _emptyLootCycles >= AutoPilot_Constants.SUPPLY_RUN_TRIGGER then
+                _emptyLootCycles[pn], AutoPilot_Constants.SUPPLY_RUN_TRIGGER))
+            if _emptyLootCycles[pn] >= AutoPilot_Constants.SUPPLY_RUN_TRIGGER then
                 print("[Needs] Supply run triggered — expanding food loot radius.")
                 local foodPred = function(item)
                     return item:isFood() and not item:isRotten()
                         and (item:getCalories() or 0) > 0
                 end
                 AutoPilot_Inventory.supplyRunLoot(player, foodPred)
-                _emptyLootCycles = 0
+                _emptyLootCycles[pn] = 0
             end
         else
-            _emptyLootCycles = 0
+            _emptyLootCycles[pn] = 0
         end
         return false
     end
-    _emptyLootCycles = 0
+    _emptyLootCycles[pn] = 0
     print("[Needs] Best food: " .. tostring(food:getName())
         .. " (cal=" .. tostring(food:getCalories()) .. ")")
     print("[Needs] Eating: " .. tostring(food:getName()))
@@ -124,22 +132,23 @@ local function doEat(player)
 end
 
 local function doDrink(player)
+    local pn = _pn(player)
     local okNow, nowMs = pcall(function()
         return getGameTime():getCalender():getTimeInMillis()
     end)
     local ms = okNow and nowMs or 0
-    if ms < drinkCooldownMs then
+    if ms < (drinkCooldownMs[pn] or 0) then
         return false
     end
 
     -- Priority 1: nearby water source — fill container first, then drink
     local waterObj = AutoPilot_Inventory.findWaterSource(player)
     if waterObj then
-        _emptyLootCycles = 0
+        _emptyLootCycles[pn] = 0
         AutoPilot_Inventory.refillWaterContainer(player, waterObj)
         local drank = AutoPilot_Inventory.drinkFromSource(player, waterObj)
         if drank then
-            drinkCooldownMs = ms + 8000
+            drinkCooldownMs[pn] = ms + 8000
         end
         return drank
     end
@@ -147,10 +156,10 @@ local function doDrink(player)
     -- Priority 2: Drink from inventory (filled glass/bottle)
     local drink = AutoPilot_Inventory.getBestDrink(player)
     if drink then
-        _emptyLootCycles = 0
+        _emptyLootCycles[pn] = 0
         print("[Needs] Drinking: " .. tostring(drink:getName()))
         ISTimedActionQueue.add(ISEatFoodAction:new(player, drink, 1))
-        drinkCooldownMs = ms + 5000
+        drinkCooldownMs[pn] = ms + 5000
         return true
     end
 
@@ -158,20 +167,20 @@ local function doDrink(player)
     print("[Needs] Thirsty but no drink — attempting to loot nearby.")
     local found = AutoPilot_Inventory.lootNearbyDrink(player)
     if not found then
-        _emptyLootCycles = _emptyLootCycles + 1
+        _emptyLootCycles[pn] = (_emptyLootCycles[pn] or 0) + 1
         print(("[Needs] Empty loot cycle %d/%d."):format(
-            _emptyLootCycles, AutoPilot_Constants.SUPPLY_RUN_TRIGGER))
-        if _emptyLootCycles >= AutoPilot_Constants.SUPPLY_RUN_TRIGGER then
+            _emptyLootCycles[pn], AutoPilot_Constants.SUPPLY_RUN_TRIGGER))
+        if _emptyLootCycles[pn] >= AutoPilot_Constants.SUPPLY_RUN_TRIGGER then
             print("[Needs] Supply run triggered — expanding drink loot radius.")
             local drinkPred = function(item)
                 return item:isFood() and not item:isRotten()
                     and item:getThirstChange() and item:getThirstChange() < 0
             end
             AutoPilot_Inventory.supplyRunLoot(player, drinkPred)
-            _emptyLootCycles = 0
+            _emptyLootCycles[pn] = 0
         end
     else
-        _emptyLootCycles = 0
+        _emptyLootCycles[pn] = 0
     end
     return false
 end
@@ -179,17 +188,18 @@ end
 -- Rest on nearby furniture to recover endurance.
 -- Searches for bed > couch/sofa > chair within REST_SEARCH_DIST tiles.
 -- Falls back to resting in place if nothing found.
-local restCooldownMs = 0
+local restCooldownMs  = {}   -- per-player; [playerNum] -> cooldown timestamp ms
 local REST_SEARCH_DIST = AutoPilot_Constants.REST_SEARCH_DIST
 
 local function findRestFurniture(player)
+    local pn = _pn(player)
     local px, py, pz = player:getX(), player:getY(), player:getZ()
     local bestObj  = nil
     local bestDist = math.huge
     local bestPriority = 99  -- lower = better (bed=1, sofa=2, chair=3)
 
     AutoPilot_Utils.iterateNearbySquares(px, py, pz, REST_SEARCH_DIST, function(sq, dx, dy)
-        if not AutoPilot_Home.isInside(sq) then return false end
+        if not AutoPilot_Home.isInside(sq, pn) then return false end
         for i = 0, sq:getObjects():size() - 1 do
             local obj = sq:getObjects():get(i)
             local priority = nil
@@ -239,12 +249,13 @@ local function findRestFurniture(player)
 end
 
 local function doRest(player)
+    local pn = _pn(player)
     local ok, now = pcall(function()
         return getGameTime():getCalender():getTimeInMillis()
     end)
     local ms = ok and now or 0
 
-    if ms < restCooldownMs then return true end  -- still resting, skip silently
+    if ms < (restCooldownMs[pn] or 0) then return true end  -- still resting, skip silently
 
     local function queueGroundRest()
         if not ISSitOnGround or not ISSitOnGround.new then
@@ -265,7 +276,7 @@ local function doRest(player)
     local target = findRestFurniture(player)
     if not target then
         if queueGroundRest() then
-            restCooldownMs = ms + 60000
+            restCooldownMs[pn] = ms + 60000
             return true
         end
         print("[Needs] Exhausted but no valid rest furniture found; skipping rest.")
@@ -327,18 +338,18 @@ local function doRest(player)
 
     if not queued then
         if queueGroundRest() then
-            restCooldownMs = ms + 60000
+            restCooldownMs[pn] = ms + 60000
             return true
         end
         print("[Needs] Unable to queue a safe rest action.")
         return false
     end
 
-    restCooldownMs = ms + 60000   -- 60s: give endurance time to recover
+    restCooldownMs[pn] = ms + 60000   -- 60s: give endurance time to recover
     return true
 end
 
-local sleepCooldownMs = 0
+local sleepCooldownMs = {}   -- per-player; [playerNum] -> cooldown timestamp ms
 
 local BED_SEARCH_DIST   = AutoPilot_Constants.BED_SEARCH_DIST
 local BED_SEARCH_FLOORS = AutoPilot_Constants.BED_SEARCH_FLOORS
@@ -393,11 +404,12 @@ end
 
 local function doSleep(player)
     -- Cooldown guard: prevent re-queuing bed action every tick
+    local pn = _pn(player)
     local ok, now = pcall(function()
         return getGameTime():getCalender():getTimeInMillis()
     end)
     local ms = ok and now or 0
-    if ms < sleepCooldownMs then return true end
+    if ms < (sleepCooldownMs[pn] or 0) then return true end
 
     -- If pain is high, attempt medical relief or painkillers before sleeping.
     local painVal = AutoPilot_Utils.safeStat(player, CharacterStat.PAIN)
@@ -441,7 +453,7 @@ local function doSleep(player)
         end
 
         -- No treatment available; delay sleep attempts to avoid a busy loop.
-        sleepCooldownMs = ms + 60000
+        sleepCooldownMs[pn] = ms + 60000
         print("[Needs] No medical/painkiller available; delaying sleep for 60s.")
         return false
     end
@@ -492,7 +504,7 @@ local function doSleep(player)
         end
     end
 
-    sleepCooldownMs = ms + 15000
+    sleepCooldownMs[pn] = ms + 15000
     return true
 end
 
@@ -619,21 +631,25 @@ end
 local STRENGTH_EXERCISES = {"pushups", "squats"}
 local FITNESS_EXERCISES  = {"situp",   "burpees"}
 
-local exerciseCycle = 1
+local exerciseCycle     = {}   -- per-player; [playerNum] -> current cycle index (1-based)
 
 -- Log cooldown for "waiting for endurance" to prevent spam
-local exerciseWaitLogMs = 0
+local exerciseWaitLogMs = {}   -- per-player; [playerNum] -> timestamp ms
 
 local function doExercise(player)
+    local pn = _pn(player)
     -- Phase 2: day-rollover reset
     local _gameTime = GameTime.getInstance()
     local _today    = _gameTime and _gameTime:getDay() or 0
-    if _today ~= _lastTrackedDay then
-        _exerciseSetsToday = 0
-        _lastTrackedDay    = _today
+    local tracked = _lastTrackedDay[pn]
+    if tracked == nil then tracked = -1 end
+    if _today ~= tracked then
+        _exerciseSetsToday[pn] = 0
+        _lastTrackedDay[pn]    = _today
     end
+    local setsToday = _exerciseSetsToday[pn] or 0
     -- Phase 2: daily cap gate
-    if _exerciseSetsToday >= AutoPilot_Constants.EXERCISE_DAILY_CAP then
+    if setsToday >= AutoPilot_Constants.EXERCISE_DAILY_CAP then
         print(("[Needs] Daily exercise cap %d reached — resting."):format(
             AutoPilot_Constants.EXERCISE_DAILY_CAP))
         return false
@@ -654,11 +670,11 @@ local function doExercise(player)
             return getGameTime():getCalender():getTimeInMillis()
         end)
         local ms = ok and now or 0
-        if ms >= exerciseWaitLogMs then
+        if ms >= (exerciseWaitLogMs[pn] or 0) then
             print(string.format(
                 "[Needs] Waiting for endurance to recover (%.0f%%) before exercising.",
                 endurance * 100))
-            exerciseWaitLogMs = ms + 30000
+            exerciseWaitLogMs[pn] = ms + 30000
         end
         return false  -- no action queued; endurance recovers passively while idle
     end
@@ -682,8 +698,9 @@ local function doExercise(player)
         print("[Needs] No exercises defined for current focus — skipping.")
         return false
     end
-    local exType = exercises[((exerciseCycle - 1) % #exercises) + 1]
-    exerciseCycle = exerciseCycle + 1
+    local cycle = exerciseCycle[pn] or 1
+    local exType = exercises[((cycle - 1) % #exercises) + 1]
+    exerciseCycle[pn] = cycle + 1
 
     local exeData = nil
     if FitnessExercises and FitnessExercises.exercisesType then
@@ -712,9 +729,9 @@ local function doExercise(player)
         local _tier = AutoPilot_Inventory.equipBestExerciseItem(player)
         print(("[Needs] Exercise tier: %s"):format(_tier))
         ISTimedActionQueue.addGetUpAndThen(player, action)
-        _exerciseSetsToday = _exerciseSetsToday + 1
+        _exerciseSetsToday[pn] = setsToday + 1
         print(("[Needs] Exercise set %d/%d queued."):format(
-            _exerciseSetsToday, AutoPilot_Constants.EXERCISE_DAILY_CAP))
+            _exerciseSetsToday[pn], AutoPilot_Constants.EXERCISE_DAILY_CAP))
         return true
     else
         print("[Needs] ISFitnessAction failed for: " .. exType .. " — " .. tostring(action))
@@ -748,9 +765,11 @@ end
 
 --- Main survival needs check.
 function AutoPilot_Needs.check(player)
+    local pn = _pn(player)
+
     -- 1. Bleeding — treat immediately (fatal if untreated)
     if AutoPilot_Medical.hasCriticalWound(player) then
-        AutoPilot_Telemetry.setDecision("bandage", "bleeding")
+        AutoPilot_Telemetry.setDecision("bandage", "bleeding", player)
         if AutoPilot_Medical.check(player, true) then return true end
     end
 
@@ -758,7 +777,7 @@ function AutoPilot_Needs.check(player)
     -- so the character can transition from resting to sleeping when tired enough.
     local fatigue = AutoPilot_Utils.safeStat(player, CharacterStat.FATIGUE)
     if fatigue >= FATIGUE_STAT_THRESHOLD then
-        AutoPilot_Telemetry.setDecision("sleep", "fatigue_thresh")
+        AutoPilot_Telemetry.setDecision("sleep", "fatigue_thresh", player)
         return doSleep(player)
     end
 
@@ -769,15 +788,15 @@ function AutoPilot_Needs.check(player)
     local okNow, nowMs = pcall(function()
         return getGameTime():getCalender():getTimeInMillis()
     end)
-    if okNow and nowMs < restCooldownMs then
-        AutoPilot_Telemetry.setDecision("rest", "rest_cooldown")
+    if okNow and nowMs < (restCooldownMs[pn] or 0) then
+        AutoPilot_Telemetry.setDecision("rest", "rest_cooldown", player)
         return true  -- still resting, skip routine needs
     end
 
     -- 2. Thirst (0.0=hydrated, ~1.0=dying)
     local thirst = AutoPilot_Utils.safeStat(player, CharacterStat.THIRST)
     if thirst >= THIRST_STAT_THRESHOLD then
-        AutoPilot_Telemetry.setDecision("drink", "thirst_thresh")
+        AutoPilot_Telemetry.setDecision("drink", "thirst_thresh", player)
         return doDrink(player)
     end
 
@@ -795,7 +814,7 @@ function AutoPilot_Needs.check(player)
     if currentSq and currentSq:isOutside() then
         if isRaining() or tempDelta < AutoPilot_Constants.TEMP_TOO_COLD then
             print("[Needs] Outdoors bad comfort (rain/cold) — seeking shelter.")
-            AutoPilot_Telemetry.setDecision("shelter", "weather")
+            AutoPilot_Telemetry.setDecision("shelter", "weather", player)
             if doSeekShelter(player) then return true end
         end
     end
@@ -805,18 +824,18 @@ function AutoPilot_Needs.check(player)
     if hunger >= HUNGER_STAT_THRESHOLD then
         print(string.format(
             "[Needs] Hunger triggered (%.0f%%). Attempting to eat.", hunger * 100))
-        AutoPilot_Telemetry.setDecision("eat", "hunger_thresh")
+        AutoPilot_Telemetry.setDecision("eat", "hunger_thresh", player)
         local ate = doEat(player)
         if ate then return true end
         print("[Needs] doEat returned false — no food available, continuing.")
     end
 
     -- 4. Wounds — treat non-bleeding wounds (scratches, bites, deep wounds)
-    AutoPilot_Telemetry.setDecision("bandage", "wound")
+    AutoPilot_Telemetry.setDecision("bandage", "wound", player)
     if AutoPilot_Medical.check(player, false) then return true end
 
     -- Phase 4: temperature comfort check
-    AutoPilot_Telemetry.setDecision("clothing", "temperature")
+    AutoPilot_Telemetry.setDecision("clothing", "temperature", player)
     if AutoPilot_Inventory.adjustClothing(player) then return end
 
     -- 5. Tired — already checked above (before rest cooldown gate)
@@ -828,7 +847,7 @@ function AutoPilot_Needs.check(player)
     local endurance = AutoPilot_Utils.safeStat(player, CharacterStat.ENDURANCE)
     local enduranceMoodle = safeMoodleLevel(player, MoodleType.ENDURANCE)
     if endurance <= ENDURANCE_REST_MIN or enduranceMoodle >= 3 then
-        AutoPilot_Telemetry.setDecision("rest", "low_endurance")
+        AutoPilot_Telemetry.setDecision("rest", "low_endurance", player)
         return doRest(player)
     end
 
@@ -842,24 +861,24 @@ function AutoPilot_Needs.check(player)
         if unhappyLvl >= AutoPilot_Constants.HAPPINESS_LOW_THRESHOLD then
             local tastyFood = AutoPilot_Inventory.preferTastyFood(player)
             if tastyFood then
-                AutoPilot_Telemetry.setDecision("eat", "unhappy")
+                AutoPilot_Telemetry.setDecision("eat", "unhappy", player)
                 print("[Needs] Unhappy — eating tasty food: "
                     .. tostring(tastyFood:getName()))
                 ISTimedActionQueue.add(ISEatFoodAction:new(player, tastyFood, 1))
                 return true
             end
         end
-        AutoPilot_Telemetry.setDecision("read", "boredom")
+        AutoPilot_Telemetry.setDecision("read", "boredom", player)
         if doRead(player) then return true end
         if boredom >= BOREDOM_STAT_THRESHOLD then
-            AutoPilot_Telemetry.setDecision("outside", "boredom")
+            AutoPilot_Telemetry.setDecision("outside", "boredom", player)
             local went = doGoOutside(player)
             if went then return true end
         end
     end
 
     -- 8. Idle -> exercise (default behavior)
-    AutoPilot_Telemetry.setDecision("exercise", "idle")
+    AutoPilot_Telemetry.setDecision("exercise", "idle", player)
     return doExercise(player)
 end
 
@@ -870,13 +889,17 @@ AutoPilot_Needs.trySleep    = doSleep
 AutoPilot_Needs.tryGoOutside = doGoOutside
 
 --- Return how many consecutive empty loot cycles have accumulated (Phase 3).
-function AutoPilot_Needs.getEmptyLootCycles()
-    return _emptyLootCycles
+--- Accepts an optional player to scope to that player's counter; defaults to player 0.
+function AutoPilot_Needs.getEmptyLootCycles(player)
+    local pn = player and _pn(player) or 0
+    return _emptyLootCycles[pn] or 0
 end
 
 --- Return how many exercise sets have been performed today.
-function AutoPilot_Needs.getExerciseSetsToday()
-    return _exerciseSetsToday
+--- Accepts an optional player to scope to that player's counter; defaults to player 0.
+function AutoPilot_Needs.getExerciseSetsToday(player)
+    local pn = player and _pn(player) or 0
+    return _exerciseSetsToday[pn] or 0
 end
 
 --- Return preferred exercise type based on STR vs FIT perk level.

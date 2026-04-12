@@ -64,10 +64,12 @@ local function doFlee(player, zombies)
 
     if AutoPilot_Home.isSet(player) then
         -- Safehouse mode: flee toward home center; find nearest free in-bounds square.
-        local hx, hy, hz = AutoPilot_Home.getState()
+        local hx, hy, hz = AutoPilot_Home.getState(player)
         local homeZ = hz or player:getZ()
+        local pnum  = 0
+        pcall(function() pnum = player:getPlayerNum() end)
         destSq = AutoPilot_Utils.findNearestSquare(hx, hy, homeZ, 5, function(sq)
-            return sq:isFree(false) and AutoPilot_Home.isInside(sq)
+            return sq:isFree(false) and AutoPilot_Home.isInside(sq, pnum)
         end)
     else
         -- No home: flee away from zombie centroid.

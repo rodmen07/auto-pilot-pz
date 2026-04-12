@@ -178,6 +178,17 @@ AutoPilot_Constants.DEPLETED_CAP = 500
 --   TICK_INTERVAL = 15  →  evaluation every ~0.75 s
 --   ACTION_COOLDOWN_CYCLES = 4  →  ~3 s suppression after any queued action
 --
+-- ── Controller toggle (splitscreen players 1-3) ──────────────────────────────
+-- Joypad button index for the AutoPilot toggle (double-tap to activate).
+-- 6 = Back / Select / View on xinput (Xbox View, PS Share, Switch Minus).
+-- Not bound by PZ default controller mappings; safe to use as a mod toggle.
+-- Change this constant if button 6 conflicts with a custom PZ binding.
+AutoPilot_Constants.JOYPAD_TOGGLE_BUTTON = 6
+
+-- Maximum milliseconds between two button presses to register as a double-tap.
+-- 500 ms gives a comfortable window without being easy to trigger accidentally.
+AutoPilot_Constants.JOYPAD_DOUBLE_TAP_MS = 500
+
 -- NOTE for auto_tune.py: the regex patterns that patch this file expect the
 -- format `AutoPilot_Constants.FIELD = <number>` with no leading whitespace.
 -- Do not introduce leading spaces or multi-line assignments for tunable lines.

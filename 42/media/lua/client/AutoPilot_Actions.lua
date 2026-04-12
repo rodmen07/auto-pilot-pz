@@ -212,11 +212,13 @@ local HANDLERS = {
     -- Phase 3: Bulk loot nearest accessible container with default keyword list.
     bulk_loot = function(player, _)
         local px, py, pz = player:getX(), player:getY(), player:getZ()
+        local pnum = 0
+        pcall(function() pnum = player:getPlayerNum() end)
         local bestContainer = nil
         local bestSq        = nil
         local bestDist      = math.huge
         AutoPilot_Utils.iterateNearbySquares(px, py, pz, 20, function(sq, dx, dy)
-            if AutoPilot_Home.isSet(player) and not AutoPilot_Home.isInside(sq) then
+            if AutoPilot_Home.isSet(player) and not AutoPilot_Home.isInside(sq, pnum) then
                 return false
             end
             for i = 0, sq:getObjects():size() - 1 do
