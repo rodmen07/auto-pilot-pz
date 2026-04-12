@@ -226,7 +226,9 @@ local HANDLERS = {
             if AutoPilot_Home.isSet(player) and not AutoPilot_Home.isInside(sq, pnum) then
                 return false
             end
-            for i = 0, sq:getObjects():size() - 1 do
+            local okSz, sz = pcall(function() return sq:getObjects():size() end)
+            if not (okSz and sz) then return false end
+            for i = 0, sz - 1 do
                 local obj = sq:getObjects():get(i)
                 local ok, ctr = pcall(function() return obj:getContainer() end)
                 if ok and ctr then

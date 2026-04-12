@@ -2,6 +2,117 @@
 
 All notable changes to AutoPilot are documented here.
 
+## [V2.0] — 2026-04-12
+
+### Added
+
+**Architecture & Splitscreen (M2)**
+- **Per-player `AutoPilot_Map` depletion** (`[playerNum]`-keyed): depleted-square cache is now
+  fully isolated per splitscreen player; removes the last shared mutable singleton.
+- **Queue-thrash guard**: per-player `_actionStreak` counter detects repeated identical-action
+  ticks (default cap: 15); clears the action queue when triggered, ending stuck loops.
+- **Unreachable target retry cap**: `doFlee` and `doFight` each maintain per-player retry
+  counters (max 3) before logging a `blocked` telemetry label and giving up gracefully.
+- **`pcall` audit sweep**: raw `getContainer()`, `getObjects():size()`, `getName()`, and
+  `getModData()` calls in `AutoPilot_Barricade` and `AutoPilot_Actions` are now wrapped.
+
+**Combat & Threat (M3.1)**
+- **Weapon pre-equip at check**: `AutoPilot_Inventory.checkAndSwapWeapon` is now called at the
+  top of `Threat.check` before the flee/fight decision; the best weapon is always readied.
+- **Post-combat recovery tier**: after a fight, if `hasCriticalWound` is true, the bot enters
+  a `"recover"` priority tier (bandage + rest) before returning to the normal priority chain.
+- **Retreat path quality**: `doFlee` (safehouse mode) now prefers `!isOutside()` (roof-covered)
+  tiles over open ground to reduce rain-exposure penalty during retreat.
+- **`FLEE_DISTANCE` / `FLEE_MOODLE_LIMIT` documented**: header-comment rationale added to
+  Constants.
+
+**Resource & Loot Economy (M3.2)**
+- **Container scoring**: `_lootNearbyByPredicate` now picks the highest-score container
+  (item_count / (distance² + 1)) instead of the first match, reducing unnecessary travel.
+- **Emergency medical loot path**: when `hasCriticalWound` and no bandage is found locally,
+  `AutoPilot_Inventory.emergencyMedicalLoot` triggers an immediate expanded-radius supply run
+  for bandage items rather than silently returning false.
+- **Tightened supply-run trigger**: if hunger > 40% and the current food loot cycle fails,
+  a supply run fires immediately (no longer waits for `SUPPLY_RUN_TRIGGER` cycles).
+- **Proactive water pre-fill**: `AutoPilot_Inventory.proactiveWaterRefill` refills empty water
+  containers when near a water source and thirst < 10%.
+
+**Needs / Priority Policy (M3.3)**
+- **`recover` priority tier (P1.5)**: between `bandage` (P0) and `sleep` (P2); active while
+  `_recoverUntilMs` has not expired after combat.
+- **`HAPPINESS_FOOD_PRIORITY` constant**: makes the tasty-food-before-reading ordering
+  explicit and configurable (was implicit through position in boredom block).
+- **Outdoor walk for boredom**: if reading fails and boredom is above threshold, the bot
+  queues a short outdoor walk rather than falling through to exercise silently.
+- **Real-time exercise cap**: `EXERCISE_REAL_TIME_CAP_MS` (default 10 min) prevents
+  exercise-spam at high game speeds when the in-game day rolls over quickly.
+
+**Home & Safehouse (M3.4)**
+- **Multi-shelter fallback**: `AutoPilot_Home.addFallback` / `getNearestFallback` store up to
+  3 candidate shelter squares; used when the primary home square is obstructed.
+- **Barricade maintenance mode**: `AutoPilot_Barricade.doBarricade` re-checks the home perimeter
+  every `BARRICADE_RECHECK_INTERVAL` (default 3) in-game days for newly broken windows.
+- **Home-set edge case**: on ModData load, if the home coordinate is inside a wall (`isFree`
+  false), the bot shifts to the nearest free square within 5 tiles.
+
+**Telemetry Schema v2 (M4.1)**
+- `schema_version=2` field on every log line (additive — old parsers silently ignore it).
+- `stage` field: which priority tier fired (`medical`, `survival`, `wellness`, `exercise`,
+  `recover`, `idle`).
+- `fail_reason` field: why an action returned false (`no_item`, `no_square`, `cooldown`,
+  `blocked`, `cap_reached`).
+- `retry_count` field: per-player retry counter value at decision time.
+- `blocked` action label added to `REASON_CLASS` (maps to `"idle"` class).
+- `recover` action label added to `REASON_CLASS` (maps to `"recover"` class).
+
+**Benchmark / Python (M4.1)**
+- `BenchmarkResult` gains: `schema_version`, `stage_counts`, `fail_reason_counts`,
+  `blocked_ticks`.
+- `_ACTION_CLASS_MAP` updated with `blocked` and `recover`.
+- `parse_telemetry` handles `schema_version`, `retry_count` integer fields; backward-compat
+  with v1 logs (missing v2 fields silently absent in entry dict).
+
+**Test suites (M4.2)**
+- `tests/test_splitscreen.lua`: 6 tests verifying per-player isolation for Map depletion,
+  Home anchors, Telemetry tick counters, and fallback shelters.
+- `tests/test_combat_policy.lua`: 4 tests for weapon pre-equip order, fight/flee path,
+  retry cap, and safehouse redirection.
+- `tests/test_resource_economy.lua`: 9 tests for container scoring, emergency medical loot,
+  proactive water pre-fill, supply-run cache reset, and supply count separation.
+- `tests/test_telemetry_schema.lua`: 7 tests for v2 field acceptance, backward compat,
+  `blocked`/`recover` labels, and per-player tick counters.
+
+**CI (M4.3)**
+- `check.sh` line-count guard: warns (non-blocking) if any Lua module exceeds 1000 lines.
+- `check.sh` test-file list updated to include all 4 new test files.
+- `check.sh` pytest ignore list updated to exclude new Lua test files from Python discovery.
+
+**Release (M5)**
+- `modversion` bumped to `2.0` in both `42/mod.info` and `mod.info`.
+- Release archive now includes `docs/` and `CHANGELOG.md`.
+- Release archive verification checks `docs/architecture.md` and `CHANGELOG.md` presence.
+- `docs/architecture.md` created: module ownership map, priority chain, telemetry schema,
+  CI guards, and KPI targets.
+
+### Changed
+- `AutoPilot_Map.markDepleted` / `isDepleted` / `resetDepleted` / `getStats` now accept an
+  optional `playerNum` argument (default `0`); single-player callers are unaffected.
+- `AutoPilot_Telemetry.setDecision` extended with optional `stage`, `fail_reason`,
+  `retry_count` parameters (backward-compatible: old 3-argument callers unaffected).
+- `AutoPilot_Needs.check` `setDecision` calls all pass `stage` for telemetry.
+- `AutoPilot_Threat.check` resets `_fleeRetries` on threat clearance (no zombies).
+- `AutoPilot_Barricade.isDone` / `_markDone` wrapped in `pcall`.
+
+### Constants Added
+| Constant | Default | Description |
+|---|---|---|
+| `MAX_ACTION_STREAK` | `15` | Queue-thrash guard cap (ticks) |
+| `EXERCISE_REAL_TIME_CAP_MS` | `600000` | Real-time exercise session cap (ms) |
+| `HAPPINESS_FOOD_PRIORITY` | `40` | Unhappy moodle level to prefer tasty food first |
+| `BARRICADE_RECHECK_INTERVAL` | `3` | In-game days between barricade maintenance checks |
+
+---
+
 ## [V1.1] — 2026-04-12
 
 ### Added

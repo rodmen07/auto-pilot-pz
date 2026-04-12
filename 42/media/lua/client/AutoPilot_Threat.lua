@@ -9,6 +9,17 @@ local print = _apNoop
 local DETECTION_RADIUS   = AutoPilot_Constants.DETECTION_RADIUS
 local FLEE_MOODLE_LIMIT  = AutoPilot_Constants.FLEE_MOODLE_LIMIT
 local FLEE_DISTANCE      = AutoPilot_Constants.FLEE_DISTANCE
+-- Maximum consecutive flee/fight retry attempts before logging "blocked".
+local MAX_COMBAT_RETRIES = 3
+
+-- Per-player retry counters for flee/fight attempts.
+-- Reset on successful action or threat clearance.
+local _fleeRetries = {}   -- [playerNum] -> int
+
+local function _pn(player)
+    local ok, n = pcall(function() return player:getPlayerNum() end)
+    return (ok and type(n) == "number") and n or 0
+end
 
 -- Stat thresholds that count as "negative" for flee decision.
 -- B42: Uses player:getStats():get(CharacterStat.XXX) pattern.
@@ -60,17 +71,24 @@ end
 
 -- Flee: when home is set, run toward home center; otherwise flee away from zombie centroid.
 local function doFlee(player, zombies)
+    local pnum = _pn(player)
     local destSq
 
     if AutoPilot_Home.isSet(player) then
         -- Safehouse mode: flee toward home center; find nearest free in-bounds square.
+        -- Prefer roof-covered (inside) tiles to reduce rain exposure.
         local hx, hy, hz = AutoPilot_Home.getState(player)
         local homeZ = hz or player:getZ()
-        local pnum  = 0
-        pcall(function() pnum = player:getPlayerNum() end)
         destSq = AutoPilot_Utils.findNearestSquare(hx, hy, homeZ, 5, function(sq)
             return sq:isFree(false) and AutoPilot_Home.isInside(sq, pnum)
+                and not sq:isOutside()
         end)
+        -- Fallback: accept any free in-bounds square (including outdoors)
+        if not destSq then
+            destSq = AutoPilot_Utils.findNearestSquare(hx, hy, homeZ, 5, function(sq)
+                return sq:isFree(false) and AutoPilot_Home.isInside(sq, pnum)
+            end)
+        end
     else
         -- No home: flee away from zombie centroid.
         -- Guard: requires at least one zombie to compute centroid.
@@ -102,13 +120,22 @@ local function doFlee(player, zombies)
     end
 
     if destSq then
-        -- Let ISWalkToTimedAction handle movement speed internally (MP-safe).
+        -- Reset retry counter on successful destination resolution.
+        _fleeRetries[pnum] = 0
         ISTimedActionQueue.add(ISWalkToTimedAction:new(player, destSq))
         print("[Threat] FLEE — " .. #zombies .. " zombie(s), " ..
             AutoPilot_Threat.countNegativeMoodles(player) .. " negative stats elevated.")
+        AutoPilot_Telemetry.setDecision("flee", "threat", player)
         return true
     end
 
+    -- No reachable destination — increment retry counter and check cap.
+    _fleeRetries[pnum] = (_fleeRetries[pnum] or 0) + 1
+    if _fleeRetries[pnum] >= MAX_COMBAT_RETRIES then
+        print("[Threat] FLEE blocked after " .. _fleeRetries[pnum] .. " attempt(s).")
+        AutoPilot_Telemetry.setDecision("blocked", "flee_no_square", player)
+        _fleeRetries[pnum] = 0
+    end
     print("[Threat] FLEE failed — no reachable square; falling back to fight.")
     return false
 end
@@ -127,8 +154,6 @@ local function doFight(player, zombies)
         return
     end
 
-    AutoPilot_Inventory.checkAndSwapWeapon(player)
-
     local px, py = player:getX(), player:getY()
     table.sort(zombies, function(a, b)
         local da = (a:getX()-px)^2 + (a:getY()-py)^2
@@ -137,7 +162,8 @@ local function doFight(player, zombies)
     end)
     local target = zombies[1]
 
-    -- Equip best weapon if it outclasses what's currently held
+    -- Weapon is already equipped via pre-equip in Threat.check; swap again
+    -- only if a better option appeared since check() ran.
     local weapon = AutoPilot_Inventory.getBestWeapon(player)
 
     local okPrimary, primary = pcall(function() return player:getPrimaryHandItem() end)
@@ -168,6 +194,7 @@ local function doFight(player, zombies)
         ISTimedActionQueue.add(ISWalkToTimedAction:new(player, targetSq))
     end
 
+    AutoPilot_Telemetry.setDecision("fight", "threat", player)
     print("[Threat] FIGHT — " .. #zombies .. " zombie(s) nearby.")
 end
 
@@ -190,9 +217,17 @@ end
 -- Main threat check. Returns true if a threat was detected and action queued.
 function AutoPilot_Threat.check(player)
     local zombies = AutoPilot_Threat.getNearbyZombies(player)
-    if #zombies == 0 then return false end
+    if #zombies == 0 then
+        -- Reset retry counter when threat clears.
+        local pnum = _pn(player)
+        _fleeRetries[pnum] = 0
+        return false
+    end
 
     ISTimedActionQueue.clear(player)
+
+    -- Pre-equip best weapon before any combat decision (M3.1 weapon pre-equip).
+    pcall(function() AutoPilot_Inventory.checkAndSwapWeapon(player) end)
 
     -- Always flee if critically wounded (actively bleeding)
     if AutoPilot_Medical.hasCriticalWound(player) then
@@ -213,6 +248,12 @@ function AutoPilot_Threat.check(player)
         if not doFlee(player, zombies) then doFight(player, zombies) end
     else
         doFight(player, zombies)
+    end
+
+    -- M3.1 post-combat recovery: if the player is wounded after combat, activate
+    -- the recover priority tier in Needs so bandage+rest fires before exercise.
+    if AutoPilot_Medical.hasCriticalWound(player) then
+        pcall(function() AutoPilot_Needs.startRecovery(player, 30000) end)
     end
 
     return true

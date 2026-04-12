@@ -22,6 +22,9 @@ local PLAYER_MODDATA_KEY  = "AutoPilot_Home"
 -- Per-player in-memory cache.  Keyed by playerNum (0-based integer).
 -- Each entry: { x, y, z, r }
 local homes = {}
+-- Per-player list of up to 3 fallback shelter squares (M3.4 multi-shelter).
+-- Each entry: IsoGridSquare reference.
+local homeFallbacks = {}   -- [playerNum] -> { sq, sq, … } (up to 3)
 
 -- ── Internal helpers ──────────────────────────────────────────────────────────
 
@@ -62,7 +65,31 @@ local function loadFromModData(player, pnum)
             print("[AutoPilot] [Home] ModData home rejected: too far from current position.")
             return false
         end
-        _setHome(pnum, data.x, data.y, data.z,
+        -- M3.4: validate home coordinate is not inside a wall; shift if needed.
+        local hx, hy, hz = data.x, data.y, data.z or 0
+        local cell = getCell()
+        if cell then
+            local sq = cell:getGridSquare(hx, hy, hz)
+            if sq then
+                local okFree, isFree = pcall(function() return sq:isFree(false) end)
+                if not (okFree and isFree) then
+                    print("[AutoPilot] [Home] Home square is inside a wall — scanning nearby.")
+                    local freeSq = AutoPilot_Utils.findNearestSquare(hx, hy, hz, 5, function(s)
+                        local f, v = pcall(function() return s:isFree(false) end)
+                        return f and v
+                    end)
+                    if freeSq then
+                        hx = freeSq:getX()
+                        hy = freeSq:getY()
+                        hz = freeSq:getZ()
+                        print("[AutoPilot] [Home] Shifted home to nearest free square.")
+                    else
+                        print("[AutoPilot] [Home] No free square found near ModData home; using as-is.")
+                    end
+                end
+            end
+        end
+        _setHome(pnum, hx, hy, hz,
             math.min(data.r or HOME_DEFAULT_RADIUS, 50))
         return true
     end
@@ -201,4 +228,53 @@ function AutoPilot_Home.getState(player)
     AutoPilot_Home.isSet(player, pnum)   -- trigger ModData load on cache miss
     local h = _getHome(pnum)
     return h.x, h.y, h.z, h.r
+end
+
+--- Register a candidate fallback shelter square for a player (M3.4 multi-shelter).
+--- Keeps up to 3 entries; oldest is discarded when the list is full.
+--- @param player IsoPlayer
+--- @param sq     IsoGridSquare
+function AutoPilot_Home.addFallback(player, sq)
+    if not sq then return end
+    local pnum = _pnum(player)
+    if not homeFallbacks[pnum] then homeFallbacks[pnum] = {} end
+    local list = homeFallbacks[pnum]
+    -- Avoid duplicates (same coordinate)
+    for _, s in ipairs(list) do
+        if s:getX() == sq:getX() and s:getY() == sq:getY() and s:getZ() == sq:getZ() then
+            return
+        end
+    end
+    if #list >= 3 then table.remove(list, 1) end
+    table.insert(list, sq)
+end
+
+--- Return the nearest valid fallback shelter square for a player (M3.4).
+--- Checks isFree on each candidate; removes stale entries.
+--- @param player IsoPlayer
+--- @return IsoGridSquare|nil
+function AutoPilot_Home.getNearestFallback(player)
+    local pnum = _pnum(player)
+    local list = homeFallbacks[pnum]
+    if not list or #list == 0 then return nil end
+    local px, py = player:getX(), player:getY()
+    local bestSq, bestDist = nil, math.huge
+    local stale = {}
+    for i, sq in ipairs(list) do
+        local okFree, isFree = pcall(function() return sq:isFree(false) end)
+        if okFree and isFree then
+            local dist = (sq:getX() - px)^2 + (sq:getY() - py)^2
+            if dist < bestDist then
+                bestDist = dist
+                bestSq   = sq
+            end
+        else
+            table.insert(stale, i)
+        end
+    end
+    -- Remove stale entries (reverse order to preserve indices)
+    for i = #stale, 1, -1 do
+        table.remove(list, stale[i])
+    end
+    return bestSq
 end
