@@ -55,6 +55,13 @@ class BenchmarkResult:
     # Fraction of ticks (0.0–1.0) per decision label
     action_fractions: dict[str, float] = field(default_factory=dict)
 
+    # ── Reason-class distribution ────────────────────────────────────────────
+    # Counts per broad category: "survival", "combat", "wellness", "exercise", "idle"
+    class_counts: dict[str, int] = field(default_factory=dict)
+
+    # Fraction per broad category
+    class_fractions: dict[str, float] = field(default_factory=dict)
+
     # ── Threat / combat ──────────────────────────────────────────────────────
     # Fraction of ticks where ff=active (zombie nearby)
     combat_rate: float = 0.0
@@ -90,6 +97,14 @@ class BenchmarkResult:
     str_end:   int = 0
     fit_start: int = 0
     fit_end:   int = 0
+
+    # ── Loop detection ───────────────────────────────────────────────────────
+    # Longest consecutive run of ticks with the identical action label.
+    # Values > 20 often indicate a stuck loop (e.g. repeated loot-fail cycles).
+    max_action_streak: int = 0
+
+    # The action label that produced the longest streak.
+    max_action_streak_label: str = ""
 
     # ── Composite score ──────────────────────────────────────────────────────
     # Higher is better.  Designed to reward survival and penalise deaths.
@@ -156,6 +171,31 @@ def parse_telemetry(log_path: str | os.PathLike[str]) -> list[dict[str, Any]]:
 _HUNGER_PRESSURE_THRESHOLD  = 20   # hunger ≥ 20% triggers needs check
 _THIRST_PRESSURE_THRESHOLD  = 20   # thirst ≥ 20%
 
+# Maps action labels (from the telemetry log) to broad reason classes.
+# Used as a fallback when the "class" field is absent (older log files).
+# Must stay in sync with the REASON_CLASS table in AutoPilot_Telemetry.lua.
+_ACTION_CLASS_MAP: dict[str, str] = {
+    "eat":      "survival",
+    "drink":    "survival",
+    "sleep":    "survival",
+    "rest":     "survival",
+    "shelter":  "survival",
+    "bandage":  "survival",
+    "loot":     "survival",
+    "fight":    "combat",
+    "flee":     "combat",
+    "combat":   "combat",
+    "read":     "wellness",
+    "outside":  "wellness",
+    "clothing": "wellness",
+    "happiness":"wellness",
+    "exercise": "exercise",
+    "idle":     "idle",
+    "busy":     "idle",
+    "cooldown": "idle",
+    "dead":     "idle",
+}
+
 
 def score_run(entries: list[dict[str, Any]], end_status: str = "unknown") -> BenchmarkResult:
     """Compute a BenchmarkResult from a list of parsed telemetry entries.
@@ -171,6 +211,7 @@ def score_run(entries: list[dict[str, Any]], end_status: str = "unknown") -> Ben
 
     # ── Counters ──────────────────────────────────────────────────────────────
     action_counts: dict[str, int] = {}
+    class_counts:  dict[str, int] = {}
     ff_active     = 0
     bleeding_ticks = 0
     hunger_ticks   = 0
@@ -184,9 +225,22 @@ def score_run(entries: list[dict[str, Any]], end_status: str = "unknown") -> Ben
     str_start = fit_start = -1
     str_end   = fit_end   = 0
 
+    # Loop detection: track streaks of the same action label.
+    current_streak_label = ""
+    current_streak_len   = 0
+    max_streak_label     = ""
+    max_streak_len       = 0
+
     for entry in entries:
         action = entry.get("action", "idle")
         action_counts[action] = action_counts.get(action, 0) + 1
+
+        # reason_class: prefer the explicit "class" field written by newer telemetry;
+        # fall back to deriving from action for older log files.
+        cls = entry.get("class", "")
+        if not cls:
+            cls = _ACTION_CLASS_MAP.get(action, "idle")
+        class_counts[cls] = class_counts.get(cls, 0) + 1
 
         if entry.get("ff") == "active":
             ff_active += 1
@@ -222,10 +276,22 @@ def score_run(entries: list[dict[str, Any]], end_status: str = "unknown") -> Ben
             str_end = str_val
             fit_end = fit_val
 
+        # Update streak tracking for loop detection.
+        if action == current_streak_label:
+            current_streak_len += 1
+        else:
+            current_streak_label = action
+            current_streak_len   = 1
+        if current_streak_len > max_streak_len:
+            max_streak_len   = current_streak_len
+            max_streak_label = current_streak_label
+
     n = result.total_ticks
 
     result.action_counts    = action_counts
     result.action_fractions = {k: v / n for k, v in action_counts.items()}
+    result.class_counts     = class_counts
+    result.class_fractions  = {k: v / n for k, v in class_counts.items()}
     result.combat_rate      = ff_active      / n
     result.injury_rate      = bleeding_ticks / n
     result.hunger_pressure  = hunger_ticks   / n
@@ -240,6 +306,8 @@ def score_run(entries: list[dict[str, Any]], end_status: str = "unknown") -> Ben
     result.str_end          = str_end
     result.fit_start        = max(fit_start, 0)
     result.fit_end          = fit_end
+    result.max_action_streak       = max_streak_len
+    result.max_action_streak_label = max_streak_label
 
     # Composite score: reward survival, penalise death and injury time
     death_penalty   = 500 if end_status == "dead" else 0
