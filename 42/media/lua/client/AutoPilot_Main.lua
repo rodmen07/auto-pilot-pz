@@ -5,13 +5,13 @@ AutoPilot = {}
 local function _apNoop(...) end
 local print = _apNoop
 
-local TICK_INTERVAL = 15
+local TICK_INTERVAL          = AutoPilot_Constants.TICK_INTERVAL
+local ACTION_COOLDOWN_CYCLES = AutoPilot_Constants.ACTION_COOLDOWN_CYCLES
 local tickCounter = 0
 
 -- Modes: "off", "autopilot"
 local mode = "off"
 local actionCooldown = 0
-local ACTION_COOLDOWN_CYCLES = 4
 
 -- Prevent writing the death telemetry marker more than once per death event.
 local _deathLogged = false
@@ -153,6 +153,12 @@ local function onKeyPressed(key)
         if player and not AutoPilot_Home.isSet(player) then
             AutoPilot_Home.set(player)
             apLog("AutoPilot enabled - home set to current position.")
+        end
+        -- One-time barricade attempt after home is established.
+        -- AutoPilot_Barricade.doBarricade() is idempotent (ModData-backed) and
+        -- has prerequisite guards (nails + hammer in inventory, home set).
+        if player then
+            pcall(function() AutoPilot_Barricade.doBarricade(player) end)
         end
     end
     sayMode(player)

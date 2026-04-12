@@ -1,7 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "AutoPilot State",
-  "description": "Game-state snapshot written by AutoPilot_LLM.lua to Zomboid/Lua/auto_pilot_state.json every ~10 s.",
+  "description": "Game-state snapshot for offline analysis and benchmarking. Kept for tooling compatibility; no external sidecar reads this at runtime.",
   "type": "object",
   "required": [
     "health", "endurance", "negative_moodles", "zombie_count_nearby",

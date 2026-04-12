@@ -16,7 +16,7 @@ AutoPilot_Home = {}
 local function _apNoop(...) end
 local print = _apNoop
 
-local HOME_DEFAULT_RADIUS = 150
+local HOME_DEFAULT_RADIUS = AutoPilot_Constants.HOME_DEFAULT_RADIUS
 local PLAYER_MODDATA_KEY  = "AutoPilot_Home"
 
 -- In-memory cache (populated on set or first load from ModData)
