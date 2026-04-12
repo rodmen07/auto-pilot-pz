@@ -53,8 +53,8 @@ jobs:
 
       - name: Build mod archive
         run: |
-          # Package the 42/ folder (everything the game needs) into a versioned zip.
-          zip -r "AutoPilot-${{ github.ref_name }}.zip" 42/
+          # Package the 42/ folder (everything the game needs) plus documentation.
+          zip -r "AutoPilot-${{ github.ref_name }}.zip" 42/ docs/ CHANGELOG.md
 
       - name: Verify archive contents
         run: |
@@ -71,6 +71,8 @@ jobs:
             "42/media/lua/client/AutoPilot_Inventory.lua"
             "42/media/lua/client/AutoPilot_Medical.lua"
             "42/poster.png"
+            "docs/architecture.md"
+            "CHANGELOG.md"
           )
           MISSING=0
           for f in "${REQUIRED[@]}"; do

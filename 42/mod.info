@@ -3,6 +3,6 @@ poster=poster.png
 id=AutoPilot
 description=Keeps your character alive and improving while AFK. Always-on survival autopilot — no setup needed. Handles hunger, thirst, sleep, exhaustion, wounds (auto-bandage), and boredom automatically. Exercises to level Strength and Fitness using the best available equipment. Fights zombies when cornered; flees when bleeding or outnumbered. Bulk-loots nearby buildings, tracks depleted containers, and expands radius when supplies run low. Splitscreen supported — keyboard player uses F10; controller players use Back/Select double-tap. Client-side only — no server mod required.
 url=https://github.com/rodmen07/auto-pilot-pz
-modversion=1.1
+modversion=2.0
 pzversion=42.x
 tags=Multiplayer;Build 42;QualityOfLife;AFK;Splitscreen

@@ -7,6 +7,8 @@ local print = _apNoop
 
 local TICK_INTERVAL          = AutoPilot_Constants.TICK_INTERVAL
 local ACTION_COOLDOWN_CYCLES = AutoPilot_Constants.ACTION_COOLDOWN_CYCLES
+-- Max consecutive identical-action ticks before the guard clears the queue.
+local MAX_ACTION_STREAK      = AutoPilot_Constants.MAX_ACTION_STREAK
 local tickCounter = 0
 
 -- ── Per-player state ───────────────────────────────────────────────────────────
@@ -15,10 +17,13 @@ local tickCounter = 0
 --
 -- Default mode is "autopilot" — always on.  The toggle (F10 for the keyboard
 -- player, controller double-tap for players 1-3) flips to "off" and back.
-local _playerModes     = {}   -- [playerNum] -> "autopilot" | "off"
-local _playerCooldowns = {}   -- [playerNum] -> action-cooldown cycles remaining
-local _deathLogged     = {}   -- [playerNum] -> bool
-local _playerInited    = {}   -- [playerNum] -> bool (home set + barricade queued)
+local _playerModes      = {}   -- [playerNum] -> "autopilot" | "off"
+local _playerCooldowns  = {}   -- [playerNum] -> action-cooldown cycles remaining
+local _deathLogged      = {}   -- [playerNum] -> bool
+local _playerInited     = {}   -- [playerNum] -> bool (home set + barricade queued)
+-- Queue-thrash guard: track last decision label and consecutive-count.
+local _lastActionLabel  = {}   -- [playerNum] -> string
+local _actionStreak     = {}   -- [playerNum] -> int
 
 -- Joypad double-tap toggle (controller players).
 -- Press the configured button twice within JOYPAD_DOUBLE_TAP_MS to toggle.
@@ -133,6 +138,9 @@ local function _tickForPlayer(player, pnum)
 
     if AutoPilot_Threat.check(player) then
         _playerCooldowns[pnum] = ACTION_COOLDOWN_CYCLES
+        -- Threat clears streak (context changed)
+        _lastActionLabel[pnum] = "combat"
+        _actionStreak[pnum]    = 1
         AutoPilot_Telemetry.logTick(player, "combat", "threat")
         return
     end
@@ -152,17 +160,45 @@ local function _tickForPlayer(player, pnum)
             apLog("Interrupting exercise for urgent need.")
             ISTimedActionQueue.clear(player)
         else
-            AutoPilot_Telemetry.logTick(player, "busy", "action_running")
-            return
+            -- Queue-thrash guard: track consecutive "busy" ticks; clear if stuck.
+            local busyStreak = _actionStreak[pnum] or 0
+            if (_lastActionLabel[pnum] or "") == "busy" then
+                busyStreak = busyStreak + 1
+            else
+                busyStreak = 1
+            end
+            _lastActionLabel[pnum] = "busy"
+            _actionStreak[pnum]    = busyStreak
+            if busyStreak > MAX_ACTION_STREAK then
+                apLog("Queue-thrash detected (busy streak " .. busyStreak
+                    .. ") — clearing action queue.")
+                ISTimedActionQueue.clear(player)
+                _actionStreak[pnum] = 0
+            else
+                AutoPilot_Telemetry.logTick(player, "busy", "action_running")
+                return
+            end
         end
     end
 
     if AutoPilot_Needs.check(player) then
         _playerCooldowns[pnum] = ACTION_COOLDOWN_CYCLES
+        -- Record the decision label for streak tracking
+        local label = AutoPilot_Telemetry.getPendingAction and
+            AutoPilot_Telemetry.getPendingAction(player) or "action"
+        if label == (_lastActionLabel[pnum] or "") then
+            _actionStreak[pnum] = (_actionStreak[pnum] or 0) + 1
+        else
+            _lastActionLabel[pnum] = label
+            _actionStreak[pnum]    = 1
+        end
         AutoPilot_Telemetry.logTick(player)
         return
     end
 
+    _lastActionLabel[pnum] = "idle"
+    _actionStreak[pnum]    = (_lastActionLabel[pnum] == "idle")
+        and ((_actionStreak[pnum] or 0) + 1) or 1
     AutoPilot_Telemetry.logTick(player, "idle", "no_action")
 end
 

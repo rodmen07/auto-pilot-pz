@@ -14,12 +14,19 @@
 
 AutoPilot_Telemetry = {}
 
+-- Telemetry schema version — increment when new fields are added.
+-- Old parsers that don't know this field simply ignore it (additive-only).
+local SCHEMA_VERSION = 2
+
 -- ── Per-player state ───────────────────────────────────────────────────────────
 -- Keys are playerNum (0-based integer from player:getPlayerNum()).
 
-local _runTick       = {}   -- [playerNum] -> monotonically increasing counter
-local _pendingAction = {}   -- [playerNum] -> action label set by setDecision()
-local _pendingReason = {}   -- [playerNum] -> reason label set by setDecision()
+local _runTick        = {}   -- [playerNum] -> monotonically increasing counter
+local _pendingAction  = {}   -- [playerNum] -> action label set by setDecision()
+local _pendingReason  = {}   -- [playerNum] -> reason label set by setDecision()
+local _pendingStage   = {}   -- [playerNum] -> priority tier label
+local _pendingFail    = {}   -- [playerNum] -> fail_reason label
+local _pendingRetry   = {}   -- [playerNum] -> retry_count at decision time
 
 -- ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -58,10 +65,12 @@ local REASON_CLASS = {
     clothing   = "wellness",
     happiness  = "wellness",
     exercise   = "exercise",
+    recover    = "recover",
     idle       = "idle",
     busy       = "idle",
     cooldown   = "idle",
     dead       = "idle",
+    blocked    = "idle",
 }
 
 local function _classifyAction(action)
@@ -137,13 +146,19 @@ end
 -- The optional player parameter scopes the pending decision to that player's
 -- log; defaults to player 0 when nil.
 --
--- @param action  string     Decision label (e.g. "eat", "flee")
--- @param reason  string     Short trigger description (e.g. "hunger_thresh")
--- @param player  IsoPlayer  (optional) the player this decision belongs to
-function AutoPilot_Telemetry.setDecision(action, reason, player)
+-- @param action      string     Decision label (e.g. "eat", "flee")
+-- @param reason      string     Short trigger description (e.g. "hunger_thresh")
+-- @param player      IsoPlayer  (optional) the player this decision belongs to
+-- @param stage       string     (optional) priority tier ("medical","survival",…)
+-- @param fail_reason string     (optional) why the action failed ("no_item",…)
+-- @param retry_count number     (optional) retry counter at decision time
+function AutoPilot_Telemetry.setDecision(action, reason, player, stage, fail_reason, retry_count)
     local pnum = player and _pn(player) or 0
-    _pendingAction[pnum] = action or "idle"
-    _pendingReason[pnum] = reason or ""
+    _pendingAction[pnum] = action      or "idle"
+    _pendingReason[pnum] = reason      or ""
+    _pendingStage[pnum]  = stage       or ""
+    _pendingFail[pnum]   = fail_reason or ""
+    _pendingRetry[pnum]  = retry_count or 0
 end
 
 --- Log one evaluation cycle for a player.
@@ -159,18 +174,26 @@ function AutoPilot_Telemetry.logTick(player, action, reason)
 
     action = action or _pendingAction[pnum] or "idle"
     reason = reason or _pendingReason[pnum] or ""
+    local stage       = _pendingStage[pnum]  or ""
+    local fail_reason = _pendingFail[pnum]   or ""
+    local retry_count = _pendingRetry[pnum]  or 0
     _pendingAction[pnum] = "idle"
     _pendingReason[pnum] = ""
+    _pendingStage[pnum]  = ""
+    _pendingFail[pnum]   = ""
+    _pendingRetry[pnum]  = 0
 
     local s   = _collectStats(player)
     local ff  = (s.zombies > 0) and "active" or "normal"
     local cls = _classifyAction(action)
 
     local line = string.format(
-        "player=%d,mode=autopilot,ff=%s,run_tick=%d,action=%s,reason=%s,class=%s,"
+        "schema_version=%d,player=%d,mode=autopilot,ff=%s,run_tick=%d,"
+        .. "action=%s,reason=%s,class=%s,stage=%s,fail_reason=%s,retry_count=%d,"
         .. "hunger=%d,thirst=%d,fatigue=%d,endurance=%d,"
         .. "zombies=%d,bleeding=%d,str=%d,fit=%d",
-        pnum, ff, _runTick[pnum], action, reason, cls,
+        SCHEMA_VERSION, pnum, ff, _runTick[pnum],
+        action, reason, cls, stage, fail_reason, retry_count,
         s.hunger, s.thirst, s.fatigue, s.endurance,
         s.zombies, s.bleeding, s.str, s.fit
     )
@@ -193,6 +216,14 @@ end
 function AutoPilot_Telemetry.onShutdown(player)
     local pnum = player and _pn(player) or 0
     _writeEndMarker(pnum, "timeout", "session_end")
+end
+
+--- Return the pending action label for a player (defaults to player 0).
+-- Used by Main to track decision labels for streak detection.
+-- @param player  IsoPlayer|nil
+function AutoPilot_Telemetry.getPendingAction(player)
+    local pnum = player and _pn(player) or 0
+    return _pendingAction[pnum] or "idle"
 end
 
 --- Return the current run-tick count for a player (defaults to player 0).

@@ -259,19 +259,21 @@ end
 -- Phase 3: skips squares marked depleted by AutoPilot_Map; marks empty containers.
 local function _iterateContainersNearby(player, radius, callback, ignoreHome)
     local px, py, pz = player:getX(), player:getY(), player:getZ()
+    local pnum = 0
+    pcall(function() pnum = player:getPlayerNum() end)
     local stopped = false
     AutoPilot_Utils.iterateNearbySquares(px, py, pz, radius, function(sq)
-        if not ignoreHome and not AutoPilot_Home.isInside(sq, player:getPlayerNum()) then return false end
-        if AutoPilot_Map.isDepleted(sq) then return false end
+        if not ignoreHome and not AutoPilot_Home.isInside(sq, pnum) then return false end
+        if AutoPilot_Map.isDepleted(sq, pnum) then return false end
         for i = 0, sq:getObjects():size() - 1 do
             local obj = sq:getObjects():get(i)
             if obj then
-                local container = obj:getContainer()
-                if container then
+                local ok_ctr, container = pcall(function() return obj:getContainer() end)
+                if ok_ctr and container then
                     local items = container:getItems()
                     if items:size() == 0 then
-                        -- Empty container — mark square as depleted
-                        AutoPilot_Map.markDepleted(sq)
+                        -- Empty container — mark square as depleted for this player
+                        AutoPilot_Map.markDepleted(sq, pnum)
                     else
                         for j = 0, items:size() - 1 do
                             local item = items:get(j)
@@ -330,19 +332,39 @@ end
 
 -- ── Auto-loot from nearby containers ─────────────────────────────────────────
 
--- Phase 3: Generic predicate-based loot. Finds the first item matching predicate
--- within radius. respectHome=false ignores home bounds (supply runs).
+-- M3.2: Container scoring — pick the best-value container by distance²/item-count.
+-- score = item_count / (distance² + 1); higher is better.
+-- Scans all nearby matching containers and picks the highest-score one.
+-- Returns item, container or nil, nil if nothing found.
+local function _scoredContainerLoot(player, predicate, radius, ignoreHome)
+    local px, py = player:getX(), player:getY()
+    local bestItem, bestContainer, bestScore = nil, nil, -1
+
+    _iterateContainersNearby(player, radius, function(item, container, sq)
+        if predicate(item) then
+            local ok_sz, sz = pcall(function() return container:getItems():size() end)
+            local itemCount = (ok_sz and sz) or 1
+            local dx = sq:getX() - px
+            local dy = sq:getY() - py
+            local dist2 = dx * dx + dy * dy
+            local score = itemCount / (dist2 + 1)
+            if score > bestScore then
+                bestScore     = score
+                bestItem      = item
+                bestContainer = container
+            end
+        end
+        return false  -- always scan all to find best score
+    end, ignoreHome)
+    return bestItem, bestContainer
+end
+
+-- Phase 3: Generic predicate-based loot. Uses scored search (M3.2).
+-- respectHome=false ignores home bounds (supply runs).
 -- Returns true if a transfer was queued.
 local function _lootNearbyByPredicate(player, predicate, radius, respectHome)
-    local found, foundContainer = nil, nil
-    _iterateContainersNearby(player, radius, function(item, container)
-        if predicate(item) then
-            found = item
-            foundContainer = container
-            return true  -- stop on first match
-        end
-        return false
-    end, not respectHome)
+    local found, foundContainer = _scoredContainerLoot(
+        player, predicate, radius, not respectHome)
     if found then
         return _queueTransfer(player, found, foundContainer, "supply run")
     end
@@ -353,7 +375,9 @@ end
 --- Clears the depletion cache first so previously-empty squares get re-checked.
 --- Returns true if any item was found and queued.
 function AutoPilot_Inventory.supplyRunLoot(player, predicate)
-    AutoPilot_Map.resetDepleted()
+    local pnum = 0
+    pcall(function() pnum = player:getPlayerNum() end)
+    AutoPilot_Map.resetDepleted(pnum)
     return _lootNearbyByPredicate(player, predicate, AutoPilot_Constants.LOOT_RADIUS_SUPPLY, false)
 end
 
@@ -449,6 +473,20 @@ function AutoPilot_Inventory.getSupplyCounts(player)
         end
     end
     return foodCount, drinkCount
+end
+
+--- M3.2: Emergency medical supply-run for bandages.
+--- Called when hasCriticalWound is true and no bandage was found locally.
+--- Expands loot radius and searches for any canBandage() item.
+--- Returns true if a transfer was queued.
+function AutoPilot_Inventory.emergencyMedicalLoot(player)
+    local medPred = function(item)
+        local ok, canBandage = pcall(function() return item:isCanBandage() end)
+        return ok and canBandage
+    end
+    AutoPilot_Map.resetDepleted(
+        (function() local p=0; pcall(function() p=player:getPlayerNum() end); return p end)())
+    return _lootNearbyByPredicate(player, medPred, AutoPilot_Constants.LOOT_RADIUS_SUPPLY, false)
 end
 
 -- ── Water source management ────────────────────────────────────────────────
@@ -568,6 +606,28 @@ end
 -- Returns true if a water source is nearby.
 function AutoPilot_Inventory.hasNearbyWaterSource(player)
     return AutoPilot_Inventory.findWaterSource(player) ~= nil
+end
+
+--- M3.2 Water pre-fill: when near a water source and thirst < 10%,
+--- proactively refill empty water containers (currently only reactive).
+--- Returns true if a refill action was queued.
+function AutoPilot_Inventory.proactiveWaterRefill(player)
+    local thirst = 0
+    pcall(function()
+        local ok, v = pcall(function()
+            return player:getStats():get(CharacterStat.THIRST)
+        end)
+        if ok and type(v) == "number" then thirst = v end
+    end)
+    -- Only pre-fill when thirst is low (< 10% — still comfortable)
+    if thirst >= 0.10 then return false end
+    local waterObj = AutoPilot_Inventory.findWaterSource(player)
+    if not waterObj then return false end
+    local refilled = AutoPilot_Inventory.refillWaterContainer(player, waterObj)
+    if refilled then
+        print("[Inventory] Proactive water pre-fill queued.")
+    end
+    return refilled
 end
 
 -- ── Item search & loot (for Pilot mode) ──────────────────────────────────────

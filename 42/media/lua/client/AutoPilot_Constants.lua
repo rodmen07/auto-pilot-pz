@@ -140,7 +140,15 @@ AutoPilot_Constants.WEIGHT_UNDERWEIGHT = 65    -- below this: prioritize high-ca
 AutoPilot_Constants.WEIGHT_OVERWEIGHT  = 85    -- above this: prefer low-calorie food
 
 -- Phase 3: Happiness / boredom thresholds
-AutoPilot_Constants.HAPPINESS_LOW_THRESHOLD = 40   -- MoodleType.Unhappy level to trigger action
+AutoPilot_Constants.HAPPINESS_LOW_THRESHOLD  = 40   -- MoodleType.Unhappy level to trigger boredom action
+-- HAPPINESS_FOOD_PRIORITY: tasty-food path fires at or above this Unhappy moodle level,
+-- before reading. Set to a value ≤ HAPPINESS_LOW_THRESHOLD to always prefer food first.
+-- Default 40 = same as HAPPINESS_LOW_THRESHOLD (food preferred whenever unhappy block fires).
+AutoPilot_Constants.HAPPINESS_FOOD_PRIORITY  = 40
+
+-- Phase 3: Barricade maintenance
+-- Re-check home perimeter for newly broken windows every this many in-game days.
+AutoPilot_Constants.BARRICADE_RECHECK_INTERVAL = 3  -- in-game days
 
 -- Phase 3: Foraging / supply run radii
 -- ---------------------------------------------------------------------------
@@ -189,6 +197,13 @@ AutoPilot_Constants.JOYPAD_TOGGLE_BUTTON = 6
 -- 500 ms gives a comfortable window without being easy to trigger accidentally.
 AutoPilot_Constants.JOYPAD_DOUBLE_TAP_MS = 500
 
--- NOTE for auto_tune.py: the regex patterns that patch this file expect the
+-- Max consecutive identical-action ticks before the queue-thrash guard fires.
+-- At TICK_INTERVAL=15 ticks/eval, 15 evals ≈ 11 s of identical action.
+AutoPilot_Constants.MAX_ACTION_STREAK = 15
+
+-- Maximum real-time milliseconds allowed per exercise session (wall-clock guard).
+-- Prevents exercise-spam at high game speeds (e.g. 3× time warp).
+-- 600 000 ms = 10 minutes of real time; the in-game day duration is ~28 minutes.
+AutoPilot_Constants.EXERCISE_REAL_TIME_CAP_MS = 600000
 -- format `AutoPilot_Constants.FIELD = <number>` with no leading whitespace.
 -- Do not introduce leading spaces or multi-line assignments for tunable lines.

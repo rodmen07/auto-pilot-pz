@@ -75,6 +75,23 @@ else
     PASS=$((PASS + 1))
 fi
 
+# M4.3 Line-count guard: warn if any single Lua module exceeds 1000 lines.
+echo ""
+echo "=== 2b/4  Line-count guard (1000-line warning) ==="
+LC_WARN=0
+for lua_file in 42/media/lua/client/*.lua; do
+    lines=$(wc -l < "$lua_file")
+    if [[ $lines -gt 1000 ]]; then
+        echo "  WARN  $lua_file has $lines lines (> 1000 — consider splitting)."
+        LC_WARN=$((LC_WARN + 1))
+    fi
+done
+if [[ $LC_WARN -eq 0 ]]; then
+    echo "PASS  Line-count guard: all modules ≤ 1000 lines."
+else
+    echo "NOTE  Line-count guard: $LC_WARN module(s) exceed 1000 lines (CI does not fail on this)."
+fi
+
 echo ""
 
 # ── 3. Lua logic tests ────────────────────────────────────────────────────────
@@ -95,6 +112,10 @@ LUA_TEST_FILES=(
     "tests/test_medical_logic.lua"
     "tests/test_home_map_barricade.lua"
     "tests/test_main_logic.lua"
+    "tests/test_splitscreen.lua"
+    "tests/test_combat_policy.lua"
+    "tests/test_resource_economy.lua"
+    "tests/test_telemetry_schema.lua"
 )
 
 if [[ -n "$LUA_BIN" ]]; then
@@ -141,7 +162,11 @@ if [[ -n "$PYTHON_BIN" ]]; then
         --ignore=tests/test_threat_logic.lua \
         --ignore=tests/test_medical_logic.lua \
         --ignore=tests/test_home_map_barricade.lua \
-        --ignore=tests/lua_mock_pz.lua; then
+        --ignore=tests/lua_mock_pz.lua \
+        --ignore=tests/test_splitscreen.lua \
+        --ignore=tests/test_combat_policy.lua \
+        --ignore=tests/test_resource_economy.lua \
+        --ignore=tests/test_telemetry_schema.lua; then
         PASS=$((PASS + 1))
     else
         FAIL=$((FAIL + 1))
