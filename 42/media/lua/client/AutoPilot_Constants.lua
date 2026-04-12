@@ -172,8 +172,12 @@ AutoPilot_Constants.PAIN_SLEEP_THRESHOLD = 30
 AutoPilot_Constants.DEPLETED_CAP = 500
 
 -- ── Main loop timing (aliases documented here for completeness) ───────────────
--- TICK_INTERVAL and ACTION_COOLDOWN_CYCLES are already above; this comment
--- clarifies the relationship:
+-- TICK_INTERVAL (line 99) and ACTION_COOLDOWN_CYCLES (line 103) govern the
+-- main evaluation cadence:
 --   OnTick fires ~20 times per real second.
 --   TICK_INTERVAL = 15  →  evaluation every ~0.75 s
 --   ACTION_COOLDOWN_CYCLES = 4  →  ~3 s suppression after any queued action
+--
+-- NOTE for auto_tune.py: the regex patterns that patch this file expect the
+-- format `AutoPilot_Constants.FIELD = <number>` with no leading whitespace.
+-- Do not introduce leading spaces or multi-line assignments for tunable lines.

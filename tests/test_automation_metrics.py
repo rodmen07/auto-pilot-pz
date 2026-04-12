@@ -86,5 +86,63 @@ class TestAutoTuneEvaluateSummary(unittest.TestCase):
         self.assertAlmostEqual(ff_mean, (1.0 + 0.0 + 0.5) / 3)
 
 
+class TestActionClassMapSync(unittest.TestCase):
+    """Verify _ACTION_CLASS_MAP in benchmark.py stays in sync with
+    the REASON_CLASS table in AutoPilot_Telemetry.lua.
+
+    Parses the Lua source with a simple regex rather than executing it,
+    so no Lua interpreter is needed.
+    """
+
+    def _parse_lua_reason_class(self) -> set[str]:
+        """Return the set of action-label keys found in the Lua REASON_CLASS table."""
+        import re
+        lua_path = (
+            Path(__file__).parent.parent
+            / "42" / "media" / "lua" / "client"
+            / "AutoPilot_Telemetry.lua"
+        )
+        if not lua_path.exists():
+            self.skipTest("AutoPilot_Telemetry.lua not found")
+
+        text = lua_path.read_text(encoding="utf-8")
+        # Match lines like:     eat        = "survival",
+        pattern = re.compile(r'^\s+(\w+)\s*=\s*"(\w+)"', re.MULTILINE)
+
+        in_table = False
+        keys: set[str] = set()
+        for line in text.splitlines():
+            if "REASON_CLASS" in line and "=" in line and "{" in line:
+                in_table = True
+            if in_table:
+                m = pattern.match(line)
+                if m:
+                    keys.add(m.group(1))
+                if "}" in line and in_table and not "{" in line:
+                    break
+        return keys
+
+    def test_benchmark_map_keys_match_lua_reason_class(self) -> None:
+        """Every action key in the Lua REASON_CLASS table must also appear
+        in benchmark._ACTION_CLASS_MAP, and vice versa."""
+        import benchmark as bm
+        lua_keys = self._parse_lua_reason_class()
+        if not lua_keys:
+            self.skipTest("Could not parse REASON_CLASS from Lua source")
+
+        py_keys = set(bm._ACTION_CLASS_MAP.keys())
+        missing_in_py  = lua_keys - py_keys
+        missing_in_lua = py_keys  - lua_keys
+
+        self.assertEqual(
+            missing_in_py, set(),
+            f"Keys in Lua REASON_CLASS missing from benchmark._ACTION_CLASS_MAP: {missing_in_py}",
+        )
+        self.assertEqual(
+            missing_in_lua, set(),
+            f"Keys in benchmark._ACTION_CLASS_MAP missing from Lua REASON_CLASS: {missing_in_lua}",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

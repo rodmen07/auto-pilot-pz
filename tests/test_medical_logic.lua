@@ -18,7 +18,7 @@ ISInventoryTransferAction = {
 }
 
 -- BodyPartType: Medical uses getDisplayName for debug printing; mock it.
-BodyPartType.getDisplayName = function(_) return "TestPart" end
+BodyPartType.getDisplayName = function(_) return "MockBodyPart" end
 
 -- ── Stub dependency modules ───────────────────────────────────────────────────
 AutoPilot_Utils = {
