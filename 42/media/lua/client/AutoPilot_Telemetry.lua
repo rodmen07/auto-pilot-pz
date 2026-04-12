@@ -29,11 +29,14 @@ local function _pn(player)
 end
 
 local function _logFile(pnum)
+    -- Player 0 keeps the legacy filename for backward compatibility with existing
+    -- log analysis scripts (e.g. auto_tune.py).  Players 1-3 get numbered files.
     if pnum == 0 then return "auto_pilot_run.log" end
     return "auto_pilot_run_p" .. pnum .. ".log"
 end
 
 local function _endFile(pnum)
+    -- Same intentional asymmetry as _logFile — player 0 is the legacy baseline.
     if pnum == 0 then return "auto_pilot_run_end.json" end
     return "auto_pilot_run_p" .. pnum .. "_end.json"
 end

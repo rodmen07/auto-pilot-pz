@@ -1,8 +1,8 @@
 -- AutoPilot_Inventory.lua
 -- Utility functions for scanning and selecting items from player inventory.
 --
--- SPLITSCREEN NOTE: _lastSearchResults is a module-level variable shared
--- across all local players.  Splitscreen is NOT supported.
+-- SPLITSCREEN: _lastSearchResults is a per-player table keyed by playerNum
+-- (0-based integer from player:getPlayerNum()).  Splitscreen is supported.
 
 AutoPilot_Inventory = {}
 
@@ -572,7 +572,9 @@ end
 
 -- ── Item search & loot (for Pilot mode) ──────────────────────────────────────
 
--- Last search results — stored so state writer can report them to the sidecar.
+-- Last search results — stored so state writer can report them.
+-- Per-player table: _lastSearchResults[playerNum] = { name, ... }
+-- playerNum is 0-based (player:getPlayerNum()).
 AutoPilot_Inventory._lastSearchResults = {}
 
 -- Search nearby containers for items whose name contains `keyword` (case-insensitive).
