@@ -13,6 +13,9 @@ local mode = "off"
 local actionCooldown = 0
 local ACTION_COOLDOWN_CYCLES = 4
 
+-- Prevent writing the death telemetry marker more than once per death event.
+local _deathLogged = false
+
 local function hudAddText(player, text)
     local halo = rawget(_G, "HaloTextHelper")
     if halo and halo.addText then
@@ -93,16 +96,28 @@ local function onTick()
 
     local deadOk, isDead = pcall(function() return player:isDead() end)
     if deadOk and isDead then
+        if not _deathLogged then
+            _deathLogged = true
+            AutoPilot_Telemetry.onDeath(player)
+        end
+        return
+    end
+    _deathLogged = false
+
+    local asleepOk, isAsleep = pcall(function() return player:isAsleep() end)
+    if asleepOk and isAsleep then
+        AutoPilot_Telemetry.logTick(player, "sleep", "asleep")
         return
     end
 
-    local asleepOk, isAsleep = pcall(function() return player:isAsleep() end)
-    if asleepOk and isAsleep then return end
-
-    if _runThreatCheck(player) then return end
+    if _runThreatCheck(player) then
+        AutoPilot_Telemetry.logTick(player, "combat", "threat")
+        return
+    end
 
     if actionCooldown > 0 then
         actionCooldown = actionCooldown - 1
+        AutoPilot_Telemetry.logTick(player, "cooldown", "post_action")
         return
     end
 
@@ -114,11 +129,17 @@ local function onTick()
             apLog("Interrupting exercise for urgent need.")
             ISTimedActionQueue.clear(player)
         else
+            AutoPilot_Telemetry.logTick(player, "busy", "action_running")
             return
         end
     end
 
-    if _runNeedsCheck(player) then return end
+    if _runNeedsCheck(player) then
+        AutoPilot_Telemetry.logTick(player)
+        return
+    end
+
+    AutoPilot_Telemetry.logTick(player, "idle", "no_action")
 end
 
 local function onKeyPressed(key)

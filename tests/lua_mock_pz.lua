@@ -120,7 +120,17 @@ AdjacentFreeTileFinder = {
     end,
 }
 
--- ── GameTime / getGameTime ────────────────────────────────────────────────────
+-- ── AutoPilot_Telemetry stub ──────────────────────────────────────────────────
+-- setDecision() and logTick() are no-ops in tests — telemetry side-effects are
+-- irrelevant to priority logic correctness.
+AutoPilot_Telemetry = {
+    setDecision = function(_action, _reason) end,
+    logTick     = function(_player, _action, _reason) end,
+    onDeath     = function(_player) end,
+    getRunTick  = function() return 0 end,
+}
+
+
 -- MockTime allows tests to advance the in-game clock so that timed cooldowns
 -- (e.g. restCooldownMs, sleepCooldownMs) can be expired between test cases.
 MockTime = {}

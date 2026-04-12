@@ -747,6 +747,7 @@ end
 function AutoPilot_Needs.check(player)
     -- 1. Bleeding — treat immediately (fatal if untreated)
     if AutoPilot_Medical.hasCriticalWound(player) then
+        AutoPilot_Telemetry.setDecision("bandage", "bleeding")
         if AutoPilot_Medical.check(player, true) then return true end
     end
 
@@ -754,6 +755,7 @@ function AutoPilot_Needs.check(player)
     -- so the character can transition from resting to sleeping when tired enough.
     local fatigue = AutoPilot_Utils.safeStat(player, CharacterStat.FATIGUE)
     if fatigue >= FATIGUE_STAT_THRESHOLD then
+        AutoPilot_Telemetry.setDecision("sleep", "fatigue_thresh")
         return doSleep(player)
     end
 
@@ -765,12 +767,14 @@ function AutoPilot_Needs.check(player)
         return getGameTime():getCalender():getTimeInMillis()
     end)
     if okNow and nowMs < restCooldownMs then
+        AutoPilot_Telemetry.setDecision("rest", "rest_cooldown")
         return true  -- still resting, skip routine needs
     end
 
     -- 2. Thirst (0.0=hydrated, ~1.0=dying)
     local thirst = AutoPilot_Utils.safeStat(player, CharacterStat.THIRST)
     if thirst >= THIRST_STAT_THRESHOLD then
+        AutoPilot_Telemetry.setDecision("drink", "thirst_thresh")
         return doDrink(player)
     end
 
@@ -788,6 +792,7 @@ function AutoPilot_Needs.check(player)
     if currentSq and currentSq:isOutside() then
         if isRaining() or tempDelta < AutoPilot_Constants.TEMP_TOO_COLD then
             print("[Needs] Outdoors bad comfort (rain/cold) — seeking shelter.")
+            AutoPilot_Telemetry.setDecision("shelter", "weather")
             if doSeekShelter(player) then return true end
         end
     end
@@ -797,15 +802,18 @@ function AutoPilot_Needs.check(player)
     if hunger >= HUNGER_STAT_THRESHOLD then
         print(string.format(
             "[Needs] Hunger triggered (%.0f%%). Attempting to eat.", hunger * 100))
+        AutoPilot_Telemetry.setDecision("eat", "hunger_thresh")
         local ate = doEat(player)
         if ate then return true end
         print("[Needs] doEat returned false — no food available, continuing.")
     end
 
     -- 4. Wounds — treat non-bleeding wounds (scratches, bites, deep wounds)
+    AutoPilot_Telemetry.setDecision("bandage", "wound")
     if AutoPilot_Medical.check(player, false) then return true end
 
     -- Phase 4: temperature comfort check
+    AutoPilot_Telemetry.setDecision("clothing", "temperature")
     if AutoPilot_Inventory.adjustClothing(player) then return end
 
     -- 5. Tired — already checked above (before rest cooldown gate)
@@ -817,6 +825,7 @@ function AutoPilot_Needs.check(player)
     local endurance = AutoPilot_Utils.safeStat(player, CharacterStat.ENDURANCE)
     local enduranceMoodle = safeMoodleLevel(player, MoodleType.ENDURANCE)
     if endurance <= ENDURANCE_REST_MIN or enduranceMoodle >= 3 then
+        AutoPilot_Telemetry.setDecision("rest", "low_endurance")
         return doRest(player)
     end
 
@@ -830,20 +839,24 @@ function AutoPilot_Needs.check(player)
         if unhappyLvl >= AutoPilot_Constants.HAPPINESS_LOW_THRESHOLD then
             local tastyFood = AutoPilot_Inventory.preferTastyFood(player)
             if tastyFood then
+                AutoPilot_Telemetry.setDecision("eat", "unhappy")
                 print("[Needs] Unhappy — eating tasty food: "
                     .. tostring(tastyFood:getName()))
                 ISTimedActionQueue.add(ISEatFoodAction:new(player, tastyFood, 1))
                 return true
             end
         end
+        AutoPilot_Telemetry.setDecision("read", "boredom")
         if doRead(player) then return true end
         if boredom >= BOREDOM_STAT_THRESHOLD then
+            AutoPilot_Telemetry.setDecision("outside", "boredom")
             local went = doGoOutside(player)
             if went then return true end
         end
     end
 
     -- 8. Idle -> exercise (default behavior)
+    AutoPilot_Telemetry.setDecision("exercise", "idle")
     return doExercise(player)
 end
 

@@ -22,6 +22,7 @@ class TestAutomateParseRunLog(unittest.TestCase):
         self.assertEqual(result["ff_unknown_lines"], 0)
         self.assertEqual(result["ff_active_ratio"], 0.0)
         self.assertEqual(result["max_run_tick"], 0)
+        self.assertEqual(result["action_counts"], {})
 
     def test_parse_run_log_counts_states_and_max_tick(self) -> None:
         with tempfile.TemporaryDirectory() as td:
@@ -40,6 +41,28 @@ class TestAutomateParseRunLog(unittest.TestCase):
         self.assertEqual(result["ff_unknown_lines"], 1)
         self.assertEqual(result["max_run_tick"], 48)
         self.assertEqual(result["ff_active_ratio"], 0.5)
+
+    def test_parse_run_log_counts_actions(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            run_log = Path(td) / "run.log"
+            run_log.write_text(
+                "mode=autopilot,ff=normal,run_tick=1,action=exercise,reason=idle,"
+                "hunger=5,thirst=5,fatigue=5,endurance=90,zombies=0,bleeding=0,str=3,fit=3\n"
+                "mode=autopilot,ff=normal,run_tick=2,action=exercise,reason=idle,"
+                "hunger=5,thirst=5,fatigue=5,endurance=85,zombies=0,bleeding=0,str=3,fit=3\n"
+                "mode=autopilot,ff=normal,run_tick=3,action=eat,reason=hunger_thresh,"
+                "hunger=25,thirst=5,fatigue=5,endurance=90,zombies=0,bleeding=0,str=3,fit=3\n"
+                "mode=autopilot,ff=active,run_tick=4,action=combat,reason=threat,"
+                "hunger=5,thirst=5,fatigue=5,endurance=90,zombies=2,bleeding=0,str=3,fit=3\n",
+                encoding="utf-8",
+            )
+            result = automate.parse_run_log(str(run_log))
+
+        self.assertEqual(result["action_counts"].get("exercise", 0), 2)
+        self.assertEqual(result["action_counts"].get("eat",      0), 1)
+        self.assertEqual(result["action_counts"].get("combat",   0), 1)
+        self.assertEqual(result["max_run_tick"], 4)
+        self.assertEqual(result["ff_active_lines"], 1)
 
 
 class TestAutoTuneEvaluateSummary(unittest.TestCase):
