@@ -37,12 +37,14 @@ function AutoPilot_Barricade.doBarricade(player)
     local px  = math.floor(player:getX())
     local py  = math.floor(player:getY())
     local pz  = math.floor(player:getZ())
+    local pnum = 0
+    pcall(function() pnum = player:getPlayerNum() end)
     local count = 0
 
     AutoPilot_Utils.iterateNearbySquares(px, py, pz,
         AutoPilot_Constants.BARRICADE_SEARCH_RADIUS,
         function(sq)
-            if not AutoPilot_Home.isInside(sq) then return false end
+            if not AutoPilot_Home.isInside(sq, pnum) then return false end
             for oi = 0, sq:getObjects():size() - 1 do
                 local obj = sq:getObjects():get(oi)
                 -- Windows

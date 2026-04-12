@@ -1,0 +1,30 @@
+name: Release
+
+# Trigger a GitHub release whenever a version tag is pushed.
+# Tag format: v<semver> — e.g. v1.1.0, v1.2.3-beta1
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  release:
+    name: Package & publish
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # required to create releases and upload assets
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Build mod archive
+        run: |
+          # Package the 42/ folder (everything the game needs) into a versioned zip.
+          zip -r "AutoPilot-${{ github.ref_name }}.zip" 42/
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: AutoPilot-${{ github.ref_name }}.zip
+          generate_release_notes: true

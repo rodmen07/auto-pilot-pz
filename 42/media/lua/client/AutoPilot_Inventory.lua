@@ -1,8 +1,8 @@
 -- AutoPilot_Inventory.lua
 -- Utility functions for scanning and selecting items from player inventory.
 --
--- SPLITSCREEN NOTE: _lastSearchResults is a module-level variable shared
--- across all local players.  Splitscreen is NOT supported.
+-- SPLITSCREEN: _lastSearchResults is a per-player table keyed by playerNum
+-- (0-based integer from player:getPlayerNum()).  Splitscreen is supported.
 
 AutoPilot_Inventory = {}
 
@@ -261,7 +261,7 @@ local function _iterateContainersNearby(player, radius, callback, ignoreHome)
     local px, py, pz = player:getX(), player:getY(), player:getZ()
     local stopped = false
     AutoPilot_Utils.iterateNearbySquares(px, py, pz, radius, function(sq)
-        if not ignoreHome and not AutoPilot_Home.isInside(sq) then return false end
+        if not ignoreHome and not AutoPilot_Home.isInside(sq, player:getPlayerNum()) then return false end
         if AutoPilot_Map.isDepleted(sq) then return false end
         for i = 0, sq:getObjects():size() - 1 do
             local obj = sq:getObjects():get(i)
@@ -572,7 +572,9 @@ end
 
 -- ── Item search & loot (for Pilot mode) ──────────────────────────────────────
 
--- Last search results — stored so state writer can report them to the sidecar.
+-- Last search results — stored so state writer can report them.
+-- Per-player table: _lastSearchResults[playerNum] = { name, ... }
+-- playerNum is 0-based (player:getPlayerNum()).
 AutoPilot_Inventory._lastSearchResults = {}
 
 -- Search nearby containers for items whose name contains `keyword` (case-insensitive).
@@ -583,7 +585,7 @@ function AutoPilot_Inventory.searchItem(player, keyword)
     local results = {}
 
     AutoPilot_Utils.iterateNearbySquares(px, py, pz, LOOT_SEARCH_RADIUS, function(sq, dx, dy)
-        if not AutoPilot_Home.isInside(sq) then return false end
+        if not AutoPilot_Home.isInside(sq, player:getPlayerNum()) then return false end
         for i = 0, sq:getObjects():size() - 1 do
             local obj = sq:getObjects():get(i)
             if obj then
@@ -613,12 +615,14 @@ function AutoPilot_Inventory.searchItem(player, keyword)
     -- Sort by distance
     table.sort(results, function(a, b) return a.dist < b.dist end)
 
-    -- Store names for state reporting (capped at SEARCH_RESULTS_MAX)
+    -- Store names for state reporting per player (capped at SEARCH_RESULTS_MAX)
     local names = {}
     for i = 1, math.min(#results, SEARCH_RESULTS_MAX) do
         table.insert(names, results[i].name)
     end
-    AutoPilot_Inventory._lastSearchResults = names
+    local pnum = 0
+    pcall(function() pnum = player:getPlayerNum() end)
+    AutoPilot_Inventory._lastSearchResults[pnum] = names
 
         print("[Inventory] Search '" .. keyword .. "': found "
         .. #results .. " items")
@@ -677,7 +681,7 @@ function AutoPilot_Inventory.placeItem(player, keyword)
     local bestDist = math.huge
 
     AutoPilot_Utils.iterateNearbySquares(px, py, pz, PLACE_SEARCH_DIST, function(sq, dx, dy)
-        if AutoPilot_Home.isSet(player) and not AutoPilot_Home.isInside(sq) then
+        if AutoPilot_Home.isSet(player) and not AutoPilot_Home.isInside(sq, player:getPlayerNum()) then
             return false
         end
         for i = 0, sq:getObjects():size() - 1 do
@@ -739,7 +743,7 @@ local function _findExerciseEquipment(player)
     AutoPilot_Utils.iterateNearbySquares(px, py, pz,
         AutoPilot_Constants.EXERCISE_EQUIP_SEARCH_RADIUS,
         function(sq)
-            if AutoPilot_Home.isSet(player) and not AutoPilot_Home.isInside(sq) then
+            if AutoPilot_Home.isSet(player) and not AutoPilot_Home.isInside(sq, player:getPlayerNum()) then
                 return false
             end
             for oi = 0, sq:getObjects():size() - 1 do
