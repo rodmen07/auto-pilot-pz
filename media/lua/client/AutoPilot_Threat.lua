@@ -132,8 +132,24 @@ local function doFight(player, zombies)
 
     -- Equip best weapon if it outclasses what's currently held
     local weapon = AutoPilot_Inventory.getBestWeapon(player)
-    local primary = player:getPrimaryHandItem()
-    if weapon and (not primary or primary:getMaxDamage() < weapon:getMaxDamage()) then
+
+    local primary
+    if player and player.getPrimaryHandItem then
+        local ok, held = pcall(function() return player:getPrimaryHandItem() end)
+        if ok then primary = held end
+    end
+
+    local primaryDamage, weaponDamage
+    if primary and primary.getMaxDamage then
+        local ok, dmg = pcall(function() return primary:getMaxDamage() end)
+        if ok and type(dmg) == "number" then primaryDamage = dmg end
+    end
+    if weapon and weapon.getMaxDamage then
+        local ok, dmg = pcall(function() return weapon:getMaxDamage() end)
+        if ok and type(dmg) == "number" then weaponDamage = dmg end
+    end
+
+    if weapon and (not primary or (weaponDamage and (not primaryDamage or primaryDamage < weaponDamage))) then
         ISTimedActionQueue.add(ISEquipWeaponAction:new(player, weapon, 50, true))
     end
 
