@@ -235,3 +235,20 @@ end
 Events.OnTick.Add(onTick)
 Events.OnKeyPressed.Add(onKeyPressed)
 Events.OnJoypadButtonPress.Add(onJoypadButtonPress)
+
+-- ── Session-end telemetry ───────────────────────────────────────────────────
+-- Write a "timeout" end marker whenever the player returns to the main menu
+-- or starts a new game while autopilot is still active.  This lets benchmark
+-- analysis distinguish a clean session end from an in-game death.
+local function onSessionEnd()
+    local count = getPlayerCount and getPlayerCount() or 1
+    for pnum = 0, count - 1 do
+        if _getMode(pnum) == "autopilot" then
+            local player = _getPlayerByIndex(pnum)
+            pcall(AutoPilot_Telemetry.onShutdown, player)
+        end
+    end
+end
+
+Events.OnMainMenuEnter.Add(onSessionEnd)
+Events.OnQueueNewGame.Add(onSessionEnd)
