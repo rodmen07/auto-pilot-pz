@@ -160,3 +160,24 @@ AutoPilot_Constants.CLOTHING_SEARCH_RADIUS = 150
 
 -- Phase 4: Barricading
 AutoPilot_Constants.BARRICADE_SEARCH_RADIUS = 15  -- only barricade windows/doors within home radius
+
+-- ── Pain / sleep arbitration ─────────────────────────────────────────────────
+-- Pain (0–100 integer scale) above this value blocks the sleep transition until
+-- the character has taken a painkiller or received medical treatment.
+AutoPilot_Constants.PAIN_SLEEP_THRESHOLD = 30
+
+-- ── Map / container depletion cache ─────────────────────────────────────────
+-- Maximum depleted-square entries before the oldest are pruned.
+-- Keeps the table bounded in memory for long-running sessions.
+AutoPilot_Constants.DEPLETED_CAP = 500
+
+-- ── Main loop timing (aliases documented here for completeness) ───────────────
+-- TICK_INTERVAL (line 99) and ACTION_COOLDOWN_CYCLES (line 103) govern the
+-- main evaluation cadence:
+--   OnTick fires ~20 times per real second.
+--   TICK_INTERVAL = 15  →  evaluation every ~0.75 s
+--   ACTION_COOLDOWN_CYCLES = 4  →  ~3 s suppression after any queued action
+--
+-- NOTE for auto_tune.py: the regex patterns that patch this file expect the
+-- format `AutoPilot_Constants.FIELD = <number>` with no leading whitespace.
+-- Do not introduce leading spaces or multi-line assignments for tunable lines.

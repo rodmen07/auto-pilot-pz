@@ -30,22 +30,25 @@ local _emptyLootCycles = 0
 local drinkCooldownMs = 0
 
 -- ── Thresholds ────────────────────────────────────────────────────────────────
+-- All policy numbers are defined in AutoPilot_Constants.  The local aliases
+-- below exist purely for readability inside this module; changing the policy
+-- means updating AutoPilot_Constants, not this file.
 
 -- B42 Stats: player:getStats():get(CharacterStat.HUNGER), etc.
 -- Hunger/Thirst/Fatigue: 0.0 = fine, ~1.0 = critical
 -- Boredom: 0-100 scale
 -- Endurance: 1.0 = full, 0.0 = empty
-local HUNGER_STAT_THRESHOLD  = 0.20
-local THIRST_STAT_THRESHOLD  = 0.20   -- moderate thirst, matches hunger sensitivity
-local FATIGUE_STAT_THRESHOLD = 0.70
-local BOREDOM_STAT_THRESHOLD = 30
-local SADNESS_STAT_THRESHOLD = 20
-local ENDURANCE_REST_MIN     = 0.30   -- rest before fully wiped
-local ENDURANCE_EXERCISE_MIN = 0.50   -- don't start exercise below this
-local EXERCISE_MINUTES       = 20
-local OUTDOOR_SEARCH_DIST    = 150
+local HUNGER_STAT_THRESHOLD  = AutoPilot_Constants.HUNGER_THRESHOLD
+local THIRST_STAT_THRESHOLD  = AutoPilot_Constants.THIRST_THRESHOLD
+local FATIGUE_STAT_THRESHOLD = AutoPilot_Constants.FATIGUE_THRESHOLD
+local BOREDOM_STAT_THRESHOLD = AutoPilot_Constants.BOREDOM_THRESHOLD
+local SADNESS_STAT_THRESHOLD = AutoPilot_Constants.SADNESS_THRESHOLD
+local ENDURANCE_REST_MIN     = AutoPilot_Constants.ENDURANCE_REST_MIN
+local ENDURANCE_EXERCISE_MIN = AutoPilot_Constants.ENDURANCE_EXERCISE_MIN
+local EXERCISE_MINUTES       = AutoPilot_Constants.EXERCISE_MINUTES
+local OUTDOOR_SEARCH_DIST    = AutoPilot_Constants.OUTDOOR_SEARCH_DIST
 
-local PAIN_SLEEP_THRESHOLD   = 30   -- 0-100 scale: pain above this may prevent sleeping
+local PAIN_SLEEP_THRESHOLD   = AutoPilot_Constants.PAIN_SLEEP_THRESHOLD
 
 -- ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -177,7 +180,7 @@ end
 -- Searches for bed > couch/sofa > chair within REST_SEARCH_DIST tiles.
 -- Falls back to resting in place if nothing found.
 local restCooldownMs = 0
-local REST_SEARCH_DIST = 150
+local REST_SEARCH_DIST = AutoPilot_Constants.REST_SEARCH_DIST
 
 local function findRestFurniture(player)
     local px, py, pz = player:getX(), player:getY(), player:getZ()
@@ -337,8 +340,8 @@ end
 
 local sleepCooldownMs = 0
 
-local BED_SEARCH_DIST = 150
-local BED_SEARCH_FLOORS = 3  -- check z, z+1, z-1 (ground floor + upstairs + basement)
+local BED_SEARCH_DIST   = AutoPilot_Constants.BED_SEARCH_DIST
+local BED_SEARCH_FLOORS = AutoPilot_Constants.BED_SEARCH_FLOORS
 
 local function getBedObjectOnSquare(sq)
     for i = 0, sq:getObjects():size() - 1 do

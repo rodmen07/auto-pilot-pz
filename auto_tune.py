@@ -9,12 +9,11 @@ from typing import Any
 
 # Configurable paths
 ROOT = os.path.abspath(os.path.dirname(__file__))
-NEEDS_FILE = os.path.join(ROOT, 'media', 'lua', 'client', 'AutoPilot_Needs.lua')
-THREAT_FILE = os.path.join(ROOT, 'media', 'lua', 'client', 'AutoPilot_Threat.lua')
+# All tuneable policy constants live in AutoPilot_Constants.lua (single source of truth).
+CONSTANTS_FILE = os.path.join(ROOT, '42', 'media', 'lua', 'client', 'AutoPilot_Constants.lua')
 AUTOMATE_SCRIPT = os.path.join(ROOT, 'automate.py')
 
-BACKUP_NEEDS = NEEDS_FILE + '.bak'
-BACKUP_THREAT = THREAT_FILE + '.bak'
+BACKUP_CONSTANTS = CONSTANTS_FILE + '.bak'
 
 # Parameter grid
 THIRST_RANGE = [0.12, 0.16, 0.20, 0.24]
@@ -23,31 +22,25 @@ FLEE_MOODLE_RANGE = [1, 2, 3]
 
 RESULT_FILE = os.path.join(ROOT, 'auto_tune_results.json')
 
-pattern_thirst = re.compile(r'^(\s*local\s+THIRST_STAT_THRESHOLD\s*=\s*)([0-9.]+)')
-pattern_hunger = re.compile(r'^(\s*local\s+HUNGER_STAT_THRESHOLD\s*=\s*)([0-9.]+)')
-pattern_flee = re.compile(r'^(\s*local\s+FLEE_MOODLE_LIMIT\s*=\s*)(\d+)')
+# Patterns target AutoPilot_Constants.lua where the canonical values live.
+pattern_thirst = re.compile(r'^(AutoPilot_Constants\.THIRST_THRESHOLD\s*=\s*)([0-9.]+)')
+pattern_hunger = re.compile(r'^(AutoPilot_Constants\.HUNGER_THRESHOLD\s*=\s*)([0-9.]+)')
+pattern_flee   = re.compile(r'^(AutoPilot_Constants\.FLEE_MOODLE_LIMIT\s*=\s*)(\d+)')
 
 
 def backup_files():
-    shutil.copyfile(NEEDS_FILE, BACKUP_NEEDS)
-    shutil.copyfile(THREAT_FILE, BACKUP_THREAT)
+    shutil.copyfile(CONSTANTS_FILE, BACKUP_CONSTANTS)
 
 
 def restore_files():
-    if not os.path.exists(BACKUP_NEEDS) or not os.path.exists(BACKUP_THREAT):
-        raise FileNotFoundError("Backup files missing, cannot restore needs/threat settings")
-
-    shutil.copyfile(BACKUP_NEEDS, NEEDS_FILE)
-    shutil.copyfile(BACKUP_THREAT, THREAT_FILE)
-    if os.path.exists(BACKUP_NEEDS):
-        shutil.copyfile(BACKUP_NEEDS, NEEDS_FILE)
-    if os.path.exists(BACKUP_THREAT):
-        shutil.copyfile(BACKUP_THREAT, THREAT_FILE)
+    if not os.path.exists(BACKUP_CONSTANTS):
+        raise FileNotFoundError("Backup file missing, cannot restore constants")
+    shutil.copyfile(BACKUP_CONSTANTS, CONSTANTS_FILE)
 
 
 def write_needs(thirst: float, hunger: float) -> None:
     text: list[str] = []
-    with open(NEEDS_FILE, 'r', encoding='utf-8') as f:
+    with open(CONSTANTS_FILE, 'r', encoding='utf-8') as f:
         for line in f:
             m = pattern_thirst.match(line)
             if m:
@@ -58,20 +51,20 @@ def write_needs(thirst: float, hunger: float) -> None:
                 text.append(f"{m.group(1)}{hunger:.2f}\n")
                 continue
             text.append(line)
-    with open(NEEDS_FILE, 'w', encoding='utf-8') as f:
+    with open(CONSTANTS_FILE, 'w', encoding='utf-8') as f:
         f.writelines(text)
 
 
 def write_threat(flee: int) -> None:
     text: list[str] = []
-    with open(THREAT_FILE, 'r', encoding='utf-8') as f:
+    with open(CONSTANTS_FILE, 'r', encoding='utf-8') as f:
         for line in f:
             m = pattern_flee.match(line)
             if m:
                 text.append(f"{m.group(1)}{flee}\n")
             else:
                 text.append(line)
-    with open(THREAT_FILE, 'w', encoding='utf-8') as f:
+    with open(CONSTANTS_FILE, 'w', encoding='utf-8') as f:
         f.writelines(text)
 
 

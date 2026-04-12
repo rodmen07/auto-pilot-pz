@@ -280,5 +280,101 @@ class TestWriteBenchmark(unittest.TestCase):
         self.assertAlmostEqual(data["exercise_rate"], 1.0)
 
 
+# ── class distribution / loop detection tests ─────────────────────────────────
+
+class TestClassDistribution(unittest.TestCase):
+    """Tests for the reason_class distribution and loop detection fields."""
+
+    def _make_entry(self, action: str, ff: str = "normal") -> dict:
+        return {
+            "action": action, "ff": ff,
+            "hunger": 5, "thirst": 5, "fatigue": 5,
+            "endurance": 90, "zombies": 0, "bleeding": 0,
+            "str": 1, "fit": 1,
+        }
+
+    def test_class_counts_from_action_fallback(self) -> None:
+        """class_counts is derived from action label when 'class' field is absent."""
+        entries = [
+            self._make_entry("eat"),     # survival
+            self._make_entry("drink"),   # survival
+            self._make_entry("flee"),    # combat
+            self._make_entry("idle"),    # idle
+        ]
+        result = bm.score_run(entries)
+        self.assertEqual(result.class_counts.get("survival", 0), 2)
+        self.assertEqual(result.class_counts.get("combat",   0), 1)
+        self.assertEqual(result.class_counts.get("idle",     0), 1)
+
+    def test_class_fractions_sum_to_one(self) -> None:
+        """class_fractions values should sum to 1.0."""
+        entries = [self._make_entry(a) for a in
+                   ["eat", "drink", "sleep", "exercise", "idle", "combat"]]
+        result = bm.score_run(entries)
+        total = sum(result.class_fractions.values())
+        self.assertAlmostEqual(total, 1.0)
+
+    def test_explicit_class_field_overrides_fallback(self) -> None:
+        """When the 'class' field is present in the log, it must be used directly."""
+        entries = [
+            {**self._make_entry("eat"), "class": "wellness"},  # overridden
+        ]
+        result = bm.score_run(entries)
+        # 'wellness' (from explicit field) should be counted, not 'survival' (from action map)
+        self.assertEqual(result.class_counts.get("wellness", 0), 1)
+        self.assertEqual(result.class_counts.get("survival", 0), 0)
+
+    def test_unknown_action_maps_to_idle(self) -> None:
+        """An unrecognised action label falls back to 'idle' in class_counts."""
+        entries = [self._make_entry("unknown_action_xyz")]
+        result = bm.score_run(entries)
+        self.assertEqual(result.class_counts.get("idle", 0), 1)
+
+
+class TestLoopDetection(unittest.TestCase):
+    """Tests for max_action_streak and max_action_streak_label fields."""
+
+    def _make_entry(self, action: str) -> dict:
+        return {
+            "action": action, "ff": "normal",
+            "hunger": 5, "thirst": 5, "fatigue": 5,
+            "endurance": 90, "zombies": 0, "bleeding": 0,
+            "str": 1, "fit": 1,
+        }
+
+    def test_no_entries_streak_is_zero(self) -> None:
+        result = bm.score_run([])
+        self.assertEqual(result.max_action_streak, 0)
+        self.assertEqual(result.max_action_streak_label, "")
+
+    def test_single_entry_streak_is_one(self) -> None:
+        result = bm.score_run([self._make_entry("idle")])
+        self.assertEqual(result.max_action_streak, 1)
+        self.assertEqual(result.max_action_streak_label, "idle")
+
+    def test_alternating_actions_streak_is_one(self) -> None:
+        entries = [self._make_entry("eat"), self._make_entry("idle")] * 5
+        result = bm.score_run(entries)
+        self.assertEqual(result.max_action_streak, 1)
+
+    def test_long_streak_detected(self) -> None:
+        """A run of 15 consecutive 'eat' ticks produces streak=15."""
+        entries = [self._make_entry("eat")] * 15 + [self._make_entry("idle")] * 5
+        result = bm.score_run(entries)
+        self.assertEqual(result.max_action_streak, 15)
+        self.assertEqual(result.max_action_streak_label, "eat")
+
+    def test_streak_picks_longest(self) -> None:
+        """When multiple streaks exist, the longest one is reported."""
+        entries = (
+            [self._make_entry("eat")]  * 5 +
+            [self._make_entry("idle")] * 12 +
+            [self._make_entry("eat")]  * 3
+        )
+        result = bm.score_run(entries)
+        self.assertEqual(result.max_action_streak, 12)
+        self.assertEqual(result.max_action_streak_label, "idle")
+
+
 if __name__ == "__main__":
     unittest.main()

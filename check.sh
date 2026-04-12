@@ -7,8 +7,9 @@
 # What it runs:
 #   1. luacheck      — Lua syntax + lint (skipped with instructions if not installed)
 #   2. Static API Guard — scans for deprecated PZ Build 42 API patterns
-#   3. Lua logic tests  — dry-run behavioral tests for AutoPilot_Needs priority chain
-#   4. pytest        — Python sidecar unit tests with mocked Anthropic API
+#   3. Lua logic tests  — behavioral tests for AutoPilot_Needs, Threat, Medical,
+#                         Home, Map, Barricade
+#   4. pytest        — Python automation and benchmark unit tests
 #
 # First-time setup:
 #   pip install -r requirements-dev.txt
@@ -77,7 +78,7 @@ fi
 echo ""
 
 # ── 3. Lua logic tests ────────────────────────────────────────────────────────
-echo "=== 3/4  Lua logic tests (test_priority_logic.lua) ==="
+echo "=== 3/4  Lua logic tests ==="
 
 LUA_BIN=""
 for candidate in lua lua5.1 lua5.4; do
@@ -87,11 +88,31 @@ for candidate in lua lua5.1 lua5.4; do
     fi
 done
 
+# All Lua test files to run (add new files here as coverage expands).
+LUA_TEST_FILES=(
+    "tests/test_priority_logic.lua"
+    "tests/test_threat_logic.lua"
+    "tests/test_medical_logic.lua"
+    "tests/test_home_map_barricade.lua"
+)
+
 if [[ -n "$LUA_BIN" ]]; then
-    if "$LUA_BIN" tests/test_priority_logic.lua; then
-        PASS=$((PASS + 1))
-    else
+    LUA_PASS=0
+    LUA_FAIL=0
+    for test_file in "${LUA_TEST_FILES[@]}"; do
+        echo "  → $test_file"
+        if "$LUA_BIN" "$test_file"; then
+            LUA_PASS=$((LUA_PASS + 1))
+        else
+            LUA_FAIL=$((LUA_FAIL + 1))
+        fi
+    done
+    echo ""
+    echo "  Lua tests: ${LUA_PASS}/${#LUA_TEST_FILES[@]} files passed"
+    if [[ $LUA_FAIL -gt 0 ]]; then
         FAIL=$((FAIL + 1))
+    else
+        PASS=$((PASS + 1))
     fi
 else
     echo "SKIP  No Lua interpreter found (lua / lua5.1 / lua5.4)."
@@ -103,9 +124,22 @@ echo ""
 # ── 4. Python unit tests ──────────────────────────────────────────────────────
 echo "=== 4/4  Python unit tests (pytest) ==="
 
-if python -m pytest --version &>/dev/null 2>&1; then
-    if python -m pytest tests/ -v \
+# Detect python3 first, then fall back to python.
+PYTHON_BIN=""
+for candidate in python3 python; do
+    if command -v "$candidate" &>/dev/null && \
+       "$candidate" -m pytest --version &>/dev/null 2>&1; then
+        PYTHON_BIN="$candidate"
+        break
+    fi
+done
+
+if [[ -n "$PYTHON_BIN" ]]; then
+    if "$PYTHON_BIN" -m pytest tests/ -v \
         --ignore=tests/test_priority_logic.lua \
+        --ignore=tests/test_threat_logic.lua \
+        --ignore=tests/test_medical_logic.lua \
+        --ignore=tests/test_home_map_barricade.lua \
         --ignore=tests/lua_mock_pz.lua; then
         PASS=$((PASS + 1))
     else

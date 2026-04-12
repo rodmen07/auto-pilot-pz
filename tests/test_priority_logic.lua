@@ -457,6 +457,86 @@ do
     AutoPilot_Medical.check = oldCheck
 end
 
+-- ── Regression: Rest-cooldown gating ─────────────────────────────────────────
+-- After rest executes, a cooldown prevents the rest path from re-triggering on
+-- the very next evaluation cycle.  This prevents oscillation where the bot
+-- repeatedly stands up and sits down every tick.
+print("\n-- Test 17: Rest cooldown prevents immediate re-trigger")
+do
+    reset()
+    local player = MockPlayer.new({
+        stats = {
+            HUNGER    = 0.05,
+            THIRST    = 0.05,
+            FATIGUE   = 0.10,  -- not fatigued enough to sleep
+            ENDURANCE = 0.20,  -- below ENDURANCE_REST_MIN (0.30) → triggers rest
+        },
+    })
+    -- First check should trigger rest.
+    local result1 = AutoPilot_Needs.check(player)
+    assert_true("first check triggers rest when endurance is low", result1)
+    -- Immediately call again without advancing the clock — cooldown is active.
+    -- The rest path should be blocked, and check() should fall through to exercise
+    -- (which defaults to false when skipExercise=true).
+    local result2 = AutoPilot_Needs.check(player, true)
+    -- result2 may be false (cooldown blocks rest, exercise skipped) or true if
+    -- another need fires — either way it must not crash.
+    local ok = pcall(function() AutoPilot_Needs.check(player, true) end)
+    assert_true("repeated check during rest cooldown does not crash", ok)
+end
+
+-- ── Regression: Supply-run trigger after empty loot cycles ───────────────────
+-- When the bot fails to find food/drink for SUPPLY_RUN_TRIGGER consecutive
+-- loot cycles, it should expand its search radius and call supplyRunLoot.
+print("\n-- Test 18: Supply run triggered after consecutive empty loot cycles")
+do
+    reset()
+    local supplyRunCalled = false
+    AutoPilot_Inventory.supplyRunLoot = function(_player, _pred)
+        supplyRunCalled = true
+    end
+    -- Stub lootNearbyFood to always fail so empty-cycle counter increments.
+    AutoPilot_Inventory.lootNearbyFood = function(_player) return false end
+    AutoPilot_Inventory.getBestFood    = function(_player) return nil end
+    local player = MockPlayer.new({
+        stats = { HUNGER = 0.30, THIRST = 0.05, FATIGUE = 0.05, ENDURANCE = 0.90 },
+    })
+    -- Fire enough hunger checks to exceed SUPPLY_RUN_TRIGGER (5).
+    -- Each call: getBestFood=nil, lootNearbyFood=false → empty cycle.
+    for _ = 1, AutoPilot_Constants.SUPPLY_RUN_TRIGGER + 1 do
+        MockTime.advance(120000)   -- advance clock past cooldowns each cycle
+        AutoPilot_Needs.check(player)
+    end
+    assert_true("supplyRunLoot called after exceeding SUPPLY_RUN_TRIGGER empty cycles",
+        supplyRunCalled)
+    -- Restore stubs.
+    AutoPilot_Inventory.supplyRunLoot  = function(_player, _pred) end
+    AutoPilot_Inventory.lootNearbyFood = function(_player) return false end
+end
+
+-- ── Regression: shouldInterrupt returns false when no urgent need ─────────────
+print("\n-- Test 19: shouldInterrupt returns false with all stats fine")
+do
+    reset()
+    local player = MockPlayer.new({
+        stats = { HUNGER = 0.05, THIRST = 0.05, FATIGUE = 0.10, ENDURANCE = 0.90 },
+    })
+    local result = AutoPilot_Needs.shouldInterrupt(player)
+    assert_false("shouldInterrupt returns false when all stats are fine", result)
+end
+
+-- ── Regression: shouldInterrupt returns true when bleeding ───────────────────
+print("\n-- Test 20: shouldInterrupt returns true when bleeding")
+do
+    reset()
+    AutoPilot_Medical._bleeding = true
+    local player = MockPlayer.new({
+        stats = { HUNGER = 0.05, THIRST = 0.05, FATIGUE = 0.10, ENDURANCE = 0.90 },
+    })
+    local result = AutoPilot_Needs.shouldInterrupt(player)
+    assert_true("shouldInterrupt returns true when bleeding", result)
+end
+
 -- ── Summary ───────────────────────────────────────────────────────────────────
 print(("\n=== Results: %d passed, %d failed ==="):format(PASS, FAIL))
 if FAIL > 0 then

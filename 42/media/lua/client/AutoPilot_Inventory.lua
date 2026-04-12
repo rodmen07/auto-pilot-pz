@@ -9,11 +9,11 @@ AutoPilot_Inventory = {}
 local function _apNoop(...) end
 local print = _apNoop
 
-local LOOT_SEARCH_RADIUS   = 150  -- tiles to search for loot containers (one cell radius)
-local WATER_SEARCH_RADIUS  = 150  -- tiles to scan for sinks / rain barrels (one cell radius)
-local PLACE_SEARCH_DIST    = 50   -- tiles to find a container for placeItem
-local SEARCH_RESULTS_MAX   = 10  -- max items returned by searchItem
-local INVENTORY_SUMMARY_MAX = 20 -- max unique item names in inventory snapshot
+local LOOT_SEARCH_RADIUS    = AutoPilot_Constants.LOOT_SEARCH_RADIUS
+local WATER_SEARCH_RADIUS   = AutoPilot_Constants.WATER_SEARCH_RADIUS
+local PLACE_SEARCH_DIST     = AutoPilot_Constants.PLACE_SEARCH_DIST
+local SEARCH_RESULTS_MAX    = AutoPilot_Constants.SEARCH_RESULTS_MAX
+local INVENTORY_SUMMARY_MAX = AutoPilot_Constants.INVENTORY_SUMMARY_MAX
 
 -- Returns the best safe-to-eat food item by calorie count.
 -- Skips: rotten, frozen, needs-cooking (raw dangerous), causes unhappiness/boredom.

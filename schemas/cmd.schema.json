@@ -1,7 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "AutoPilot Command",
-  "description": "Action command written by the Python sidecar to Zomboid/Lua/auto_pilot_cmd.json, read by AutoPilot_LLM.lua.",
+  "description": "Legacy command schema; retained for tooling compatibility. The mod is fully autonomous — no external command file is required or read at runtime.",
   "type": "object",
   "required": ["action", "reason"],
   "additionalProperties": false,

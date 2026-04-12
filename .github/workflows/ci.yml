@@ -55,7 +55,21 @@ jobs:
           echo "Static API Guard PASSED: no deprecated APIs detected."
 
       - name: Lua logic tests
-        run: lua5.1 tests/test_priority_logic.lua
+        run: |
+          for test_file in \
+              tests/test_priority_logic.lua \
+              tests/test_threat_logic.lua \
+              tests/test_medical_logic.lua \
+              tests/test_home_map_barricade.lua; do
+            echo "=== $test_file ==="
+            lua5.1 "$test_file"
+          done
 
       - name: Python tests
-        run: python -m pytest tests/ -v --ignore=tests/test_priority_logic.lua --ignore=tests/lua_mock_pz.lua
+        run: |
+          python -m pytest tests/ -v \
+            --ignore=tests/test_priority_logic.lua \
+            --ignore=tests/test_threat_logic.lua \
+            --ignore=tests/test_medical_logic.lua \
+            --ignore=tests/test_home_map_barricade.lua \
+            --ignore=tests/lua_mock_pz.lua

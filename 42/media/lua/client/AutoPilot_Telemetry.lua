@@ -26,7 +26,38 @@ local _runTick = 0
 local _pendingAction = "idle"
 local _pendingReason = ""
 
--- ── Internal helpers ──────────────────────────────────────────────────────────
+-- ── Reason-class classifier ───────────────────────────────────────────────────
+-- Maps well-known action labels to a broad category used for offline analysis.
+-- "survival"  — the character was fulfilling a basic biological need
+-- "combat"    — a zombie threat was being handled
+-- "wellness"  — morale/happiness/clothing/pain management
+-- "exercise"  — intentional fitness training
+-- "idle"      — no action taken; covers cooldown and busy ticks too
+local REASON_CLASS = {
+    eat        = "survival",
+    drink      = "survival",
+    sleep      = "survival",
+    rest       = "survival",
+    shelter    = "survival",
+    bandage    = "survival",
+    loot       = "survival",
+    fight      = "combat",
+    flee       = "combat",
+    combat     = "combat",
+    read       = "wellness",
+    outside    = "wellness",
+    clothing   = "wellness",
+    happiness  = "wellness",
+    exercise   = "exercise",
+    idle       = "idle",
+    busy       = "idle",
+    cooldown   = "idle",
+    dead       = "idle",
+}
+
+local function _classifyAction(action)
+    return REASON_CLASS[action] or "idle"
+end
 
 -- Append a single text line to the log file.
 local function _appendLine(line)
@@ -127,12 +158,13 @@ function AutoPilot_Telemetry.logTick(player, action, reason)
 
     local s  = _collectStats(player)
     local ff = (s.zombies > 0) and "active" or "normal"
+    local cls = _classifyAction(action)
 
     local line = string.format(
-        "mode=autopilot,ff=%s,run_tick=%d,action=%s,reason=%s,"
+        "mode=autopilot,ff=%s,run_tick=%d,action=%s,reason=%s,class=%s,"
         .. "hunger=%d,thirst=%d,fatigue=%d,endurance=%d,"
         .. "zombies=%d,bleeding=%d,str=%d,fit=%d",
-        ff, _runTick, action, reason,
+        ff, _runTick, action, reason, cls,
         s.hunger, s.thirst, s.fatigue, s.endurance,
         s.zombies, s.bleeding, s.str, s.fit
     )

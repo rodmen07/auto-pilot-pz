@@ -10,7 +10,7 @@ local print = _apNoop
 -- Set of "x,y,z" string keys for squares whose containers were found empty.
 local _depletedSquares = {}
 -- Max depleted entries before oldest are pruned (memory cap).
-local DEPLETED_CAP = 500
+local DEPLETED_CAP = AutoPilot_Constants.DEPLETED_CAP
 
 local function _squareKey(sq)
     return sq:getX() .. "," .. sq:getY() .. "," .. sq:getZ()

@@ -6,9 +6,9 @@ AutoPilot_Threat = {}
 local function _apNoop(...) end
 local print = _apNoop
 
-local DETECTION_RADIUS   = 10   -- tiles to scan for zombies
-local FLEE_MOODLE_LIMIT  = 2    -- flee if *more than* this many negative stats are elevated
-local FLEE_DISTANCE      = 20   -- tiles to run when fleeing
+local DETECTION_RADIUS   = AutoPilot_Constants.DETECTION_RADIUS
+local FLEE_MOODLE_LIMIT  = AutoPilot_Constants.FLEE_MOODLE_LIMIT
+local FLEE_DISTANCE      = AutoPilot_Constants.FLEE_DISTANCE
 
 -- Stat thresholds that count as "negative" for flee decision.
 -- B42: Uses player:getStats():get(CharacterStat.XXX) pattern.

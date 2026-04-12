@@ -76,12 +76,12 @@ python -m pytest tests/test_game_logs.py -v
 
 ## Project Layout (What To Edit)
 
-- 42/media/lua/client/: active Build 42 source of truth
-- media/lua/client/: legacy mirror copy used by some local workflows
-- tests/: Lua and Python tests
-- check.sh: lint + API guard + Lua tests + pytest
-- deploy.sh: copy 42/ into live PZ mod folder
-- sync_after_merge.bat: fetch/ff and optional deploy on Windows
+- `42/media/lua/client/` — **active Build 42 source of truth** (edit only this tree)
+- `media/lua/client/` — **deprecated legacy mirror** (do not edit; kept as reference only)
+- `tests/` — Lua and Python tests
+- `check.sh` — lint + API guard + Lua tests + pytest
+- `deploy.sh` — copy `42/` into live PZ mod folder
+- `sync_after_merge.bat` — fetch/ff and optional deploy on Windows
 
 ## Core Runtime Modules
 

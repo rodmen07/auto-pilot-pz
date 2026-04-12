@@ -30,26 +30,35 @@ Threat check runs **before** the priority chain every tick:
 
 ## Baseline Thresholds (AutoPilot_Constants.lua)
 
-| Constant | Value | Notes |
-|---|---|---|
-| `HUNGER_THRESHOLD` | 0.20 | 0.0–1.0 stat scale |
-| `THIRST_THRESHOLD` | 0.20 | 0.0–1.0 stat scale |
-| `FATIGUE_THRESHOLD` | 0.70 | 0.0–1.0 stat scale |
-| `BOREDOM_THRESHOLD` | 30 | 0–100 integer scale |
-| `SADNESS_THRESHOLD` | 20 | 0–100 integer scale |
-| `ENDURANCE_REST_MIN` | 0.30 | trigger rest below this |
-| `ENDURANCE_EXERCISE_MIN` | 0.50 | skip exercise below this |
-| `FLEE_MOODLE_LIMIT` | 2 | flee when negative stats > this |
-| `DETECTION_RADIUS` | 10 | tiles to scan for zombies |
-| `FLEE_DISTANCE` | 20 | tiles to run when fleeing |
-| `HOME_DEFAULT_RADIUS` | 150 | home containment circle (tiles) |
-| `EXERCISE_DAILY_CAP` | 20 | sets per in-game day |
-| `EXERCISE_MINUTES` | 20 | game-minutes per exercise set |
-| `PAIN_SLEEP_THRESHOLD` | 30 | pain level (0–100) that blocks sleep |
-| `TEMP_TOO_COLD` | −20 | body-temp units; triggers clothing swap |
-| `TEMP_TOO_HOT` | 20 | body-temp units; triggers clothing swap |
-| `SUPPLY_RUN_TRIGGER` | 5 | consecutive empty loot cycles before expanding search |
-| `WEAPON_CONDITION_MIN` | 0.25 | swap weapon below this durability |
+All tunable constants live in `AutoPilot_Constants.lua`.  The table below
+maps each constant to the owning behavior and the test/scenario that
+validates it.
+
+| Constant | Value | Owning behavior | Validation |
+|---|---|---|---|
+| `HUNGER_THRESHOLD` | 0.20 | Needs.doHunger | test_priority_logic #3 |
+| `THIRST_THRESHOLD` | 0.20 | Needs.doThirst | test_priority_logic #2 |
+| `FATIGUE_THRESHOLD` | 0.70 | Needs.doSleep | test_priority_logic #4 |
+| `BOREDOM_THRESHOLD` | 30 | Needs.doBoredom | — |
+| `SADNESS_THRESHOLD` | 20 | Needs.doBoredom | — |
+| `ENDURANCE_REST_MIN` | 0.30 | Needs.doRest | test_priority_logic #17 |
+| `ENDURANCE_EXERCISE_MIN` | 0.50 | Needs.doExercise | test_priority_logic #11 |
+| `EXERCISE_MINUTES` | 20 | Needs.doExercise | — |
+| `EXERCISE_DAILY_CAP` | 20 | Needs.doExercise | — |
+| `PAIN_SLEEP_THRESHOLD` | 30 | Needs.doSleep | test_priority_logic #15/#16 |
+| `FLEE_MOODLE_LIMIT` | 2 | Threat.check | test_threat_logic #6/#7 |
+| `DETECTION_RADIUS` | 10 | Threat.getNearbyZombies | test_threat_logic #2/#3 |
+| `FLEE_DISTANCE` | 20 | Threat.doFlee | test_threat_logic #9 |
+| `HOME_DEFAULT_RADIUS` | 150 | Home.set | test_home_map_barricade Home#1 |
+| `MEDICAL_LOOT_RADIUS` | 30 | Medical.lootNearbyBandage | test_medical_logic #10 |
+| `LOOT_SEARCH_RADIUS` | 150 | Inventory.lootNearby* | — |
+| `WATER_SEARCH_RADIUS` | 150 | Inventory.findWaterSource | — |
+| `SUPPLY_RUN_TRIGGER` | 5 | Needs supply-run counter | test_priority_logic #18 |
+| `WEAPON_CONDITION_MIN` | 0.25 | Inventory.checkAndSwapWeapon | — |
+| `TEMP_TOO_COLD` | −20 | Needs.doShelter | — |
+| `TEMP_TOO_HOT` | 20 | Needs.adjustClothing | — |
+| `DEPLETED_CAP` | 500 | Map.markDepleted | test_home_map_barricade Map#3 |
+| `BARRICADE_SEARCH_RADIUS` | 15 | Barricade.doBarricade | test_home_map_barricade Bar#3 |
 
 ---
 
@@ -76,6 +85,10 @@ Threat check runs **before** the priority chain every tick:
 6. **Home bounds are respected.**  
    Non-combat actions that move the player must check `AutoPilot_Home.isInside()`.
 
+7. **Barricade is idempotent.**  
+   `AutoPilot_Barricade.doBarricade()` is safe to call multiple times; the ModData
+   flag prevents duplicate work.
+
 ---
 
 ## Benchmark Scoring Formula (baseline)
@@ -91,6 +104,9 @@ score = total_ticks − 500 × (died) − 10 × (bleeding_ticks)
 Candidate policies must produce a **higher mean score** than this baseline across
 3+ matched runs before promotion.
 
+Loop detection: if `max_action_streak` in the benchmark report exceeds 20, investigate
+whether the bot is stuck in a repeated no-op cycle (e.g. repeated loot-fail loops).
+
 ---
 
 ## Telemetry Log Format (auto_pilot_run.log)
@@ -98,7 +114,7 @@ Candidate policies must produce a **higher mean score** than this baseline acros
 Each line written by `AutoPilot_Telemetry.lua`:
 
 ```
-mode=autopilot,ff=<normal|active>,run_tick=<N>,action=<label>,reason=<label>,
+mode=autopilot,ff=<normal|active>,run_tick=<N>,action=<label>,reason=<label>,class=<category>,
 hunger=<0-100>,thirst=<0-100>,fatigue=<0-100>,endurance=<0-100>,
 zombies=<N>,bleeding=<N>,str=<0-10>,fit=<0-10>
 ```
@@ -106,8 +122,21 @@ zombies=<N>,bleeding=<N>,str=<0-10>,fit=<0-10>
 `action` labels: `eat`, `drink`, `bandage`, `sleep`, `rest`, `exercise`,
 `combat`, `shelter`, `idle`, `cooldown`, `busy`, `dead`
 
+`class` field (reason-class): `survival`, `combat`, `wellness`, `exercise`, `idle`
+
 Run-end marker (`auto_pilot_run_end.json`):
 
 ```json
 {"status": "dead|timeout", "reason": "<string>", "ticks": <N>, "timestamp": <unix>}
 ```
+
+---
+
+## Source of Truth
+
+- **All gameplay logic**: `42/media/lua/client/` only.
+- `media/lua/client/` is a **deprecated legacy mirror** — do not edit.
+- Tunable constants: `AutoPilot_Constants.lua` only.  Patching individual modules
+  to change thresholds is a policy violation.
+- `auto_tune.py` patches `AutoPilot_Constants.lua` directly (not individual modules).
+
