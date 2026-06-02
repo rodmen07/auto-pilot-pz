@@ -202,10 +202,10 @@ do
         AutoPilot_Barricade.isDone(player))
 end
 
-print("\n-- Barricade Test 2: isDone returns true when flag is set")
+print("\n-- Barricade Test 2: isDone returns false (legacy, always false)")
 do
     local player = makeBarricadePlayer(true)
-    assert_true("isDone returns true when ModData flag is set",
+    assert_false("isDone returns false (legacy behavior, periodic maintenance now used)",
         AutoPilot_Barricade.isDone(player))
 end
 
