@@ -15,8 +15,25 @@ local PLACE_SEARCH_DIST     = AutoPilot_Constants.PLACE_SEARCH_DIST
 local SEARCH_RESULTS_MAX    = AutoPilot_Constants.SEARCH_RESULTS_MAX
 local INVENTORY_SUMMARY_MAX = AutoPilot_Constants.INVENTORY_SUMMARY_MAX
 
+-- Helper: check if food item is safe to eat (not rotten, frozen, raw, or unhappy-inducing).
+local function isFoodSafe(item)
+    if not item or not item:isFood() or item:isRotten() then return false end
+    local frozen = false
+    pcall(function() frozen = item:isFrozen() end)
+    if frozen then return false end
+    local needsCooking = false
+    pcall(function()
+        needsCooking = item:isIsCookable() and not item:isCooked()
+    end)
+    if needsCooking then return false end
+    local unhappy = 0
+    pcall(function() unhappy = item:getUnhappyChange() or 0 end)
+    local boring = 0
+    pcall(function() boring = item:getBoredomChange() or 0 end)
+    return unhappy <= 0 and boring <= 0
+end
+
 -- Returns the best safe-to-eat food item by calorie count.
--- Skips: rotten, frozen, needs-cooking (raw dangerous), causes unhappiness/boredom.
 function AutoPilot_Inventory.getBestFood(player)
     local inv = player:getInventory()
     local items = inv:getItems()
@@ -25,36 +42,11 @@ function AutoPilot_Inventory.getBestFood(player)
 
     for i = 0, items:size() - 1 do
         local item = items:get(i)
-        if item and item:isFood() and not item:isRotten() then
-            -- Skip frozen food (needs thawing + cooking)
-            local frozen = false
-            pcall(function() frozen = item:isFrozen() end)
-            if not frozen then
-                -- Skip food that requires cooking (raw chicken, raw meat, etc.)
-                local needsCooking = false
-                pcall(function()
-                    needsCooking = item:isIsCookable()
-                        and not item:isCooked()
-                end)
-                if not needsCooking then
-                    -- Skip food that causes unhappiness
-                    local unhappy = 0
-                    pcall(function()
-                        unhappy = item:getUnhappyChange() or 0
-                    end)
-                    -- Skip food that causes boredom
-                    local boring = 0
-                    pcall(function()
-                        boring = item:getBoredomChange() or 0
-                    end)
-                    if unhappy <= 0 and boring <= 0 then
-                        local cal = item:getCalories() or 0
-                        if cal > bestCal then
-                            bestCal = cal
-                            best = item
-                        end
-                    end
-                end
+        if isFoodSafe(item) then
+            local cal = item:getCalories() or 0
+            if cal > bestCal then
+                bestCal = cal
+                best = item
             end
         end
     end
@@ -71,38 +63,16 @@ function AutoPilot_Inventory.getBestFoodForHunger(player, currentHunger)
 
     for i = 0, items:size() - 1 do
         local item = items:get(i)
-        if item and item:isFood() and not item:isRotten() then
-            local frozen = false
-            pcall(function() frozen = item:isFrozen() end)
-            if not frozen then
-                local needsCooking = false
-                pcall(function()
-                    needsCooking = item:isIsCookable() and not item:isCooked()
-                end)
-                if not needsCooking then
-                    local unhappy = 0
-                    pcall(function()
-                        unhappy = item:getUnhappyChange() or 0
-                    end)
-                    local boring = 0
-                    pcall(function()
-                        boring = item:getBoredomChange() or 0
-                    end)
-                    if unhappy <= 0 and boring <= 0 then
-                        local hungerChange = 0
-                        pcall(function() hungerChange = math.abs(item:getHungerChange() or 0) end)
+        if isFoodSafe(item) then
+            local hungerChange = 0
+            pcall(function() hungerChange = math.abs(item:getHungerChange() or 0) end)
 
-                        -- Avoid gross overeating relative to current hunger
-                        -- (e.g., do not choose 90+ hunger food when only ~25 hunger needed)
-                        local maxAcceptable = math.max(25, target * 1.5)
-                        if hungerChange <= maxAcceptable then
-                            local delta = math.abs(target - hungerChange)
-                            if delta < bestDelta then
-                                bestDelta = delta
-                                best = item
-                            end
-                        end
-                    end
+            local maxAcceptable = math.max(25, target * 1.5)
+            if hungerChange <= maxAcceptable then
+                local delta = math.abs(target - hungerChange)
+                if delta < bestDelta then
+                    bestDelta = delta
+                    best = item
                 end
             end
         end
@@ -131,33 +101,23 @@ function AutoPilot_Inventory.selectFoodByWeight(player)
 
     for i = 0, inv:getItems():size() - 1 do
         local item = inv:getItems():get(i)
-        if item and item:isFood() and not item:isRotten() then
-            local frozen = false
-            pcall(function() frozen = item:isFrozen() end)
-            if not frozen then
-                local needsCooking = false
-                pcall(function()
-                    needsCooking = item:isIsCookable() and not item:isCooked()
-                end)
-                if not needsCooking then
-                    local calories = 0
-                    pcall(function() calories = item:getCalories() or 0 end)
-                    local hunger = 0
-                    pcall(function() hunger = item:getHungerChange() or 0 end)
+        if isFoodSafe(item) then
+            local calories = 0
+            pcall(function() calories = item:getCalories() or 0 end)
+            local hunger = 0
+            pcall(function() hunger = item:getHungerChange() or 0 end)
 
-                    local score
-                    if weight < AutoPilot_Constants.WEIGHT_UNDERWEIGHT then
-                        score = calories + math.abs(hunger)     -- max calories
-                    elseif weight > AutoPilot_Constants.WEIGHT_OVERWEIGHT then
-                        score = -calories + math.abs(hunger)    -- min calories
-                    else
-                        score = math.abs(hunger)                -- just satisfy hunger
-                    end
+            local score
+            if weight < AutoPilot_Constants.WEIGHT_UNDERWEIGHT then
+                score = calories + math.abs(hunger)     -- max calories
+            elseif weight > AutoPilot_Constants.WEIGHT_OVERWEIGHT then
+                score = -calories + math.abs(hunger)    -- min calories
+            else
+                score = math.abs(hunger)                -- just satisfy hunger
+            end
 
-                    if bestScore == nil or score > bestScore then
-                        best, bestScore = item, score
-                    end
-                end
+            if bestScore == nil or score > bestScore then
+                best, bestScore = item, score
             end
         end
     end
@@ -331,9 +291,9 @@ end
 -- ── Auto-loot from nearby containers ─────────────────────────────────────────
 
 -- Phase 3: Generic predicate-based loot. Finds the first item matching predicate
--- within radius. respectHome=false ignores home bounds (supply runs).
+-- within radius. ignoreHome=true ignores home bounds (supply runs).
 -- Returns true if a transfer was queued.
-local function _lootNearbyByPredicate(player, predicate, radius, respectHome)
+local function _lootNearbyByPredicate(player, predicate, radius, ignoreHome)
     local found, foundContainer = nil, nil
     _iterateContainersNearby(player, radius, function(item, container)
         if predicate(item) then
@@ -342,7 +302,7 @@ local function _lootNearbyByPredicate(player, predicate, radius, respectHome)
             return true  -- stop on first match
         end
         return false
-    end, not respectHome)
+    end, ignoreHome)
     if found then
         return _queueTransfer(player, found, foundContainer, "supply run")
     end
@@ -354,7 +314,7 @@ end
 --- Returns true if any item was found and queued.
 function AutoPilot_Inventory.supplyRunLoot(player, predicate)
     AutoPilot_Map.resetDepleted()
-    return _lootNearbyByPredicate(player, predicate, AutoPilot_Constants.LOOT_RADIUS_SUPPLY, false)
+    return _lootNearbyByPredicate(player, predicate, AutoPilot_Constants.LOOT_RADIUS_SUPPLY, true)
 end
 
 -- Scans nearby containers for readable literature and transfers it to inventory.
@@ -376,10 +336,10 @@ function AutoPilot_Inventory.lootNearbyReadable(player)
         return false
     end)
     if found then
-            print("[Inventory] Looting readable: " .. tostring(found:getName()))
+        print("[Inventory] Looting readable: " .. tostring(found:getName()))
         return _queueTransfer(player, found, foundContainer, "readable")
     end
-        print("[Inventory] No readable items found in nearby containers.")
+    print("[Inventory] No readable items found in nearby containers.")
     return false
 end
 
@@ -398,10 +358,10 @@ function AutoPilot_Inventory.lootNearbyFood(player)
         return false  -- scan all squares to find the best
     end)
     if best then
-            print("[Inventory] Looting food: " .. tostring(best:getName()))
+        print("[Inventory] Looting food: " .. tostring(best:getName()))
         return _queueTransfer(player, best, bestContainer, "food")
     end
-        print("[Inventory] No food found in nearby containers.")
+    print("[Inventory] No food found in nearby containers.")
     return false
 end
 
@@ -420,10 +380,10 @@ function AutoPilot_Inventory.lootNearbyDrink(player)
         return false
     end)
     if found then
-            print("[Inventory] Looting drink: " .. tostring(found:getName()))
+        print("[Inventory] Looting drink: " .. tostring(found:getName()))
         return _queueTransfer(player, found, foundContainer, "drink")
     end
-        print("[Inventory] No drinks found in nearby containers.")
+    print("[Inventory] No drinks found in nearby containers.")
     return false
 end
 
@@ -620,7 +580,7 @@ function AutoPilot_Inventory.searchItem(player, keyword)
     end
     AutoPilot_Inventory._lastSearchResults = names
 
-        print("[Inventory] Search '" .. keyword .. "': found "
+    print("[Inventory] Search '" .. keyword .. "': found "
         .. #results .. " items")
     return results
 end
@@ -630,12 +590,12 @@ end
 function AutoPilot_Inventory.lootItem(player, keyword)
     local results = AutoPilot_Inventory.searchItem(player, keyword)
     if #results == 0 then
-            print("[Inventory] Loot: nothing matching '" .. keyword .. "' found.")
+        print("[Inventory] Loot: nothing matching '" .. keyword .. "' found.")
         return false
     end
 
     local best = results[1]
-        print("[Inventory] Looting: " .. best.name)
+    print("[Inventory] Looting: " .. best.name)
     return _queueTransfer(player, best.item, best.container, best.name)
 end
 
@@ -665,7 +625,7 @@ function AutoPilot_Inventory.placeItem(player, keyword)
     end
 
     if not target then
-            print("[Inventory] placeItem: '"
+        print("[Inventory] placeItem: '"
             .. keyword .. "' not found in inventory.")
         return false
     end
@@ -696,13 +656,13 @@ function AutoPilot_Inventory.placeItem(player, keyword)
     end)
 
     if not bestContainer then
-            print("[Inventory] placeItem: no container found nearby.")
+        print("[Inventory] placeItem: no container found nearby.")
         return false
     end
 
     -- Walk to the container's square first, then transfer
     local objSq = bestObj:getSquare()
-        print("[Inventory] Placing '"
+    print("[Inventory] Placing '"
         .. tostring(target:getName()) .. "' into container at ("
         .. tostring(objSq:getX()) .. ","
         .. tostring(objSq:getY()) .. ").")
@@ -770,18 +730,18 @@ function AutoPilot_Inventory.equipBestExerciseItem(player)
     -- Already holding suitable gear?
     for _, entry in ipairs(AutoPilot_Constants.EXERCISE_EQUIPMENT) do
         if inv:getFirstTypeRecurse(entry.keyword) then
-                print("[Inv] Already holding " .. entry.keyword)
+            print("[Inv] Already holding " .. entry.keyword)
             return entry.tier
         end
     end
     local item, tier = _findExerciseEquipment(player)
     if not item then
-            print("[Inv] No exercise equipment found in home area.")
+        print("[Inv] No exercise equipment found in home area.")
         return "none"
     end
     local srcContainer = item:getContainer()
     if not srcContainer then
-            print("[Inv] Exercise item has no container — skipping transfer.")
+        print("[Inv] Exercise item has no container — skipping transfer.")
         return "none"
     end
     -- Walk to the equipment container before transferring.
@@ -803,7 +763,7 @@ function AutoPilot_Inventory.equipBestExerciseItem(player)
     end
     ISTimedActionQueue.add(ISInventoryTransferAction:new(
         player, item, srcContainer, inv))
-        print("[Inv] Queued transfer of " .. item:getType()
+    print("[Inv] Queued transfer of " .. item:getType()
         .. " (" .. (tier or "?") .. ")")
     return tier or "none"
 end
@@ -929,18 +889,18 @@ end
 function AutoPilot_Inventory.checkAndSwapWeapon(player)
     local cond = AutoPilot_Inventory.equippedWeaponCondition(player)
     if cond >= AutoPilot_Constants.WEAPON_CONDITION_MIN then return false end
-        print(("[Inv] Weapon condition %.2f < %.2f — seeking replacement."):format(
+    print(("[Inv] Weapon condition %.2f < %.2f — seeking replacement."):format(
         cond, AutoPilot_Constants.WEAPON_CONDITION_MIN))
     local replacement = AutoPilot_Inventory.bestMeleeWeapon(player)
     if not replacement then
-            print("[Inv] No replacement weapon found in inventory.")
+        print("[Inv] No replacement weapon found in inventory.")
         return false
     end
     local ok = pcall(function()
         ISTimedActionQueue.add(ISEquipWeaponAction:new(player, replacement, 50, true))
     end)
     if ok then
-            print("[Inv] Queued equip of " .. replacement:getType())
+        print("[Inv] Queued equip of " .. replacement:getType())
         return true
     end
     return false
@@ -986,19 +946,19 @@ end
 function AutoPilot_Inventory.adjustClothing(player)
     local temp = AutoPilot_Inventory.bodyTemperature(player)
     if temp > AutoPilot_Constants.TEMP_TOO_HOT then
-            print(("[Inv] Too hot (%.1f) — seeking cool clothing."):format(temp))
+        print(("[Inv] Too hot (%.1f) — seeking cool clothing."):format(temp))
         local item = AutoPilot_Inventory.findClothing(player, false)
         if item then
             ISTimedActionQueue.add(ISWearClothing:new(player, item, 50))
-                print("[Inv] Queued: wear " .. item:getType())
+            print("[Inv] Queued: wear " .. item:getType())
             return true
         end
     elseif temp < AutoPilot_Constants.TEMP_TOO_COLD then
-            print(("[Inv] Too cold (%.1f) — seeking warm clothing."):format(temp))
+        print(("[Inv] Too cold (%.1f) — seeking warm clothing."):format(temp))
         local item = AutoPilot_Inventory.findClothing(player, true)
         if item then
             ISTimedActionQueue.add(ISWearClothing:new(player, item, 50))
-                print("[Inv] Queued: wear " .. item:getType())
+            print("[Inv] Queued: wear " .. item:getType())
             return true
         end
     end

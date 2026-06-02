@@ -2,20 +2,20 @@
 -- Central registry of named constants for the AutoPilot mod.
 --
 -- Centralising magic numbers here means:
---   • every value has a documented unit and rationale,
---   • tuning one number in one place propagates everywhere, and
---   • luacheck can catch typos in constant names.
+--   every value has a documented unit and rationale,
+--   tuning one number in one place propagates everywhere, and
+--   luacheck can catch typos in constant names.
 --
 -- Load note: 'C' sorts before 'H','I','L','M','N','T','U', so this file loads
--- before all other AutoPilot modules.  Constants are plain values — no
+-- before all other AutoPilot modules.  Constants are plain values -- no
 -- dependencies on any other AutoPilot global.
 
 AutoPilot_Constants = {}
 
--- ── Search radii (in tiles) ───────────────────────────────────────────────────
+-- Search radii (in tiles) --------------------------------------------------
 
 -- Spiral-snap radius when resolving a walk target to the nearest free square.
--- 5 tiles ≈ one small room; keeps pathfinding out of walls without drifting far.
+-- 5 tiles is one small room; keeps pathfinding out of walls without drifting far.
 AutoPilot_Constants.WALK_SNAP_RADIUS = 5
 
 -- Default walk distance when walk_to receives a direction but no explicit range.
@@ -42,7 +42,7 @@ AutoPilot_Constants.WATER_SEARCH_RADIUS = 150
 -- Outdoor-square search for boredom relief.
 AutoPilot_Constants.OUTDOOR_SEARCH_DIST = 150
 
--- ── Home / safehouse ──────────────────────────────────────────────────────────
+-- Home / safehouse ----------------------------------------------------------
 
 -- Default containment circle radius when AutoPilot is first enabled.
 -- 150 tiles = one full cell radius; covers a city block in all directions.
@@ -52,58 +52,81 @@ AutoPilot_Constants.HOME_DEFAULT_RADIUS = 150
 AutoPilot_Constants.BED_SEARCH_DIST   = 150
 AutoPilot_Constants.BED_SEARCH_FLOORS = 3   -- checks z, z+1, z-1
 
--- ── Threat detection ──────────────────────────────────────────────────────────
+-- Threat detection ---------------------------------------------------------
 
--- Zombie-detection circle.  10 tiles ≈ comfortable melee engagement range.
-AutoPilot_Constants.DETECTION_RADIUS = 10
+-- Zombie-detection circle.  20 tiles gives ~6-7 s of lead time at normal walk
+-- speed before a detected zombie reaches melee range -- enough for the action
+-- queue to drain (eating, looting) before the fight/flee response fires.
+AutoPilot_Constants.DETECTION_RADIUS = 20
 
 -- Flee if MORE THAN this many debuff stats are elevated at once.
 -- 2 elevated = moderately compromised; > 2 = high-risk, better to run.
 AutoPilot_Constants.FLEE_MOODLE_LIMIT = 2
 
--- Distance (in tiles) to run from the zombie centroid when fleeing.
+-- Distance (in tiles) to run along the escape vector when fleeing.
 AutoPilot_Constants.FLEE_DISTANCE = 20
 
--- ── Survival stat thresholds ─────────────────────────────────────────────────
--- B42 stat scale: 0.0 = fine, ~1.0 = critical (hunger, thirst, fatigue, …).
--- Endurance is inverted: 1.0 = full, 0.0 = empty.
--- Boredom / sanity / panic use an integer 0–100 scale in B42.
+-- Flee unconditionally when zombie count reaches this, regardless of weapon or moodles.
+-- A group of 6 is a genuine horde that outweighs any fight advantage.
+AutoPilot_Constants.FLEE_HORDE_SIZE = 6
 
--- Trigger eating when hunger ≥ 20%.  Gives enough lead time to find food before
+-- Minimum angular gap (degrees) between zombies required to treat a direction as a
+-- viable escape arc.  If no gap exceeds this, the player is considered encircled and
+-- will fight through the weakest cluster instead of fleeing.
+AutoPilot_Constants.FLEE_ESCAPE_ARC_MIN = 90
+
+-- Post-flee suppression window (evaluation cycles).
+-- Prevents the stutter-flee loop: once a flee walk is queued, the threat check
+-- will not re-trigger while the walk is in progress, then holds off for this many
+-- additional cycles after arrival before re-evaluating.
+-- 4 cycles * 0.75 s = 3 s post-arrival buffer.
+AutoPilot_Constants.FLEE_COOLDOWN_CYCLES = 4
+
+-- Minimum weapon condition (0.0-1.0) for a weapon to count as usable in fight
+-- decisions.  Below this the weapon is treated as absent (too degraded to rely on).
+-- Distinct from WEAPON_CONDITION_MIN (0.25) which triggers a swap mid-fight.
+AutoPilot_Constants.WEAPON_FIGHT_CONDITION_MIN = 0.15
+
+-- Survival stat thresholds ------------------------------------------------
+-- B42 stat scale: 0.0 = fine, ~1.0 = critical (hunger, thirst, fatigue, ...).
+-- Endurance is inverted: 1.0 = full, 0.0 = empty.
+-- Boredom / sanity / panic use an integer 0-100 scale in B42.
+
+-- Trigger eating when hunger >= 20%.  Gives enough lead time to find food before
 -- the moodle escalates from "Hungry" to "Very Hungry".
 AutoPilot_Constants.HUNGER_THRESHOLD = 0.20
 
 -- Matched to hunger sensitivity; thirst escalates faster but same logic applies.
 AutoPilot_Constants.THIRST_THRESHOLD = 0.20
 
--- Trigger sleep at 70% fatigue — early enough to reach a bed before the
+-- Trigger sleep at 70% fatigue -- early enough to reach a bed before the
 -- "Exhausted" moodle fires and impairs movement.
 AutoPilot_Constants.FATIGUE_THRESHOLD = 0.70
 
--- Boredom and sadness use the 0–100 integer scale.
+-- Boredom and sadness use the 0-100 integer scale.
 AutoPilot_Constants.BOREDOM_THRESHOLD = 30
 AutoPilot_Constants.SADNESS_THRESHOLD = 20
 
 -- Begin rest when endurance drops to 30%.  This threshold avoids the
--- sit-stand loop that fires at mild exertion (moodle level 1–2).
+-- sit-stand loop that fires at mild exertion (moodle level 1-2).
 AutoPilot_Constants.ENDURANCE_REST_MIN = 0.30
 
 -- Do not start a new exercise set below 50% endurance; let it recover passively.
 AutoPilot_Constants.ENDURANCE_EXERCISE_MIN = 0.50
 
--- ── Timing ───────────────────────────────────────────────────────────────────
+-- Timing -------------------------------------------------------------------
 -- PZ runs at ~20 game ticks per real second.
 
 -- Main AutoPilot evaluation interval (game ticks).
--- 15 ticks × (1 s / 20 ticks) = 0.75 s between evaluations.
+-- 15 ticks * (1 s / 20 ticks) = 0.75 s between evaluations.
 AutoPilot_Constants.TICK_INTERVAL = 15
 
 -- Post-action suppression window (evaluation cycles).
--- 4 cycles × 15 ticks × (1 s / 20 ticks) = 3 s cooldown after any action.
+-- 4 cycles * 15 ticks * (1 s / 20 ticks) = 3 s cooldown after any action.
 AutoPilot_Constants.ACTION_COOLDOWN_CYCLES = 4
 
 -- State-write interval (evaluation cycles).
--- 14 cycles × 15 ticks × (1 s / 20 ticks) ≈ 10.5 s between state snapshots.
+-- 14 cycles * 15 ticks * (1 s / 20 ticks) = 10.5 s between state snapshots.
 AutoPilot_Constants.STATE_WRITE_INTERVAL = 14
 
 -- Exercise set duration sent to ISFitnessAction (game minutes).
@@ -115,9 +138,7 @@ AutoPilot_Constants.SEARCH_RESULTS_MAX = 10
 -- Max inventory item names included in the state snapshot.
 AutoPilot_Constants.INVENTORY_SUMMARY_MAX = 20
 
--- ---------------------------------------------------------------------------
--- Phase 2: Exercise equipment
--- ---------------------------------------------------------------------------
+-- Phase 2: Exercise equipment ---------------------------------------------
 -- XP multipliers are approximate relative values used for preference scoring.
 -- keyword = substring to match against item:getType()
 AutoPilot_Constants.EXERCISE_EQUIPMENT = {
@@ -127,14 +148,13 @@ AutoPilot_Constants.EXERCISE_EQUIPMENT = {
 }
 AutoPilot_Constants.EXERCISE_EQUIP_SEARCH_RADIUS = 150  -- tiles (one full cell radius)
 
--- Phase 2: Endurance gating thresholds (0.0–1.0)
+-- Phase 2: Endurance gating thresholds (0.0-1.0)
 AutoPilot_Constants.EXERCISE_ENDURANCE_MIN    = 0.30    -- skip exercise below this
 AutoPilot_Constants.EXERCISE_ENDURANCE_RESUME = 0.70    -- resume exercise above this
 
 -- Phase 2: Daily exercise cap (sets per in-game day)
 AutoPilot_Constants.EXERCISE_DAILY_CAP = 20
 
--- ---------------------------------------------------------------------------
 -- Phase 3: Weight management thresholds (in-game weight units)
 AutoPilot_Constants.WEIGHT_UNDERWEIGHT = 65    -- below this: prioritize high-calorie food
 AutoPilot_Constants.WEIGHT_OVERWEIGHT  = 85    -- above this: prefer low-calorie food
@@ -143,13 +163,12 @@ AutoPilot_Constants.WEIGHT_OVERWEIGHT  = 85    -- above this: prefer low-calorie
 AutoPilot_Constants.HAPPINESS_LOW_THRESHOLD = 40   -- MoodleType.Unhappy level to trigger action
 
 -- Phase 3: Foraging / supply run radii
--- ---------------------------------------------------------------------------
 AutoPilot_Constants.LOOT_RADIUS_HOME   = 150   -- normal home-area loot radius (one cell)
 AutoPilot_Constants.LOOT_RADIUS_SUPPLY = 300   -- expanded radius for supply runs (full cell diameter)
 AutoPilot_Constants.SUPPLY_RUN_TRIGGER = 5     -- consecutive empty loot cycles before expanding radius
 
 -- Phase 4: Combat weapon management
-AutoPilot_Constants.WEAPON_CONDITION_MIN  = 0.25  -- swap weapon if condition drops below this (0.0–1.0)
+AutoPilot_Constants.WEAPON_CONDITION_MIN  = 0.25  -- swap weapon if condition drops below this (0.0-1.0)
 AutoPilot_Constants.WEAPON_SEARCH_RADIUS  = 150   -- tiles to search for a replacement weapon
 
 -- Phase 4: Temperature / clothing thresholds
@@ -161,22 +180,43 @@ AutoPilot_Constants.CLOTHING_SEARCH_RADIUS = 150
 -- Phase 4: Barricading
 AutoPilot_Constants.BARRICADE_SEARCH_RADIUS = 15  -- only barricade windows/doors within home radius
 
--- ── Pain / sleep arbitration ─────────────────────────────────────────────────
--- Pain (0–100 integer scale) above this value blocks the sleep transition until
+-- Pain / sleep arbitration ------------------------------------------------
+-- Pain (0-100 integer scale) above this value blocks the sleep transition until
 -- the character has taken a painkiller or received medical treatment.
 AutoPilot_Constants.PAIN_SLEEP_THRESHOLD = 30
 
--- ── Map / container depletion cache ─────────────────────────────────────────
+-- Map / container depletion cache ----------------------------------------
 -- Maximum depleted-square entries before the oldest are pruned.
 -- Keeps the table bounded in memory for long-running sessions.
 AutoPilot_Constants.DEPLETED_CAP = 500
 
--- ── Main loop timing (aliases documented here for completeness) ───────────────
--- TICK_INTERVAL (line 99) and ACTION_COOLDOWN_CYCLES (line 103) govern the
--- main evaluation cadence:
+-- Proactive supply management -----------------------------------------------
+-- Trigger a proactive loot run when carried supply counts fall below these.
+-- Applied when survival stats are still fine (prevents reactive-only looting).
+AutoPilot_Constants.SUPPLY_FOOD_MIN  = 3  -- food items (non-rotten, caloric)
+AutoPilot_Constants.SUPPLY_DRINK_MIN = 2  -- drink items (thirst-reducing)
+
+-- Exploration ----------------------------------------------------------------
+-- Distinct compass sectors visited per rotation before expanding the frontier.
+AutoPilot_Constants.EXPLORE_SECTORS = 8
+-- Tiles beyond home radius to target per exploration step.
+AutoPilot_Constants.EXPLORE_STEP_TILES = 40
+-- Eval cycles between exploration trips (~90 s at 0.75 s/cycle).
+AutoPilot_Constants.EXPLORE_COOLDOWN_CYCLES = 120
+-- Tiles added to explore frontier per full sector rotation.
+AutoPilot_Constants.EXPLORE_RADIUS_INCREMENT = 25
+-- Hard cap on the explore frontier radius.
+AutoPilot_Constants.EXPLORE_RADIUS_MAX = 300
+
+-- Base maintenance -----------------------------------------------------------
+-- Eval cycles between barricade re-checks (~3 min at 0.75 s/cycle).
+AutoPilot_Constants.BARRICADE_RECHECK_CYCLES = 240
+
+-- Main loop timing (aliases) -----------------------------------------------
+-- TICK_INTERVAL and ACTION_COOLDOWN_CYCLES govern the main evaluation cadence:
 --   OnTick fires ~20 times per real second.
---   TICK_INTERVAL = 15  →  evaluation every ~0.75 s
---   ACTION_COOLDOWN_CYCLES = 4  →  ~3 s suppression after any queued action
+--   TICK_INTERVAL = 15  ->  evaluation every ~0.75 s
+--   ACTION_COOLDOWN_CYCLES = 4  ->  ~3 s suppression after any queued action
 --
 -- NOTE for auto_tune.py: the regex patterns that patch this file expect the
 -- format `AutoPilot_Constants.FIELD = <number>` with no leading whitespace.

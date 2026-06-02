@@ -13,8 +13,11 @@
 --   4. Wounds        -> treat non-bleeding wounds (scratches, bites, etc.)
 --   5. Tired         -> sleep (recovers both fatigue AND endurance)
 --   6. Exhausted     -> rest in place (endurance critically low, but not sleepy)
---   7. Bored/Sad     -> read literature, then go outside
---   8. Idle          -> exercise (strength/fitness alternating by level)
+--   7. Scavenge      -> proactive supply top-up before stats drop
+--   8. Maintenance   -> periodic barricade re-check
+--   9. Explore       -> frontier scouting and supply runs
+--  10. Bored/Sad     -> read literature, then go outside
+--  11. Idle          -> exercise (strength/fitness alternating by level)
 
 AutoPilot_Needs = {}
 
@@ -72,6 +75,22 @@ end
 
 -- ── Actions ─────────────────────────────────────────────────────────────────
 
+-- Helper: handle empty loot cycle tracking and supply run triggering.
+-- itemPred: predicate function to select items for supply run.
+-- Returns true if a supply run was triggered.
+local function trackEmptyLootCycle(itemPred)
+    _emptyLootCycles = _emptyLootCycles + 1
+    print(("[Needs] Empty loot cycle %d/%d."):format(
+        _emptyLootCycles, AutoPilot_Constants.SUPPLY_RUN_TRIGGER))
+    if _emptyLootCycles >= AutoPilot_Constants.SUPPLY_RUN_TRIGGER then
+        print("[Needs] Supply run triggered — expanding loot radius.")
+        AutoPilot_Inventory.supplyRunLoot(getPlayer(), itemPred)
+        _emptyLootCycles = 0
+        return true
+    end
+    return false
+end
+
 local function doEat(player)
     -- Prefer food close to current hunger need to avoid overfeeding.
     local hunger = AutoPilot_Utils.safeStat(player, CharacterStat.HUNGER)
@@ -98,18 +117,11 @@ local function doEat(player)
         print("[Needs] Hungry but no food in inventory — looting nearby.")
         local found = AutoPilot_Inventory.lootNearbyFood(player)
         if not found then
-            _emptyLootCycles = _emptyLootCycles + 1
-            print(("[Needs] Empty loot cycle %d/%d."):format(
-                _emptyLootCycles, AutoPilot_Constants.SUPPLY_RUN_TRIGGER))
-            if _emptyLootCycles >= AutoPilot_Constants.SUPPLY_RUN_TRIGGER then
-                print("[Needs] Supply run triggered — expanding food loot radius.")
-                local foodPred = function(item)
-                    return item:isFood() and not item:isRotten()
-                        and (item:getCalories() or 0) > 0
-                end
-                AutoPilot_Inventory.supplyRunLoot(player, foodPred)
-                _emptyLootCycles = 0
+            local foodPred = function(item)
+                return item:isFood() and not item:isRotten()
+                    and (item:getCalories() or 0) > 0
             end
+            trackEmptyLootCycle(foodPred)
         else
             _emptyLootCycles = 0
         end
@@ -158,18 +170,11 @@ local function doDrink(player)
     print("[Needs] Thirsty but no drink — attempting to loot nearby.")
     local found = AutoPilot_Inventory.lootNearbyDrink(player)
     if not found then
-        _emptyLootCycles = _emptyLootCycles + 1
-        print(("[Needs] Empty loot cycle %d/%d."):format(
-            _emptyLootCycles, AutoPilot_Constants.SUPPLY_RUN_TRIGGER))
-        if _emptyLootCycles >= AutoPilot_Constants.SUPPLY_RUN_TRIGGER then
-            print("[Needs] Supply run triggered — expanding drink loot radius.")
-            local drinkPred = function(item)
-                return item:isFood() and not item:isRotten()
-                    and item:getThirstChange() and item:getThirstChange() < 0
-            end
-            AutoPilot_Inventory.supplyRunLoot(player, drinkPred)
-            _emptyLootCycles = 0
+        local drinkPred = function(item)
+            return item:isFood() and not item:isRotten()
+                and item:getThirstChange() and item:getThirstChange() < 0
         end
+        trackEmptyLootCycle(drinkPred)
     else
         _emptyLootCycles = 0
     end
@@ -366,21 +371,26 @@ local function _findBedNearby(player)
     local bestObj  = nil
     local bestDist = math.huge
 
-    for dz = 0, BED_SEARCH_FLOORS - 1 do
-        for _, z in ipairs(dz == 0 and {pz} or {pz + dz, pz - dz}) do
-            if z >= 0 then
-                for dx = -BED_SEARCH_DIST, BED_SEARCH_DIST do
-                    for dy = -BED_SEARCH_DIST, BED_SEARCH_DIST do
-                        local sq = getCell():getGridSquare(px + dx, py + dy, z)
-                        if sq then
-                            local obj = getBedObjectOnSquare(sq)
-                            if obj then
-                                local floorPenalty = math.abs(z - pz) * 200
-                                local dist = dx * dx + dy * dy + floorPenalty
-                                if dist < bestDist then
-                                    bestDist = dist
-                                    bestObj  = obj
-                                end
+    -- Build z-level candidates: current floor first, then alternating up/down
+    local zlevels = {pz}
+    for offset = 1, BED_SEARCH_FLOORS - 1 do
+        table.insert(zlevels, pz + offset)
+        table.insert(zlevels, pz - offset)
+    end
+
+    for _, z in ipairs(zlevels) do
+        if z >= 0 then
+            for dx = -BED_SEARCH_DIST, BED_SEARCH_DIST do
+                for dy = -BED_SEARCH_DIST, BED_SEARCH_DIST do
+                    local sq = getCell():getGridSquare(px + dx, py + dy, z)
+                    if sq then
+                        local obj = getBedObjectOnSquare(sq)
+                        if obj then
+                            local floorPenalty = math.abs(z - pz) * 200
+                            local dist = dx * dx + dy * dy + floorPenalty
+                            if dist < bestDist then
+                                bestDist = dist
+                                bestObj  = obj
                             end
                         end
                     end
@@ -611,6 +621,52 @@ local function doRead(player)
     return readOk
 end
 
+-- ── Proactive / AFK idle behaviours ────────────────────────────────────────
+
+-- Proactive scavenge: loot when carried supply counts are low, even when
+-- hunger/thirst stats have not yet reached their reactive thresholds.
+local function doProactiveScavenge(player)
+    if not (AutoPilot_Inventory and AutoPilot_Inventory.getSupplyCounts) then
+        return false
+    end
+    local ok, foodCount, drinkCount = pcall(function()
+        return AutoPilot_Inventory.getSupplyCounts(player)
+    end)
+    if not ok then return false end
+    foodCount  = foodCount  or 0
+    drinkCount = drinkCount or 0
+
+    local needFood  = foodCount  < AutoPilot_Constants.SUPPLY_FOOD_MIN
+    local needDrink = drinkCount < AutoPilot_Constants.SUPPLY_DRINK_MIN
+    if not needFood and not needDrink then return false end
+
+    if needFood then
+        print(string.format("[Needs] Proactive: food=%d < %d -- looting.",
+            foodCount, AutoPilot_Constants.SUPPLY_FOOD_MIN))
+        if AutoPilot_Inventory.lootNearbyFood(player) then return true end
+    end
+    if needDrink then
+        print(string.format("[Needs] Proactive: drink=%d < %d -- looting.",
+            drinkCount, AutoPilot_Constants.SUPPLY_DRINK_MIN))
+        if AutoPilot_Inventory.lootNearbyDrink(player) then return true end
+    end
+    return false
+end
+
+-- Base maintenance: delegates to the barricade maintenance timer.
+local function doBaseMaintenance(player)
+    if not (AutoPilot_Barricade and AutoPilot_Barricade.checkMaintenance) then
+        return false
+    end
+    return AutoPilot_Barricade.checkMaintenance(player)
+end
+
+-- Autonomous exploration: delegates to the explore state machine.
+local function doExplore(player)
+    if not (AutoPilot_Explore and AutoPilot_Explore.check) then return false end
+    return AutoPilot_Explore.check(player)
+end
+
 -- ── Exercise ────────────────────────────────────────────────────────────────
 -- B42: ISFitnessAction:new(character, exercise, timeToExe, exeData, exeDataType)
 -- Exercise data comes from FitnessExercises.exercisesType table.
@@ -817,7 +873,7 @@ function AutoPilot_Needs.check(player)
 
     -- Phase 4: temperature comfort check
     AutoPilot_Telemetry.setDecision("clothing", "temperature")
-    if AutoPilot_Inventory.adjustClothing(player) then return end
+    if AutoPilot_Inventory.adjustClothing(player) then return true end
 
     -- 5. Tired — already checked above (before rest cooldown gate)
 
@@ -832,7 +888,19 @@ function AutoPilot_Needs.check(player)
         return doRest(player)
     end
 
-    -- 7. Bored, Sad, or Unhappy -> prefer tasty food, then read, then go outside
+    -- 7. Proactive supply scavenge (stats fine but supply count is low)
+    AutoPilot_Telemetry.setDecision("scavenge", "low_supplies")
+    if doProactiveScavenge(player) then return true end
+
+    -- 8. Base maintenance (periodic barricade re-check; no-ops most cycles)
+    AutoPilot_Telemetry.setDecision("barricade", "maintenance")
+    if doBaseMaintenance(player) then return true end
+
+    -- 9. Autonomous exploration (frontier scouting and supply runs)
+    AutoPilot_Telemetry.setDecision("explore", "idle")
+    if doExplore(player) then return true end
+
+    -- 10. Bored, Sad, or Unhappy -> prefer tasty food, then read, then go outside
     local boredom     = AutoPilot_Utils.safeStat(player, CharacterStat.BOREDOM)
     local sadness     = AutoPilot_Utils.safeStat(player, CharacterStat.SANITY)
     local unhappyLvl  = safeMoodleLevel(player, MoodleType.Unhappy)
@@ -858,7 +926,7 @@ function AutoPilot_Needs.check(player)
         end
     end
 
-    -- 8. Idle -> exercise (default behavior)
+    -- 11. Idle -> exercise (default behavior, lowest priority)
     AutoPilot_Telemetry.setDecision("exercise", "idle")
     return doExercise(player)
 end
@@ -937,6 +1005,7 @@ end
 function AutoPilot_Needs.forceExercise(player)
     return doExercise(player)
 end
+
 
 function AutoPilot_Needs.printStatus(player)
     local moodles = AutoPilot_Needs.getMoodleSnapshot(player)
