@@ -78,6 +78,10 @@ globals = {
     "ISRestAction",
     "AdjacentFreeTileFinder",
     "ISSitOnGround",
+
+    -- PZ B42 climate/weather globals
+    "isRaining",
+    "getClimateManager",
 }
 
 -- 211: unused local variable  — common in PZ boilerplate (loop indices, etc.)

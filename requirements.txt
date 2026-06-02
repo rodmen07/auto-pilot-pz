@@ -1,1 +1,3 @@
-anthropic>=0.50.0
+# Runtime Python dependencies for AutoPilot tooling.
+# The Anthropic SDK (sidecar architecture) has been removed — all decision
+# logic now runs natively inside the mod as a rule-based Lua brain.

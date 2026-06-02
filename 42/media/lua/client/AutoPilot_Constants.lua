@@ -160,7 +160,15 @@ AutoPilot_Constants.WEIGHT_UNDERWEIGHT = 65    -- below this: prioritize high-ca
 AutoPilot_Constants.WEIGHT_OVERWEIGHT  = 85    -- above this: prefer low-calorie food
 
 -- Phase 3: Happiness / boredom thresholds
-AutoPilot_Constants.HAPPINESS_LOW_THRESHOLD = 40   -- MoodleType.Unhappy level to trigger action
+AutoPilot_Constants.HAPPINESS_LOW_THRESHOLD  = 40   -- MoodleType.Unhappy level to trigger boredom action
+-- HAPPINESS_FOOD_PRIORITY: tasty-food path fires at or above this Unhappy moodle level,
+-- before reading. Set to a value ≤ HAPPINESS_LOW_THRESHOLD to always prefer food first.
+-- Default 40 = same as HAPPINESS_LOW_THRESHOLD (food preferred whenever unhappy block fires).
+AutoPilot_Constants.HAPPINESS_FOOD_PRIORITY  = 40
+
+-- Phase 3: Barricade maintenance
+-- Re-check home perimeter for newly broken windows every this many in-game days.
+AutoPilot_Constants.BARRICADE_RECHECK_INTERVAL = 3  -- in-game days
 
 -- Phase 3: Foraging / supply run radii
 AutoPilot_Constants.LOOT_RADIUS_HOME   = 150   -- normal home-area loot radius (one cell)
@@ -218,6 +226,24 @@ AutoPilot_Constants.BARRICADE_RECHECK_CYCLES = 240
 --   TICK_INTERVAL = 15  ->  evaluation every ~0.75 s
 --   ACTION_COOLDOWN_CYCLES = 4  ->  ~3 s suppression after any queued action
 --
--- NOTE for auto_tune.py: the regex patterns that patch this file expect the
+-- ── Controller toggle (splitscreen players 1-3) ──────────────────────────────
+-- Joypad button index for the AutoPilot toggle (double-tap to activate).
+-- 6 = Back / Select / View on xinput (Xbox View, PS Share, Switch Minus).
+-- Not bound by PZ default controller mappings; safe to use as a mod toggle.
+-- Change this constant if button 6 conflicts with a custom PZ binding.
+AutoPilot_Constants.JOYPAD_TOGGLE_BUTTON = 6
+
+-- Maximum milliseconds between two button presses to register as a double-tap.
+-- 500 ms gives a comfortable window without being easy to trigger accidentally.
+AutoPilot_Constants.JOYPAD_DOUBLE_TAP_MS = 500
+
+-- Max consecutive identical-action ticks before the queue-thrash guard fires.
+-- At TICK_INTERVAL=15 ticks/eval, 15 evals ≈ 11 s of identical action.
+AutoPilot_Constants.MAX_ACTION_STREAK = 15
+
+-- Maximum real-time milliseconds allowed per exercise session (wall-clock guard).
+-- Prevents exercise-spam at high game speeds (e.g. 3× time warp).
+-- 600 000 ms = 10 minutes of real time; the in-game day duration is ~28 minutes.
+AutoPilot_Constants.EXERCISE_REAL_TIME_CAP_MS = 600000
 -- format `AutoPilot_Constants.FIELD = <number>` with no leading whitespace.
 -- Do not introduce leading spaces or multi-line assignments for tunable lines.

@@ -1,7 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "AutoPilot State",
-  "description": "Game-state snapshot for offline analysis and benchmarking. Kept for tooling compatibility; no external sidecar reads this at runtime.",
+  "description": "LEGACY: Game-state snapshot format used by the retired sidecar architecture. Kept for offline analysis tooling compatibility (benchmark.py). No external process writes or reads this schema at runtime — telemetry is written directly by AutoPilot_Telemetry.lua.",
   "type": "object",
   "required": [
     "health", "endurance", "negative_moodles", "zombie_count_nearby",

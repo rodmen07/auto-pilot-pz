@@ -259,6 +259,7 @@ function MockPlayer.new(cfg)
         getBodyDamage = function(self) return bodyDamageObj end,
         getInventory  = function(self) return inv end,
         getPerkLevel  = function(self, perk) return perks[perk] or 0 end,
+        getPlayerNum  = function(self) return cfg.playerNum or 0 end,
         getX          = function(self) return 0 end,
         getY          = function(self) return 0 end,
         getZ          = function(self) return 0 end,

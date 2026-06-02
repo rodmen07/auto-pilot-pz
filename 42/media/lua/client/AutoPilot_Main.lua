@@ -7,39 +7,72 @@ local print = _apNoop
 
 local TICK_INTERVAL          = AutoPilot_Constants.TICK_INTERVAL
 local ACTION_COOLDOWN_CYCLES = AutoPilot_Constants.ACTION_COOLDOWN_CYCLES
+-- Max consecutive identical-action ticks before the guard clears the queue.
+local MAX_ACTION_STREAK      = AutoPilot_Constants.MAX_ACTION_STREAK
 local tickCounter = 0
 
--- Modes: "off", "autopilot"
-local mode = "off"
-local actionCooldown = 0
+-- ── Per-player state ───────────────────────────────────────────────────────────
+-- Keys are playerNum (0-based integer matching player:getPlayerNum() and the
+-- joypad index in PZ splitscreen — joypad 0 = player 0, joypad 1 = player 1, …).
+--
+-- Default mode is "autopilot" — always on.  The toggle (F10 for the keyboard
+-- player, controller double-tap for players 1-3) flips to "off" and back.
+local _playerModes      = {}   -- [playerNum] -> "autopilot" | "off"
+local _playerCooldowns  = {}   -- [playerNum] -> action-cooldown cycles remaining
+local _deathLogged      = {}   -- [playerNum] -> bool
+local _playerInited     = {}   -- [playerNum] -> bool (home set + barricade queued)
+-- Queue-thrash guard: track last decision label and consecutive-count.
+local _lastActionLabel  = {}   -- [playerNum] -> string
+local _actionStreak     = {}   -- [playerNum] -> int
 
--- Prevent writing the death telemetry marker more than once per death event.
-local _deathLogged = false
+-- Joypad double-tap toggle (controller players).
+-- Press the configured button twice within JOYPAD_DOUBLE_TAP_MS to toggle.
+-- The joypad index in PZ splitscreen matches the player number directly.
+local JOYPAD_TOGGLE_BUTTON = AutoPilot_Constants.JOYPAD_TOGGLE_BUTTON
+local JOYPAD_DOUBLE_TAP_MS = AutoPilot_Constants.JOYPAD_DOUBLE_TAP_MS
+local _joypadLastPressMs   = {}   -- [joypadIndex] -> timestamp of last press (ms)
+
+-- ── Helpers ────────────────────────────────────────────────────────────────────
+
+local function _getMode(pnum)
+    if _playerModes[pnum] == nil then
+        _playerModes[pnum] = "autopilot"
+    end
+    return _playerModes[pnum]
+end
+
+-- Resolve a player object by 0-based index.
+-- Tries getPlayer(n) first (B42 splitscreen API), falls back to getPlayer() for
+-- player 0 on runtimes where the indexed overload is not available.
+local function _getPlayerByIndex(pnum)
+    local ok, player = pcall(function() return getPlayer(pnum) end)
+    if ok and player then return player end
+    if pnum == 0 then
+        ok, player = pcall(getPlayer)
+        if ok and player then return player end
+    end
+    return nil
+end
 
 local function hudAddText(player, text)
     local halo = rawget(_G, "HaloTextHelper")
-    if halo and halo.addText then
-        halo.addText(player, text)
-    end
+    if halo and halo.addText then halo.addText(player, text) end
 end
 
 local function hudAddGood(player, text)
     local halo = rawget(_G, "HaloTextHelper")
-    if halo and halo.addGoodText then
-        halo.addGoodText(player, text)
-    end
+    if halo and halo.addGoodText then halo.addGoodText(player, text) end
 end
 
 local function hudAddBad(player, text)
     local halo = rawget(_G, "HaloTextHelper")
-    if halo and halo.addBadText then
-        halo.addBadText(player, text)
-    end
+    if halo and halo.addBadText then halo.addBadText(player, text) end
 end
 
 local function apLog(_) end
 
-local function sayMode(player)
+local function _sayMode(player, pnum)
+    local mode  = _getMode(pnum)
     local label = mode:upper()
     if player then
         if mode == "off" then
@@ -48,61 +81,54 @@ local function sayMode(player)
             hudAddGood(player, "AutoPilot: " .. label)
         end
     end
-    apLog("Mode: " .. label)
+    apLog("Player " .. pnum .. " Mode: " .. label)
 end
 
-local function updateStatusHUD(player)
+local function _updateStatusHUD(player, pnum)
     if not player then return end
-
-    local hunger = AutoPilot_Utils.safeStat(player, CharacterStat.HUNGER)
-    local thirst = AutoPilot_Utils.safeStat(player, CharacterStat.THIRST)
-    local fatigue = AutoPilot_Utils.safeStat(player, CharacterStat.FATIGUE)
-    local zombies = #AutoPilot_Threat.getNearbyZombies(player)
+    local mode      = _getMode(pnum)
+    local hunger    = AutoPilot_Utils.safeStat(player, CharacterStat.HUNGER)
+    local thirst    = AutoPilot_Utils.safeStat(player, CharacterStat.THIRST)
+    local fatigue   = AutoPilot_Utils.safeStat(player, CharacterStat.FATIGUE)
+    local zombies   = #AutoPilot_Threat.getNearbyZombies(player)
     local statusLabel = (mode == "autopilot") and "ON" or "OFF"
+    local ctrlHint    = (pnum == 0) and "F10 Toggle" or "Back x2 Toggle"
 
-    local latest = string.format("[AP] %s | H:%.0f%% T:%.0f%% F:%.0f%% Z:%d | F10 Toggle",
-        statusLabel, hunger * 100, thirst * 100, fatigue * 100, zombies)
+    local latest = string.format("[AP%d] %s | H:%.0f%% T:%.0f%% F:%.0f%% Z:%d | %s",
+        pnum, statusLabel, hunger * 100, thirst * 100, fatigue * 100,
+        zombies, ctrlHint)
     hudAddText(player, latest)
 end
 
-local function _runThreatCheck(player)
-    if AutoPilot_Threat.check(player) then
-        actionCooldown = ACTION_COOLDOWN_CYCLES
-        return true
+-- ── Per-player init (first-tick home setup) ────────────────────────────────────
+-- Always-on: home is auto-set the moment a player is first seen, with no
+-- manual toggle needed.  Barricade attempt is idempotent (ModData-backed).
+
+local function _initPlayer(player, pnum)
+    if _playerInited[pnum] then return end
+    _playerInited[pnum] = true
+    if not AutoPilot_Home.isSet(player) then
+        AutoPilot_Home.set(player)
+        apLog("Player " .. pnum .. " home auto-set (always-on).")
     end
-    return false
+    pcall(function() AutoPilot_Barricade.doBarricade(player) end)
 end
 
-local function _runNeedsCheck(player)
-    if AutoPilot_Needs.check(player) then
-        actionCooldown = ACTION_COOLDOWN_CYCLES
-        return true
-    end
-    return false
-end
+-- ── Per-player evaluation ──────────────────────────────────────────────────────
 
-local function onTick()
-    if getPlayerCount and getPlayerCount() > 1 then return end
-
-    tickCounter = tickCounter + 1
-    if tickCounter < TICK_INTERVAL then return end
-    tickCounter = 0
-
-    local player = getPlayer()
-    if not player then return end
-
-    updateStatusHUD(player)
-    if mode == "off" then return end
+local function _tickForPlayer(player, pnum)
+    _updateStatusHUD(player, pnum)
+    if _getMode(pnum) == "off" then return end
 
     local deadOk, isDead = pcall(function() return player:isDead() end)
     if deadOk and isDead then
-        if not _deathLogged then
-            _deathLogged = true
+        if not _deathLogged[pnum] then
+            _deathLogged[pnum] = true
             AutoPilot_Telemetry.onDeath(player)
         end
         return
     end
-    _deathLogged = false
+    _deathLogged[pnum] = false
 
     local asleepOk, isAsleep = pcall(function() return player:isAsleep() end)
     if asleepOk and isAsleep then
@@ -110,59 +136,155 @@ local function onTick()
         return
     end
 
-    if _runThreatCheck(player) then
+    if AutoPilot_Threat.check(player) then
+        _playerCooldowns[pnum] = ACTION_COOLDOWN_CYCLES
+        -- Threat clears streak (context changed)
+        _lastActionLabel[pnum] = "combat"
+        _actionStreak[pnum]    = 1
         AutoPilot_Telemetry.logTick(player, "combat", "threat")
         return
     end
 
-    if actionCooldown > 0 then
-        actionCooldown = actionCooldown - 1
+    local cooldown = _playerCooldowns[pnum] or 0
+    if cooldown > 0 then
+        _playerCooldowns[pnum] = cooldown - 1
         AutoPilot_Telemetry.logTick(player, "cooldown", "post_action")
         return
     end
 
     if ISTimedActionQueue.isPlayerDoingAction(player) then
-        local actionQueue = ISTimedActionQueue.getTimedActionQueue(player)
+        local actionQueue   = ISTimedActionQueue.getTimedActionQueue(player)
         local currentAction = actionQueue and actionQueue.queue and actionQueue.queue[1]
-        local isExercise = currentAction and currentAction.Type == "ISFitnessAction"
+        local isExercise    = currentAction and currentAction.Type == "ISFitnessAction"
         if isExercise and AutoPilot_Needs.shouldInterrupt(player) then
             apLog("Interrupting exercise for urgent need.")
             ISTimedActionQueue.clear(player)
         else
-            AutoPilot_Telemetry.logTick(player, "busy", "action_running")
-            return
+            -- Queue-thrash guard: track consecutive "busy" ticks; clear if stuck.
+            local busyStreak = _actionStreak[pnum] or 0
+            if (_lastActionLabel[pnum] or "") == "busy" then
+                busyStreak = busyStreak + 1
+            else
+                busyStreak = 1
+            end
+            _lastActionLabel[pnum] = "busy"
+            _actionStreak[pnum]    = busyStreak
+            if busyStreak > MAX_ACTION_STREAK then
+                apLog("Queue-thrash detected (busy streak " .. busyStreak
+                    .. ") — clearing action queue.")
+                ISTimedActionQueue.clear(player)
+                _actionStreak[pnum] = 0
+            else
+                AutoPilot_Telemetry.logTick(player, "busy", "action_running")
+                return
+            end
         end
     end
 
-    if _runNeedsCheck(player) then
+    if AutoPilot_Needs.check(player) then
+        _playerCooldowns[pnum] = ACTION_COOLDOWN_CYCLES
+        -- Record the decision label for streak tracking
+        local label = AutoPilot_Telemetry.getPendingAction and
+            AutoPilot_Telemetry.getPendingAction(player) or "action"
+        if label == (_lastActionLabel[pnum] or "") then
+            _actionStreak[pnum] = (_actionStreak[pnum] or 0) + 1
+        else
+            _lastActionLabel[pnum] = label
+            _actionStreak[pnum]    = 1
+        end
         AutoPilot_Telemetry.logTick(player)
         return
     end
 
+    _lastActionLabel[pnum] = "idle"
+    _actionStreak[pnum]    = (_lastActionLabel[pnum] == "idle")
+        and ((_actionStreak[pnum] or 0) + 1) or 1
     AutoPilot_Telemetry.logTick(player, "idle", "no_action")
 end
 
-local function onKeyPressed(key)
-    local player = getPlayer()
-    if key ~= Keyboard.KEY_F10 then return end
+-- ── Main OnTick ────────────────────────────────────────────────────────────────
 
-    if mode == "autopilot" then
-        mode = "off"
+local function onTick()
+    tickCounter = tickCounter + 1
+    if tickCounter < TICK_INTERVAL then return end
+    tickCounter = 0
+
+    local count = getPlayerCount and getPlayerCount() or 1
+    for pnum = 0, count - 1 do
+        local player = _getPlayerByIndex(pnum)
+        if player then
+            pcall(_initPlayer,    player, pnum)
+            pcall(_tickForPlayer, player, pnum)
+        end
+    end
+end
+
+-- ── Toggle logic ───────────────────────────────────────────────────────────────
+
+local function _togglePlayer(player, pnum)
+    if _getMode(pnum) == "autopilot" then
+        _playerModes[pnum] = "off"
     else
-        mode = "autopilot"
+        _playerModes[pnum] = "autopilot"
+        -- Re-run init if somehow home was never set (e.g. first enable after clear).
         if player and not AutoPilot_Home.isSet(player) then
             AutoPilot_Home.set(player)
-            apLog("AutoPilot enabled - home set to current position.")
-        end
-        -- One-time barricade attempt after home is established.
-        -- AutoPilot_Barricade.doBarricade() is idempotent (ModData-backed) and
-        -- has prerequisite guards (nails + hammer in inventory, home set).
-        if player then
             pcall(function() AutoPilot_Barricade.doBarricade(player) end)
         end
     end
-    sayMode(player)
+    _sayMode(player, pnum)
+end
+
+-- ── Keyboard toggle — player 0 (keyboard / mouse player) ──────────────────────
+
+local function onKeyPressed(key)
+    if key ~= Keyboard.KEY_F10 then return end
+    local player = _getPlayerByIndex(0)
+    _togglePlayer(player, 0)
+end
+
+-- ── Joypad double-tap toggle — players 1-3 (controller players) ───────────────
+-- Press the Back / Select / View button (xinput button 6) twice within
+-- JOYPAD_DOUBLE_TAP_MS milliseconds to toggle AutoPilot for that player.
+-- The joypad index in PZ splitscreen equals the player number directly.
+
+local function onJoypadButtonPress(joypadIndex, buttonId)
+    if buttonId ~= JOYPAD_TOGGLE_BUTTON then return end
+
+    local ok, nowMs = pcall(function()
+        return getGameTime():getCalender():getTimeInMillis()
+    end)
+    local ms   = ok and nowMs or 0
+    local last = _joypadLastPressMs[joypadIndex] or 0
+
+    if (ms - last) <= JOYPAD_DOUBLE_TAP_MS and last > 0 then
+        -- Second tap within window — toggle this player.
+        local player = _getPlayerByIndex(joypadIndex)
+        _togglePlayer(player, joypadIndex)
+        _joypadLastPressMs[joypadIndex] = 0
+    else
+        -- First tap — record timestamp and wait for the second.
+        _joypadLastPressMs[joypadIndex] = ms
+    end
 end
 
 Events.OnTick.Add(onTick)
 Events.OnKeyPressed.Add(onKeyPressed)
+Events.OnJoypadButtonPress.Add(onJoypadButtonPress)
+
+-- ── Session-end telemetry ───────────────────────────────────────────────────
+-- Write a "timeout" end marker whenever the player returns to the main menu
+-- or starts a new game while autopilot is still active.  This lets benchmark
+-- analysis distinguish a clean session end from an in-game death.
+local function onSessionEnd()
+    local count = getPlayerCount and getPlayerCount() or 1
+    for pnum = 0, count - 1 do
+        if _getMode(pnum) == "autopilot" then
+            local player = _getPlayerByIndex(pnum)
+            pcall(AutoPilot_Telemetry.onShutdown, player)
+        end
+    end
+end
+
+Events.OnMainMenuEnter.Add(onSessionEnd)
+Events.OnQueueNewGame.Add(onSessionEnd)

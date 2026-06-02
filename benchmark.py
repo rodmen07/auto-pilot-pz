@@ -48,6 +48,10 @@ class BenchmarkResult:
     # Run ended by: "dead" | "timeout" | "unknown"
     end_status: str = "unknown"
 
+    # ── Schema versioning ────────────────────────────────────────────────────
+    # Schema version from the log (0 = legacy / unknown)
+    schema_version: int = 0
+
     # ── Action distribution ──────────────────────────────────────────────────
     # Raw counts per decision label
     action_counts: dict[str, int] = field(default_factory=dict)
@@ -56,11 +60,23 @@ class BenchmarkResult:
     action_fractions: dict[str, float] = field(default_factory=dict)
 
     # ── Reason-class distribution ────────────────────────────────────────────
-    # Counts per broad category: "survival", "combat", "wellness", "exercise", "idle"
+    # Counts per broad category: "survival","combat","wellness","exercise","recover","idle"
     class_counts: dict[str, int] = field(default_factory=dict)
 
     # Fraction per broad category
     class_fractions: dict[str, float] = field(default_factory=dict)
+
+    # ── Stage distribution ───────────────────────────────────────────────────
+    # Counts per priority-tier stage label (schema_version ≥ 2 only)
+    stage_counts: dict[str, int] = field(default_factory=dict)
+
+    # ── Fail-reason distribution ─────────────────────────────────────────────
+    # Counts per fail_reason label (schema_version ≥ 2 only)
+    fail_reason_counts: dict[str, int] = field(default_factory=dict)
+
+    # ── Blocked action tracking ──────────────────────────────────────────────
+    # Number of ticks where fail_reason was "blocked"
+    blocked_ticks: int = 0
 
     # ── Threat / combat ──────────────────────────────────────────────────────
     # Fraction of ticks where ff=active (zombie nearby)
@@ -100,7 +116,7 @@ class BenchmarkResult:
 
     # ── Loop detection ───────────────────────────────────────────────────────
     # Longest consecutive run of ticks with the identical action label.
-    # Values > 20 often indicate a stuck loop (e.g. repeated loot-fail cycles).
+    # Values > 15 (v2.0 KPI) often indicate a stuck loop.
     max_action_streak: int = 0
 
     # The action label that produced the longest streak.
@@ -129,12 +145,15 @@ def parse_telemetry(log_path: str | os.PathLike[str]) -> list[dict[str, Any]]:
     """Parse *auto_pilot_run.log* and return a list of entry dicts.
 
     Each entry mirrors the key=value fields written by AutoPilot_Telemetry.lua:
-      mode, ff, run_tick, action, reason,
+      schema_version (v2+), mode, ff, run_tick, action, reason, class,
+      stage (v2+), fail_reason (v2+), retry_count (v2+),
       hunger, thirst, fatigue, endurance,
       zombies, bleeding, str, fit
 
     Integer/float fields are coerced; unknown values remain as strings.
     Lines that cannot be parsed are silently skipped.
+    Old-format log files (schema_version absent) are still parsed; missing v2
+    fields are left absent in the entry dict so downstream code must use .get().
     """
     path = Path(log_path)
     if not path.exists():
@@ -142,7 +161,8 @@ def parse_telemetry(log_path: str | os.PathLike[str]) -> list[dict[str, Any]]:
 
     entries: list[dict[str, Any]] = []
     int_fields = {
-        "run_tick", "hunger", "thirst", "fatigue",
+        "schema_version", "run_tick", "retry_count",
+        "hunger", "thirst", "fatigue",
         "endurance", "zombies", "bleeding", "str", "fit",
     }
 
@@ -190,10 +210,12 @@ _ACTION_CLASS_MAP: dict[str, str] = {
     "clothing": "wellness",
     "happiness":"wellness",
     "exercise": "exercise",
+    "recover":  "recover",
     "idle":     "idle",
     "busy":     "idle",
     "cooldown": "idle",
     "dead":     "idle",
+    "blocked":  "idle",
 }
 
 
@@ -210,12 +232,15 @@ def score_run(entries: list[dict[str, Any]], end_status: str = "unknown") -> Ben
     result.total_ticks = len(entries)
 
     # ── Counters ──────────────────────────────────────────────────────────────
-    action_counts: dict[str, int] = {}
-    class_counts:  dict[str, int] = {}
+    action_counts:      dict[str, int] = {}
+    class_counts:       dict[str, int] = {}
+    stage_counts:       dict[str, int] = {}
+    fail_reason_counts: dict[str, int] = {}
     ff_active     = 0
     bleeding_ticks = 0
     hunger_ticks   = 0
     thirst_ticks   = 0
+    blocked_ticks  = 0
 
     hunger_sum    = 0.0
     thirst_sum    = 0.0
@@ -224,6 +249,9 @@ def score_run(entries: list[dict[str, Any]], end_status: str = "unknown") -> Ben
 
     str_start = fit_start = -1
     str_end   = fit_end   = 0
+
+    # Track highest schema_version seen in the log.
+    max_schema_version = 0
 
     # Loop detection: track streaks of the same action label.
     current_streak_label = ""
@@ -241,6 +269,21 @@ def score_run(entries: list[dict[str, Any]], end_status: str = "unknown") -> Ben
         if not cls:
             cls = _ACTION_CLASS_MAP.get(action, "idle")
         class_counts[cls] = class_counts.get(cls, 0) + 1
+
+        # Schema v2+: stage, fail_reason, retry_count, schema_version.
+        sv = entry.get("schema_version", 0)
+        if isinstance(sv, int) and sv > max_schema_version:
+            max_schema_version = sv
+
+        stage = entry.get("stage", "")
+        if stage:
+            stage_counts[stage] = stage_counts.get(stage, 0) + 1
+
+        fail_reason = entry.get("fail_reason", "")
+        if fail_reason:
+            fail_reason_counts[fail_reason] = fail_reason_counts.get(fail_reason, 0) + 1
+            if fail_reason == "blocked":
+                blocked_ticks += 1
 
         if entry.get("ff") == "active":
             ff_active += 1
@@ -288,24 +331,28 @@ def score_run(entries: list[dict[str, Any]], end_status: str = "unknown") -> Ben
 
     n = result.total_ticks
 
-    result.action_counts    = action_counts
-    result.action_fractions = {k: v / n for k, v in action_counts.items()}
-    result.class_counts     = class_counts
-    result.class_fractions  = {k: v / n for k, v in class_counts.items()}
-    result.combat_rate      = ff_active      / n
-    result.injury_rate      = bleeding_ticks / n
-    result.hunger_pressure  = hunger_ticks   / n
-    result.thirst_pressure  = thirst_ticks   / n
-    result.exercise_ticks   = action_counts.get("exercise", 0)
-    result.exercise_rate    = result.exercise_ticks / n
-    result.mean_hunger      = hunger_sum    / n
-    result.mean_thirst      = thirst_sum    / n
-    result.mean_fatigue     = fatigue_sum   / n
-    result.mean_endurance   = endurance_sum / n
-    result.str_start        = max(str_start, 0)
-    result.str_end          = str_end
-    result.fit_start        = max(fit_start, 0)
-    result.fit_end          = fit_end
+    result.schema_version          = max_schema_version
+    result.action_counts           = action_counts
+    result.action_fractions        = {k: v / n for k, v in action_counts.items()}
+    result.class_counts            = class_counts
+    result.class_fractions         = {k: v / n for k, v in class_counts.items()}
+    result.stage_counts            = stage_counts
+    result.fail_reason_counts      = fail_reason_counts
+    result.blocked_ticks           = blocked_ticks
+    result.combat_rate             = ff_active      / n
+    result.injury_rate             = bleeding_ticks / n
+    result.hunger_pressure         = hunger_ticks   / n
+    result.thirst_pressure         = thirst_ticks   / n
+    result.exercise_ticks          = action_counts.get("exercise", 0)
+    result.exercise_rate           = result.exercise_ticks / n
+    result.mean_hunger             = hunger_sum    / n
+    result.mean_thirst             = thirst_sum    / n
+    result.mean_fatigue            = fatigue_sum   / n
+    result.mean_endurance          = endurance_sum / n
+    result.str_start               = max(str_start, 0)
+    result.str_end                 = str_end
+    result.fit_start               = max(fit_start, 0)
+    result.fit_end                 = fit_end
     result.max_action_streak       = max_streak_len
     result.max_action_streak_label = max_streak_label
 

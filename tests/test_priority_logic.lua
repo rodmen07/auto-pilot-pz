@@ -537,6 +537,105 @@ do
     assert_true("shouldInterrupt returns true when bleeding", result)
 end
 
+-- ── New: clothing adjustment propagates true ──────────────────────────────────
+-- adjustClothing returning true must cause check() to return true so the main
+-- loop records the action and sets a cooldown.
+print("\n-- Test 21: adjustClothing returning true causes check() to return true")
+do
+    reset()
+    AutoPilot_Inventory.adjustClothing = function(_player) return true end
+    local player = MockPlayer.new({
+        stats = {
+            HUNGER    = 0.05,
+            THIRST    = 0.05,
+            FATIGUE   = 0.05,
+            ENDURANCE = 0.90,
+            BOREDOM   = 0,
+            SANITY    = 0,
+        },
+        moodles = { ENDURANCE = 0, Unhappy = 0 },
+    })
+    local result = AutoPilot_Needs.check(player, true)  -- skipExercise=true
+    assert_true("check() returns true when adjustClothing fires", result)
+    AutoPilot_Inventory.adjustClothing = function(_player) return false end
+end
+
+-- ── New: supply-run counters are independent (food vs drink) ──────────────────
+-- Incrementing the drink counter must not trigger the food supply-run and
+-- vice versa.
+print("\n-- Test 22: Drink empty cycles do not trigger food supply run")
+do
+    reset()
+    local foodSupplyRunCalled  = false
+    local drinkSupplyRunCalled = false
+    AutoPilot_Inventory.supplyRunLoot = function(_player, pred)
+        -- Determine which type of supply run by probing the predicate on a
+        -- synthetic item that has calories but no thirst reduction.
+        local calorieOnlyItem = {
+            isFood        = function() return true  end,
+            isRotten      = function() return false end,
+            getCalories   = function() return 200   end,
+            getThirstChange = function() return 0   end,  -- no thirst benefit
+        }
+        if pred(calorieOnlyItem) then
+            foodSupplyRunCalled = true
+        else
+            drinkSupplyRunCalled = true
+        end
+    end
+    AutoPilot_Inventory.lootNearbyDrink = function(_player) return false end
+    AutoPilot_Inventory.findWaterSource = function(_player) return nil   end
+    AutoPilot_Inventory.getBestDrink    = function(_player) return nil   end
+    -- Hungry = fine; only thirsty.
+    local player = MockPlayer.new({
+        stats = {
+            HUNGER    = 0.05,   -- NOT hungry — only drink path fires
+            THIRST    = 0.30,   -- triggers doDrink
+            FATIGUE   = 0.05,
+            ENDURANCE = 0.90,
+        },
+    })
+    -- Drive drink empty cycles past the trigger threshold.
+    for _ = 1, AutoPilot_Constants.SUPPLY_RUN_TRIGGER + 1 do
+        MockTime.advance(120000)
+        AutoPilot_Needs.check(player)
+    end
+    assert_true("drink empty cycles trigger drink supply run", drinkSupplyRunCalled)
+    assert_false("drink empty cycles do NOT trigger food supply run", foodSupplyRunCalled)
+    -- Restore stubs.
+    AutoPilot_Inventory.supplyRunLoot   = function(_player, _pred) end
+    AutoPilot_Inventory.lootNearbyDrink = function(_player) return false end
+end
+
+-- ── New: boredom preference order (tasty food > read > outside) ───────────────
+print("\n-- Test 23: Boredom — tasty food preferred over reading when unhappy")
+do
+    reset()
+    local tastyFood = {
+        getName   = function() return "Cake" end,
+        getCalories = function() return 500 end,
+    }
+    AutoPilot_Inventory.preferTastyFood = function(_player) return tastyFood end
+    local player = MockPlayer.new({
+        stats = {
+            HUNGER    = 0.05,
+            THIRST    = 0.05,
+            FATIGUE   = 0.05,
+            ENDURANCE = 0.90,
+            BOREDOM   = 50,  -- above threshold
+            SANITY    = 0,
+        },
+        moodles = {
+            ENDURANCE = 0,
+            Unhappy   = AutoPilot_Constants.HAPPINESS_LOW_THRESHOLD,
+        },
+    })
+    local result = AutoPilot_Needs.check(player, true)  -- skipExercise=true
+    assert_true("check() returns true when bored+unhappy and tasty food available", result)
+    assert_eq("action queued is 'eat' (tasty food for unhappiness)", last_action_type(), "eat")
+    AutoPilot_Inventory.preferTastyFood = function(_player) return nil end
+end
+
 -- ── Summary ───────────────────────────────────────────────────────────────────
 print(("\n=== Results: %d passed, %d failed ==="):format(PASS, FAIL))
 if FAIL > 0 then

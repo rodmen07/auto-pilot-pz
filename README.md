@@ -3,7 +3,7 @@
 AutoPilot is a client-side AFK survivor/trainer mod.
 It keeps your character alive and leveling while you step away.
 
-Status: V1.0 code complete. Steam Workshop upload pending.
+Status: V1.1 — available on GitHub and Steam Workshop.
 
 See WORKSHOP.md for the Workshop description and TESTING.md for the pre-release checklist.
 
@@ -119,9 +119,29 @@ So AutoPilot is fully local and rule-based by design.
 
 ## Versioning and Release Notes
 
-- Current modversion: 1.0 (root mod.info and 42/mod.info)
-- Major release label style: V1.0
+- Current modversion: 1.1 (root mod.info and 42/mod.info)
+- Major release label style: V1.1
 - Workshop publish assets/checklist live in WORKSHOP.md and TESTING.md
+
+## Telemetry
+
+AutoPilot writes structured telemetry to `~/Zomboid/Lua/` while running:
+
+- `auto_pilot_run.log` — per-tick CSV (player 0)
+- `auto_pilot_run_p1.log`, `_p2.log`, `_p3.log` — splitscreen players
+- `auto_pilot_run_end.json` — run-end marker (status: dead or timeout)
+
+Each log line records: player, action, reason, stat levels (hunger/thirst/fatigue/
+endurance), zombie count, bleeding count, and Strength/Fitness levels.
+
+To analyse a run offline:
+
+```bash
+python benchmark.py
+```
+
+Delete the log files between benchmark sessions to get clean per-run data.
+Log files grow unbounded over long sessions — manual deletion is required.
 
 ## Contributing
 

@@ -60,7 +60,8 @@ jobs:
               tests/test_priority_logic.lua \
               tests/test_threat_logic.lua \
               tests/test_medical_logic.lua \
-              tests/test_home_map_barricade.lua; do
+              tests/test_home_map_barricade.lua \
+              tests/test_main_logic.lua; do
             echo "=== $test_file ==="
             lua5.1 "$test_file"
           done
@@ -72,4 +73,5 @@ jobs:
             --ignore=tests/test_threat_logic.lua \
             --ignore=tests/test_medical_logic.lua \
             --ignore=tests/test_home_map_barricade.lua \
+            --ignore=tests/test_main_logic.lua \
             --ignore=tests/lua_mock_pz.lua
