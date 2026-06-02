@@ -41,7 +41,6 @@ local _skillSchedule = {
 }
 
 local _lastSkillDay = -1
-local _lastSkillPerformed = nil
 
 -- ── Skill Utilities ───────────────────────────────────────────────────────
 

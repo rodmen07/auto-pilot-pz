@@ -71,7 +71,7 @@ end
 --- Get registered vehicles.
 function AutoPilot_Vehicles.getRegisteredVehicles()
     local list = {}
-    for key, data in pairs(_vehicles) do
+    for _, data in pairs(_vehicles) do
         table.insert(list, data)
     end
     return list

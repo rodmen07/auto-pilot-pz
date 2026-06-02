@@ -68,7 +68,8 @@ function AutoPilot_Combat.analyzeThreat(player, zombies)
     -- Decision tree based on composition
     local px, py, pz = player:getX(), player:getY(), player:getZ()
     local weapon = AutoPilot_Inventory and AutoPilot_Inventory.getBestWeapon(player) or nil
-    local weaponUsable = weapon and weapon:getCondition() and weapon:getCondition() / (weapon:getConditionMax() or 1) >= 0.25
+    local weaponUsable = weapon and weapon:getCondition() and
+        weapon:getCondition() / (weapon:getConditionMax() or 1) >= 0.25
 
     -- Horde: always flee (regardless of composition)
     if totalCount >= 6 then

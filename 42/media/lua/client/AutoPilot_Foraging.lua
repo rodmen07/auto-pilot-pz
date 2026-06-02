@@ -157,7 +157,7 @@ function AutoPilot_Foraging.findBestZoneForItem(player, itemType, radius)
     local bestQuality = 0
     local bestDist = math.huge
 
-    for key, zone in pairs(_zones) do
+    for _, zone in pairs(_zones) do
         if zone.z == pz then  -- same floor
             local dx = zone.x - px
             local dy = zone.y - py
@@ -186,7 +186,7 @@ end
 --- Get all zones sorted by quality (best first).
 function AutoPilot_Foraging.getZonesByQuality()
     local sorted = {}
-    for key, zone in pairs(_zones) do
+    for _, zone in pairs(_zones) do
         table.insert(sorted, zone)
     end
     table.sort(sorted, function(a, b)
@@ -202,7 +202,7 @@ function AutoPilot_Foraging.getZoneStats()
     local bestZone = nil
     local bestQuality = 0
 
-    for key, zone in pairs(_zones) do
+    for _, zone in pairs(_zones) do
         count = count + 1
         avgQuality = avgQuality + zone.quality
         if zone.quality > bestQuality then
