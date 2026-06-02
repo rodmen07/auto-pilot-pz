@@ -35,6 +35,7 @@ globals = {
     "luautils",
     "FitnessExercises",
     "GameTime",
+    "RecipeManager",
 
     -- Timed-action queue and action constructors used by this mod
     "ISTimedActionQueue",
@@ -50,6 +51,7 @@ globals = {
     "ISInventoryTransferAction",
     "ISWearClothing",
     "ISBarricadeAction",
+    "ISEnterVehicleAction",
 
     -- PZ engine utility functions
     "instanceof",
@@ -69,6 +71,13 @@ globals = {
     "AutoPilot_Map",
     "AutoPilot_Barricade",
     "AutoPilot_Telemetry",
+    "AutoPilot_Explore",
+
+    -- Phase 1 Expansion modules
+    "AutoPilot_Combat",
+    "AutoPilot_Foraging",
+    "AutoPilot_Skills",
+    "AutoPilot_Vehicles",
 
     -- PZ B42 engine global for persistent mod storage
     "ModData",
