@@ -96,3 +96,10 @@ globals = {
 -- 211: unused local variable  — common in PZ boilerplate (loop indices, etc.)
 -- 212: unused argument        — tolerate when mirroring PZ callback signatures
 ignore = { "211", "212" }
+
+-- Per-file ignores: suppress non-standard global warnings for module definitions
+files["42/media/lua/client/AutoPilot_Combat.lua"].ignore = { "111" }
+files["42/media/lua/client/AutoPilot_Foraging.lua"].ignore = { "111" }
+files["42/media/lua/client/AutoPilot_Skills.lua"].ignore = { "111" }
+files["42/media/lua/client/AutoPilot_Vehicles.lua"].ignore = { "111" }
+files["42/media/lua/client/AutoPilot_Explore.lua"].ignore = { "111" }
