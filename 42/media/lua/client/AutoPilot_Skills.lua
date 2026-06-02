@@ -236,7 +236,6 @@ function AutoPilot_Skills.performDailySkill(player)
 
     if performed then
         _lastSkillDay = dayNum
-        _lastSkillPerformed = skill
         print("[Skills] Performed daily skill: " .. skill)
     end
 
