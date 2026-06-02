@@ -78,13 +78,13 @@ end
 -- Helper: handle empty loot cycle tracking and supply run triggering.
 -- itemPred: predicate function to select items for supply run.
 -- Returns true if a supply run was triggered.
-local function trackEmptyLootCycle(itemPred)
+local function trackEmptyLootCycle(player, itemPred)
     _emptyLootCycles = _emptyLootCycles + 1
     print(("[Needs] Empty loot cycle %d/%d."):format(
         _emptyLootCycles, AutoPilot_Constants.SUPPLY_RUN_TRIGGER))
     if _emptyLootCycles >= AutoPilot_Constants.SUPPLY_RUN_TRIGGER then
         print("[Needs] Supply run triggered — expanding loot radius.")
-        AutoPilot_Inventory.supplyRunLoot(getPlayer(), itemPred)
+        AutoPilot_Inventory.supplyRunLoot(player, itemPred)
         _emptyLootCycles = 0
         return true
     end
@@ -121,7 +121,7 @@ local function doEat(player)
                 return item:isFood() and not item:isRotten()
                     and (item:getCalories() or 0) > 0
             end
-            trackEmptyLootCycle(foodPred)
+            trackEmptyLootCycle(player, foodPred)
         else
             _emptyLootCycles = 0
         end
@@ -174,7 +174,7 @@ local function doDrink(player)
             return item:isFood() and not item:isRotten()
                 and item:getThirstChange() and item:getThirstChange() < 0
         end
-        trackEmptyLootCycle(drinkPred)
+        trackEmptyLootCycle(player, drinkPred)
     else
         _emptyLootCycles = 0
     end
