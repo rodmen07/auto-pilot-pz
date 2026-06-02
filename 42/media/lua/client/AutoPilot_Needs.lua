@@ -667,6 +667,12 @@ local function doExplore(player)
     return AutoPilot_Explore.check(player)
 end
 
+-- Daily skill training: delegates to skill scheduler.
+local function doSkillTraining(player)
+    if not (AutoPilot_Skills and AutoPilot_Skills.performDailySkill) then return false end
+    return AutoPilot_Skills.performDailySkill(player)
+end
+
 -- ── Exercise ────────────────────────────────────────────────────────────────
 -- B42: ISFitnessAction:new(character, exercise, timeToExe, exeData, exeDataType)
 -- Exercise data comes from FitnessExercises.exercisesType table.
@@ -899,6 +905,10 @@ function AutoPilot_Needs.check(player)
     -- 9. Autonomous exploration (frontier scouting and supply runs)
     AutoPilot_Telemetry.setDecision("explore", "idle")
     if doExplore(player) then return true end
+
+    -- 9.5. Daily skill training (cooking, carpentry, mechanics, fishing, tailoring)
+    AutoPilot_Telemetry.setDecision("skill", "training")
+    if doSkillTraining(player) then return true end
 
     -- 10. Bored, Sad, or Unhappy -> prefer tasty food, then read, then go outside
     local boredom     = AutoPilot_Utils.safeStat(player, CharacterStat.BOREDOM)

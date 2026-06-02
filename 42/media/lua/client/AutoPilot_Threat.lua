@@ -286,6 +286,16 @@ function AutoPilot_Threat.check(player)
         return true
     end
 
+    -- Phase 1 Enhancement: Use tactical combat analysis if available
+    if AutoPilot_Combat and AutoPilot_Combat.analyzeThreat then
+        local tacticAnalysis = AutoPilot_Combat.analyzeThreat(player, zombies)
+        if tacticAnalysis and tacticAnalysis.tactic then
+            print(("[Threat] Combat analysis: %s (reason: %s)"):format(
+                tacticAnalysis.tactic, tacticAnalysis.reason or "unknown"))
+            -- Tactic analysis is advisory; continue with existing threat logic
+        end
+    end
+
     -- Pre-compute spread once; reused across all remaining priority checks.
     local escDx, escDy, encircled = analyzeSpread(player, zombies)
 
