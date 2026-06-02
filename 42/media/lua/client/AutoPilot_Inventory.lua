@@ -387,6 +387,75 @@ function AutoPilot_Inventory.lootNearbyDrink(player)
     return false
 end
 
+-- ── Smart Foraging Integration ───────────────────────────────────────────────
+
+--- Loot a specific item type from nearby containers, using learned zone quality.
+--- Returns true if item was found and queued; records zone quality for learning.
+function AutoPilot_Inventory.lootByItemType(player, itemType, radius)
+    if not AutoPilot_Foraging then return false end
+
+    local bestZoneInfo = AutoPilot_Foraging.findBestZoneForItem(player, itemType, radius)
+    if not bestZoneInfo then
+        print("[Inventory] No high-quality zones found for " .. tostring(itemType))
+        return false
+    end
+
+    local zone = bestZoneInfo.zone
+    local px, py, pz = player:getX(), player:getY(), player:getZ()
+    local targetSq = getCell():getGridSquare(zone.x, zone.y, zone.z)
+
+    if not targetSq then
+        print("[Inventory] Zone square not found; skipping.")
+        AutoPilot_Foraging.recordZoneEmpty(player, targetSq)
+        return false
+    end
+
+    -- Walk to zone if not adjacent
+    local distSq = (zone.x - px) ^ 2 + (zone.y - py) ^ 2
+    if distSq > 4 then
+        pcall(function()
+            luautils.walkAdj(player, targetSq, true)
+        end)
+    end
+
+    -- Scan zone's containers for the item type
+    local itemsFound = {}
+    for i = 0, targetSq:getObjects():size() - 1 do
+        local obj = targetSq:getObjects():get(i)
+        if obj then
+            local container = obj:getContainer()
+            if container then
+                for j = 0, container:getItems():size() - 1 do
+                    local item = container:getItems():get(j)
+                    if item and AutoPilot_Foraging.categorizeItem(item) == itemType then
+                        table.insert(itemsFound, item)
+                        print("[Inventory] Found " .. tostring(item:getName())
+                            .. " in zone (" .. zone.x .. "," .. zone.y .. ")")
+                        _queueTransfer(player, item, container, tostring(itemType))
+                    end
+                end
+            end
+        end
+    end
+
+    -- Record zone learning
+    if #itemsFound > 0 then
+        AutoPilot_Foraging.recordZone(player, targetSq, {itemType})
+        return true
+    else
+        AutoPilot_Foraging.recordZoneEmpty(player, targetSq)
+        return false
+    end
+end
+
+--- Get telemetry about learned zones.
+function AutoPilot_Inventory.getForagingStats()
+    if AutoPilot_Foraging then
+        return AutoPilot_Foraging.getZoneStats()
+    end
+    return nil
+end
+
 -- Counts how many food/drink items are available.
 function AutoPilot_Inventory.getSupplyCounts(player)
     local inv = player:getInventory()
