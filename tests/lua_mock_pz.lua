@@ -88,6 +88,8 @@ ISWorldObjectContextMenu = {
             .. type(playerIndex))
         table.insert(ISTimedActionQueue_calls, { type = "sleep", bed = bed })
     end,
+    -- Equipment equip used before equipment exercises (ISFitnessUI pattern).
+    equip = function(_player, _current, _itemType, _flag, _twoHands) end,
 }
 
 ISSitOnGround = {
@@ -302,12 +304,20 @@ function getCell()
 end
 
 -- ── FitnessExercises ──────────────────────────────────────────────────────────
+-- Mirrors shared/Definitions/FitnessExercises.lua: equipment exercises carry
+-- item (full type gated via inventory:contains) and prop (how it is held).
 FitnessExercises = {
     exercisesType = {
-        pushups = { type = "pushups" },
-        squats  = { type = "squats" },
-        situp   = { type = "situp" },
-        burpees = { type = "burpees" },
+        pushups       = { type = "pushups" },
+        squats        = { type = "squats" },
+        situp         = { type = "situp" },
+        burpees       = { type = "burpees" },
+        dumbbellpress = { type = "dumbbellpress", item = "Base.DumbBell",
+                          prop = "switch" },
+        bicepscurl    = { type = "bicepscurl", item = "Base.DumbBell",
+                          prop = "switch" },
+        barbellcurl   = { type = "barbellcurl", item = "Base.BarBell",
+                          prop = "twohands" },
     },
 }
 
@@ -377,6 +387,10 @@ function MockPlayer.new(cfg)
 
     local inv = {
         getItems = function(self) return emptyItems end,
+        -- Vanilla equipment-exercise gate; tests set cfg.hasItems or override.
+        contains = function(self, _fullType, _recurse)
+            return cfg.hasItems == true
+        end,
     }
 
     -- Mutable XP store: tests write player._xp[perk] = number, and set

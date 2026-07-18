@@ -1,13 +1,13 @@
 -- AutoPilot_UI.lua
 -- F11 leveler panel: pick the exercise focus — Auto / Strength / Fitness —
--- and watch live XP metrics for both exercise perks (level, XP to next,
--- session gain, XP/hour, ETA).  Also shows the death-learning summary
--- (deaths on record, adaptive tweaks applied).
+-- watch live XP metrics for both exercise perks, see exactly what the trainer
+-- is doing right now (current exercise, resting reasons, sets today), arm or
+-- disarm the mod, and review the death-learning adjustments.
 --
 -- Built on vanilla ISUI widgets (ISCollapsableWindow + ISButton), standard
 -- :new -> :initialise -> :addToUIManager pattern.  Configures the LOCAL
--- player only (splitscreen is not supported; in MP each client has its own
--- panel).
+-- player only (in MP each client has its own panel).  Panel position is
+-- remembered per character via ModData.
 
 require "ISUI/ISCollapsableWindow"
 
@@ -19,11 +19,20 @@ local ROW_H   = 20
 local PAD     = 10
 local BTN_H   = 20
 
+local POS_MODDATA_KEY = "AutoPilot_UIPos"
+
 -- ── Construction ─────────────────────────────────────────────────────────────
 
 function AutoPilot_UI:createChildren()
     ISCollapsableWindow.createChildren(self)
     local y = self:titleBarHeight() + PAD
+
+    -- Arm/disarm row.
+    self.armButton = ISButton:new(PAD, y, PANEL_W - PAD * 2, BTN_H,
+        "Arm AutoPilot (F10)", self, AutoPilot_UI.onToggleArm)
+    self.armButton:initialise()
+    self:addChild(self.armButton)
+    y = y + BTN_H + PAD
 
     -- Focus buttons: Auto / Strength / Fitness.
     self.skillButtons = {}
@@ -42,8 +51,8 @@ function AutoPilot_UI:createChildren()
     y = y + BTN_H + PAD
 
     self.metricsY = y
-    -- Metrics area drawn in render(): 2 perk blocks + summary line.
-    self:setHeight(self.metricsY + ROW_H * 10 + PAD)
+    -- Metrics + status + adaptive list drawn in render().
+    self:setHeight(self.metricsY + ROW_H * 13 + PAD)
 end
 
 -- ── Button handlers ──────────────────────────────────────────────────────────
@@ -59,6 +68,12 @@ function AutoPilot_UI:onSelectSkill(button)
     local player = self:_player()
     if not player then return end
     AutoPilot_Leveler.setTargetSkill(player, button.internal)
+end
+
+function AutoPilot_UI:onToggleArm(_button)
+    if AutoPilot and AutoPilot.toggle then
+        pcall(AutoPilot.toggle)
+    end
 end
 
 -- ── Rendering ────────────────────────────────────────────────────────────────
@@ -92,6 +107,14 @@ function AutoPilot_UI:render()
     local player = self:_player()
     local y = self.metricsY
 
+    -- Arm button reflects live state.
+    local armed = AutoPilot and AutoPilot.isActive and AutoPilot.isActive()
+    if self.armButton then
+        self.armButton:setTitle(armed
+            and "ARMED — training  (click or F10 to stop)"
+            or "OFF — click or press F10 to start training")
+    end
+
     -- Highlight the current focus.
     local target = player and AutoPilot_Leveler.getTargetSkillId(player) or "auto"
     for id, btn in pairs(self.skillButtons or {}) do
@@ -105,9 +128,29 @@ function AutoPilot_UI:render()
         return
     end
 
-    self:drawText("Focus: " .. AutoPilot_Leveler.getTargetSkillName(player),
-        PAD, y, 0.4, 1, 0.4, 1, UIFont.Small)
-    y = y + ROW_H + 4
+    -- Live trainer status.
+    local status = nil
+    pcall(function() status = AutoPilot_Needs.getExerciseStatus() end)
+    if status then
+        local line = string.format("Status: %s   Sets today: %d/%d",
+            status.outcome or "idle", status.setsToday or 0, status.cap or 0)
+        self:drawText(line, PAD, y, 1, 0.9, 0.5, 1, UIFont.Small)
+        y = y + ROW_H
+        -- Long-term regularity of the exercise currently being trained.
+        local exType = tostring(status.outcome or ""):match("^training: (%S+)")
+        if exType then
+            local reg = nil
+            pcall(function()
+                reg = player:getFitness():getRegularity(exType)
+            end)
+            if type(reg) == "number" then
+                self:drawText(string.format("  %s regularity: %.0f", exType, reg),
+                    PAD, y, 0.7, 0.7, 0.9, 1, UIFont.Small)
+                y = y + ROW_H
+            end
+        end
+    end
+    y = y + 4
 
     local mStr = AutoPilot_Leveler.getMetricsFor(player, "strength")
     local mFit = AutoPilot_Leveler.getMetricsFor(player, "fitness")
@@ -116,25 +159,57 @@ function AutoPilot_UI:render()
     y = self:_drawPerkBlock("Fitness", mFit, y, target == "fitness")
     y = y + ROW_H
 
-    -- Death-learning summary.
+    -- Death-learning summary + applied adjustments.
     local deaths = 0
     pcall(function() deaths = AutoPilot_DeathLog.getDeathCount() end)
-    local adjusted = 0
-    pcall(function() adjusted = #AutoPilot_Adaptive.getApplied() end)
+    local applied = {}
+    pcall(function() applied = AutoPilot_Adaptive.getApplied() or {} end)
     self:drawText(string.format("Deaths on record: %d   Adaptive tweaks: %d",
-        deaths, adjusted), PAD, y, 0.8, 0.6, 0.6, 1, UIFont.Small)
+        deaths, #applied), PAD, y, 0.8, 0.6, 0.6, 1, UIFont.Small)
+    y = y + ROW_H
+    for i = 1, math.min(#applied, 4) do
+        local a = applied[i]
+        self:drawText(string.format("  %s: %s -> %s (%s x%d)",
+            tostring(a.key), tostring(a.from), tostring(a.to),
+            tostring(a.cause), a.deaths or 0),
+            PAD, y, 0.7, 0.55, 0.55, 1, UIFont.Small)
+        y = y + ROW_H
+    end
 end
 
 -- ── Lifecycle ────────────────────────────────────────────────────────────────
 
+local function _savePosition(panel)
+    pcall(function()
+        local player = panel:_player()
+        if not player then return end
+        player:getModData()[POS_MODDATA_KEY] = {
+            x = panel:getX(), y = panel:getY(),
+        }
+    end)
+end
+
+local function _loadPosition(panel)
+    pcall(function()
+        local player = panel:_player()
+        if not player then return end
+        local pos = player:getModData()[POS_MODDATA_KEY]
+        if type(pos) == "table" and tonumber(pos.x) and tonumber(pos.y) then
+            panel:setX(pos.x)
+            panel:setY(pos.y)
+        end
+    end)
+end
+
 function AutoPilot_UI:close()
+    _savePosition(self)
     self:setVisible(false)
     self:removeFromUIManager()
     AutoPilot_UI.instance = nil
 end
 
 function AutoPilot_UI:new(x, y)
-    local o = ISCollapsableWindow:new(x, y, PANEL_W, 300)
+    local o = ISCollapsableWindow:new(x, y, PANEL_W, 320)
     setmetatable(o, self)
     self.__index = self
     o:setResizable(false)
@@ -151,5 +226,6 @@ function AutoPilot_UI.toggle()
     local panel = AutoPilot_UI:new(120, 120)
     panel:initialise()
     panel:addToUIManager()
+    _loadPosition(panel)
     AutoPilot_UI.instance = panel
 end

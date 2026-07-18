@@ -138,7 +138,10 @@ function AutoPilot_Threat.getNearbyZombies(player)
     local ok, zombieList = pcall(function() return getCell():getZombieList() end)
     if not ok or not zombieList then return zombies end
 
-    local rSq = DETECTION_RADIUS * DETECTION_RADIUS
+    -- Read live (NOT the load-time local): Adaptive tuning and mod options
+    -- adjust this at runtime.
+    local r   = AutoPilot_Constants.DETECTION_RADIUS
+    local rSq = r * r
     for i = 0, zombieList:size() - 1 do
         local z = zombieList:get(i)
         if z and not z:isDead() and z:getZ() == pz then
@@ -357,7 +360,7 @@ function AutoPilot_Threat.check(player)
     local escDx, escDy, encircled = analyzeSpread(player, zombies)
 
     -- Priority 2: Horde threshold -- flee regardless of weapon or moodles.
-    if #zombies >= FLEE_HORDE_SIZE then
+    if #zombies >= AutoPilot_Constants.FLEE_HORDE_SIZE then
         print("[Threat] FLEE -- horde (" .. #zombies .. " zombies).")
         if not doFlee(player, zombies, escDx, escDy) then doFight(player, zombies, escDx, escDy) end
         return true

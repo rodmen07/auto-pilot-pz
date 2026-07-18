@@ -2,6 +2,61 @@
 
 All notable changes to AutoPilot are documented here.
 
+## [V3.3] — 2026-07-18 — EQUIPMENT TRAINING, PANEL STATUS, MOD OPTIONS
+
+### Added — deeper training
+
+- **Equipment exercises join the rotation** (verified against 42.19's
+  definitions + the vanilla `inventory:contains(item, true)` gate): the
+  Strength pool is now dumbbell press / biceps curl (1.8x) -> barbell curl
+  (1.2x) -> push-ups, using whichever gear is carried; Auto inserts dumbbell
+  press after burpees. Items are equipped per the exercise's `prop`
+  (twohands/switch) exactly like the vanilla fitness UI does.
+- **Daily equipment fetch**: once per day (strength/auto focus) the bot pulls
+  a dumbbell/barbell from home containers when none is carried, unlocking the
+  higher-XP exercises.
+- The pre-3.3 "tier multiplier" logic is gone — merely HOLDING gear grants
+  nothing; the xpMod belongs to the equipment exercise type.
+
+### Added — F11 panel
+
+- Live trainer status line ("training: squats", "resting (endurance
+  recovering)", "resting (exercises fatigued)", "fetching exercise
+  equipment") + sets today N/cap.
+- Long-term `getRegularity` shown for the exercise currently training.
+- Arm/disarm button (same path as F10) with live state.
+- Panel position remembered per character (ModData).
+- Applied adaptive tweaks listed (up to 4) under the death summary.
+
+### Added — mod options (PZAPI.ModOptions, verified in 42.19)
+
+- Options > Mods > AutoPilot Leveler: sliders for daily set cap, endurance
+  minimum, XP-fatigue recovery hours, food/drink stockpile minimums,
+  proactive loot radius, detection radius, close-danger radius; rebindable
+  arm/panel keys. Values apply once per session (before Adaptive's deltas,
+  so both tuning layers compose) and live on options-save.
+
+### Fixed
+
+- **Load-time constant caching made runtime tuning partially inert**:
+  DETECTION_RADIUS / FLEE_HORDE_SIZE (Threat), MEDICAL_LOOT_RADIUS (Medical),
+  and the hunger/thirst triggers (Needs) were captured into file-locals at
+  load, so the Adaptive death-learning rules that adjust them never took
+  effect — and mod options would have had the same problem. All tunable
+  constants are now read live at their use sites.
+
+### Housekeeping
+
+- Telemetry run log rotates once per session past 20k lines (keeps newest
+  5k) — closes the "grows unbounded" Workshop limitation.
+- README rewritten for the V3.3 leveler; TESTING.md gains V3.3 checks and a
+  multi-hour soak-test section.
+
+### Testing
+
+- Suite: 9 files, 194 assertions, all green (equipment-gating tests added);
+  luacheck 0 warnings / 0 errors across 17 modules.
+
 ## [V3.2] — 2026-07-18 — SPLITSCREEN REMOVED
 
 Splitscreen support is removed entirely (it could not be made to work

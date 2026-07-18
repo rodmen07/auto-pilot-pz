@@ -93,6 +93,26 @@ verified. A fresh character starts with no skills and no home base.
 - [ ] Bot actions affect only the local player (no cross-player item transfers)
 - [ ] Home ModData persists after reconnect
 
+## V3.3 Additions
+- [ ] With a dumbbell in inventory + Strength focus: dumbbell press runs
+      (not push-ups); without gear: push-ups
+- [ ] Once per day the bot fetches a dumbbell/barbell from home containers
+      when none is carried (strength/auto focus)
+- [ ] F11 panel: shows live status line ("training: squats", "resting (...)"),
+      sets today N/cap, regularity of the current exercise, arm/disarm button
+      works, panel position is remembered after reopening
+- [ ] Options > Mods > AutoPilot Leveler: sliders apply in-game after Save
+      (e.g. lower daily cap and watch training stop at it); F10/F11 rebind works
+- [ ] Telemetry: with a run log over 20k lines, session start trims it to 5k
+      ("[Telemetry] Rotated log" in console)
+
+## Soak Test (multi-hour stability)
+- [ ] 2+ real hours armed on the server: no error counter growth, no FPS decay
+- [ ] XP keeps stepping up across fatigue rotations (panel session gain grows)
+- [ ] Survival interruptions (eat/drink/sleep) resume training afterwards
+- [ ] Death during soak: snapshot line written; next session shows adaptive
+      tweak in panel
+
 ## Clean-up
 - [ ] No Lua errors in console after 10+ minutes of bot operation
 - [ ] No performance degradation (FPS stable over time)

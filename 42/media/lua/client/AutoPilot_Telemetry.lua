@@ -77,7 +77,42 @@ local function _classifyAction(action)
     return REASON_CLASS[action] or "idle"
 end
 
+-- Once-per-session log rotation: when the run log exceeds TELEMETRY_MAX_LINES
+-- the oldest lines are dropped, keeping the newest TELEMETRY_KEEP_LINES.
+local _rotated = {}
+
+local function _rotateIfNeeded(pnum)
+    if _rotated[pnum] then return end
+    _rotated[pnum] = true
+    pcall(function()
+        local keepLines = AutoPilot_Constants.TELEMETRY_KEEP_LINES
+        local maxLines  = AutoPilot_Constants.TELEMETRY_MAX_LINES
+        local r = getFileReader(_logFile(pnum), true)
+        if not r then return end
+        -- Ring buffer of the newest keepLines lines while counting the total.
+        local keep, count = {}, 0
+        local line = r:readLine()
+        while line ~= nil do
+            count = count + 1
+            keep[(count % keepLines) + 1] = line
+            line = r:readLine()
+        end
+        r:close()
+        if count <= maxLines then return end
+        local w = getFileWriter(_logFile(pnum), true, false)  -- truncate
+        if not w then return end
+        for c = count - keepLines + 1, count do
+            local kept = keep[(c % keepLines) + 1]
+            if kept then w:write(kept .. "\n") end
+        end
+        w:close()
+        print(string.format("[Telemetry] Rotated log for player %d: %d -> %d lines.",
+            pnum, count, keepLines))
+    end)
+end
+
 local function _appendLine(pnum, line)
+    _rotateIfNeeded(pnum)
     pcall(function()
         -- getFileWriter(name, createIfNotExist, append) — append=true, or every
         -- write truncates the log down to its single most recent line.

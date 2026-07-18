@@ -714,6 +714,39 @@ do
         ISTimedActionQueue_calls[#ISTimedActionQueue_calls].exType, "squats")
 end
 
+print("\n-- Test 28: equipment exercises lead the strength pool when gear is carried")
+do
+    ISTimedActionQueue_calls = {}
+    MockTime.advance(24 * 60 * 60000)
+    local p = MockPlayer.new({
+        stats   = { HUNGER = 0.05, THIRST = 0.05, FATIGUE = 0.05,
+                    ENDURANCE = 0.90 },
+        moodles = { ENDURANCE = 0, Unhappy = 0 },
+        hasItems = true,   -- inventory:contains(...) reports gear carried
+    })
+    assert_true("strength set queues with gear",
+        AutoPilot_Needs.trainExercise(p, "strength"))
+    assert_eq("dumbbell press picked over push-ups (1.8x exercise)",
+        ISTimedActionQueue_calls[#ISTimedActionQueue_calls].exType,
+        "dumbbellpress")
+end
+
+print("\n-- Test 29: without gear the strength pool falls back to push-ups")
+do
+    ISTimedActionQueue_calls = {}
+    MockTime.advance(24 * 60 * 60000)
+    local p = MockPlayer.new({
+        stats   = { HUNGER = 0.05, THIRST = 0.05, FATIGUE = 0.05,
+                    ENDURANCE = 0.90 },
+        moodles = { ENDURANCE = 0, Unhappy = 0 },
+        hasItems = false,
+    })
+    assert_true("strength set queues without gear",
+        AutoPilot_Needs.trainExercise(p, "strength"))
+    assert_eq("push-ups picked when no equipment is carried",
+        ISTimedActionQueue_calls[#ISTimedActionQueue_calls].exType, "pushups")
+end
+
 -- ── Summary ───────────────────────────────────────────────────────────────────
 print(("\n=== Results: %d passed, %d failed ==="):format(PASS, FAIL))
 if FAIL > 0 then

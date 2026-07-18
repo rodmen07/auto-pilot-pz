@@ -68,7 +68,9 @@ local function lootNearbyBandage(player)
     local px, py, pz = player:getX(), player:getY(), player:getZ()
     local result = false
 
-    AutoPilot_Utils.iterateNearbySquares(px, py, pz, MEDICAL_LOOT_RADIUS, function(sq)
+    -- Read live: Adaptive widens this radius after bleed-out deaths.
+    AutoPilot_Utils.iterateNearbySquares(px, py, pz,
+        AutoPilot_Constants.MEDICAL_LOOT_RADIUS, function(sq)
         for i = 0, sq:getObjects():size() - 1 do
             local obj = sq:getObjects():get(i)
             if obj then

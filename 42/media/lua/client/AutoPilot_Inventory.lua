@@ -721,13 +721,31 @@ function AutoPilot_Inventory.placeItem(player, keyword)
 end
 
 -- ---------------------------------------------------------------------------
--- Phase 2: Exercise equipment helpers
+-- Exercise equipment fetch (V3.3)
 -- ---------------------------------------------------------------------------
+-- Equipment exercises (dumbbellpress/bicepscurl at 1.8x, barbellcurl at 1.2x)
+-- gate on the item being IN INVENTORY (vanilla: inventory:contains(item, true)
+-- in ISFitnessUI).  These helpers fetch a dumbbell/barbell from home storage
+-- so those exercises unlock.  NOTE: merely HOLDING gear grants nothing — the
+-- xpMod belongs to the equipment exercise type (the pre-3.3 "tier multiplier"
+-- logic was a misconception and is gone).
 
---- Scan containers within home bounds for exercise equipment.
---- Returns best item found and its tier string, or nil, nil.
-local function _findExerciseEquipment(player)
-    local bestItem, bestMult, bestTier = nil, 0, nil
+--- True when a dumbbell or barbell is already carried.
+function AutoPilot_Inventory.hasExerciseEquipment(player)
+    local has = false
+    pcall(function()
+        local inv = player:getInventory()
+        has = inv:contains("Base.DumbBell", true)
+            or inv:contains("Base.BarBell", true)
+    end)
+    return has
+end
+
+--- Queue a trip to fetch exercise equipment from home containers.
+--- Returns true when a fetch trip (walk + transfer) was queued.
+function AutoPilot_Inventory.fetchExerciseEquipment(player)
+    if AutoPilot_Inventory.hasExerciseEquipment(player) then return false end
+    local found, foundContainer = nil, nil
     local px = math.floor(player:getX())
     local py = math.floor(player:getY())
     local pz = math.floor(player:getZ())
@@ -743,75 +761,23 @@ local function _findExerciseEquipment(player)
                 if cont then
                     for i = 0, cont:getItems():size() - 1 do
                         local item = cont:getItems():get(i)
-                        local name = item:getType()
-                        for _, entry in ipairs(AutoPilot_Constants.EXERCISE_EQUIPMENT) do
-                            if name:find(entry.keyword) and entry.multiplier > bestMult then
-                                bestItem  = item
-                                bestMult  = entry.multiplier
-                                bestTier  = entry.tier
-                            end
+                        local okT, typ = pcall(function() return item:getType() end)
+                        if okT and typ
+                            and (typ:find("DumbBell") or typ:find("BarBell")) then
+                            found, foundContainer = item, cont
+                            return true
                         end
                     end
                 end
             end
+            return false
         end)
-    return bestItem, bestTier
-end
-
---- Transfer the best available exercise equipment into the player's inventory.
---- Returns the tier string ("dumbbell" | "barbell" | "none").
-function AutoPilot_Inventory.equipBestExerciseItem(player)
-    local inv = player:getInventory()
-    -- Already holding suitable gear?
-    for _, entry in ipairs(AutoPilot_Constants.EXERCISE_EQUIPMENT) do
-        if inv:getFirstTypeRecurse(entry.keyword) then
-            print("[Inv] Already holding " .. entry.keyword)
-            return entry.tier
-        end
-    end
-    local item, tier = _findExerciseEquipment(player)
-    if not item then
+    if not found then
         print("[Inv] No exercise equipment found in home area.")
-        return "none"
+        return false
     end
-    local srcContainer = item:getContainer()
-    if not srcContainer then
-        print("[Inv] Exercise item has no container — skipping transfer.")
-        return "none"
-    end
-    -- Walk to the equipment container before transferring.
-    local ok_p, equipParent = pcall(function() return srcContainer:getParent() end)
-    if ok_p and equipParent then
-        local ok_sq, equipSq = pcall(function() return equipParent:getSquare() end)
-        if ok_sq and equipSq then
-            local px, py = player:getX(), player:getY()
-            local distSq = (equipSq:getX() - px)^2 + (equipSq:getY() - py)^2
-            if distSq > 4 then
-                local walkOk = pcall(function()
-                    luautils.walkAdj(player, equipSq, true)
-                end)
-                if not walkOk then
-                    ISTimedActionQueue.add(ISWalkToTimedAction:new(player, equipSq))
-                end
-            end
-        end
-    end
-    ISTimedActionQueue.add(ISInventoryTransferAction:new(
-        player, item, srcContainer, inv))
-    print("[Inv] Queued transfer of " .. item:getType()
-        .. " (" .. (tier or "?") .. ")")
-    return tier or "none"
-end
-
---- Return the XP-multiplier tier currently held by the player, or "none".
-function AutoPilot_Inventory.currentExerciseTier(player)
-    local inv = player:getInventory()
-    for _, entry in ipairs(AutoPilot_Constants.EXERCISE_EQUIPMENT) do
-        if inv:getFirstTypeRecurse(entry.keyword) then
-            return entry.tier
-        end
-    end
-    return "none"
+    print("[Inv] Fetching exercise equipment: " .. tostring(found:getType()))
+    return _queueTransfer(player, found, foundContainer, "exercise equipment")
 end
 
 -- ---------------------------------------------------------------------------

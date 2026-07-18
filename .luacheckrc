@@ -78,6 +78,10 @@ globals = {
     "AutoPilot_UI",
     "AutoPilot_DeathLog",
     "AutoPilot_Adaptive",
+    "AutoPilot_Options",
+
+    -- V3.3 engine globals (verified against 42.19)
+    "PZAPI",
 
     -- V3.x engine globals (verified against 42.19)
     "PerkFactory",

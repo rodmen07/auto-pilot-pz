@@ -162,14 +162,8 @@ AutoPilot_Constants.SEARCH_RESULTS_MAX = 10
 -- Max inventory item names included in the state snapshot.
 AutoPilot_Constants.INVENTORY_SUMMARY_MAX = 20
 
--- Phase 2: Exercise equipment ---------------------------------------------
--- XP multipliers are approximate relative values used for preference scoring.
--- keyword = substring to match against item:getType()
-AutoPilot_Constants.EXERCISE_EQUIPMENT = {
-    { keyword = "Dumbbells",  tier = "dumbbell", multiplier = 1.8 },
-    { keyword = "Barbell",    tier = "barbell",  multiplier = 1.2 },
-    { keyword = "WeightBar",  tier = "barbell",  multiplier = 1.2 },
-}
+-- Exercise equipment fetch radius (home containers scanned for a dumbbell or
+-- barbell so the higher-xpMod equipment exercises unlock).
 AutoPilot_Constants.EXERCISE_EQUIP_SEARCH_RADIUS = 80  -- tiles (capped for scan cost)
 
 -- Phase 2: Endurance gating thresholds (0.0-1.0)
@@ -216,6 +210,12 @@ AutoPilot_Constants.BARRICADE_SEARCH_RADIUS = 15  -- only barricade windows/door
 -- Pain (0-100 integer scale) above this value blocks the sleep transition until
 -- the character has taken a painkiller or received medical treatment.
 AutoPilot_Constants.PAIN_SLEEP_THRESHOLD = 30
+
+-- Telemetry log rotation -----------------------------------------------------
+-- Once per session, if the run log exceeds MAX lines the oldest are dropped,
+-- keeping the newest KEEP lines (the file previously grew unbounded).
+AutoPilot_Constants.TELEMETRY_MAX_LINES  = 20000
+AutoPilot_Constants.TELEMETRY_KEEP_LINES = 5000
 
 -- Map / container depletion cache ----------------------------------------
 -- Maximum depleted-square entries before the oldest are pruned.

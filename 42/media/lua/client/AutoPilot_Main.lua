@@ -228,7 +228,11 @@ local function onTick()
     -- Stale-closure guard: dead upvalues mean this copy must retire quietly.
     if not (_getLocalPlayer and _initPlayer and _tickForPlayer) then return end
 
-    -- Death-learning: apply bounded threshold adjustments once per session.
+    -- Player-configured options first, THEN the death-learning deltas on top,
+    -- so both layers of tuning compose in a stable order.
+    if AutoPilot_Options and AutoPilot_Options.applyOnce then
+        pcall(AutoPilot_Options.applyOnce)
+    end
     if AutoPilot_Adaptive and AutoPilot_Adaptive.init then
         pcall(AutoPilot_Adaptive.init)
     end
@@ -255,12 +259,24 @@ local function _togglePlayer(player)
     _sayMode(player)
 end
 
+--- Arm/disarm from code (the F11 panel's button).  Same path as F10.
+--- Defined here, after _togglePlayer, so the upvalue binds correctly.
+function AutoPilot.toggle()
+    _togglePlayer(_getLocalPlayer())
+end
+
 -- ── Keyboard controls ──────────────────────────────────────────────────────────
 
 local function onKeyPressed(key)
     -- Stale-closure guard (see onTick): retire quietly after a Lua reload.
     if not (_getLocalPlayer and _togglePlayer) then return end
-    if key == Keyboard.KEY_F11 then
+    -- Rebindable via mod options; hard fallbacks F10/F11.
+    local armKey, panelKey = Keyboard.KEY_F10, Keyboard.KEY_F11
+    if AutoPilot_Options and AutoPilot_Options.getKey then
+        armKey   = AutoPilot_Options.getKey("armKey", armKey)
+        panelKey = AutoPilot_Options.getKey("panelKey", panelKey)
+    end
+    if key == panelKey then
         -- Leveler panel: focus selection + XP metrics.  NEVER fail silently:
         -- a swallowed error here made F11 look dead on a live server.
         if AutoPilot_UI and AutoPilot_UI.toggle then
@@ -277,7 +293,7 @@ local function onKeyPressed(key)
         end
         return
     end
-    if key ~= Keyboard.KEY_F10 then return end
+    if key ~= armKey then return end
     _togglePlayer(_getLocalPlayer())
 end
 

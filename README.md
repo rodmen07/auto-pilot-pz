@@ -1,11 +1,12 @@
-# AutoPilot for Project Zomboid Build 42
+# AutoPilot Leveler for Project Zomboid Build 42
 
-AutoPilot is a client-side AFK survivor/trainer mod.
-It keeps your character alive and leveling while you step away.
+Auto-exercise leveler with a survival fail-safe. Reach a stable spot, press
+F10, and your character grinds Strength/Fitness while you step away.
 
-Status: V1.1 — available on GitHub and Steam Workshop.
+Status: V3.3 — Build 42.19.0 Unstable. Steam Workshop ID 3767254910.
 
-See WORKSHOP.md for the Workshop description and TESTING.md for the pre-release checklist.
+See WORKSHOP.md for the Workshop description, MULTIPLAYER.md for server
+setup, and TESTING.md for the pre-release checklist.
 
 ## Who This README Is For
 
@@ -14,17 +15,22 @@ This guide is for a technical user who wants to:
 - Edit behavior in Lua
 - Run checks/tests before pushing changes
 
-## What AutoPilot Does
+## What AutoPilot Leveler Does
 
-- Survival: hunger, thirst, fatigue, wounds, boredom
-- Combat: fight/flee logic based on local risk
-- Progression: Strength/Fitness exercise selection and scheduling
-- Resource loop: nearby looting, depletion tracking, supply runs
-- Home safety: home bounds + one-time barricade attempt
+- Training: focus-based exercise (Auto=burpees, Strength=push-ups +
+  equipment lifts when a dumbbell/barbell is carried, Fitness=squats with
+  sit-up fallback), XP-fatigue detection with rotation and rest
+- Metrics: F11 panel with level, XP-to-next, session gain, XP/hour, ETA,
+  live trainer status, and sets-per-day counter
+- Survival fail-safe: hunger, thirst, sleep, wounds, temperature; fight/flee
+  only when zombies actually engage (chasing/visible/close)
+- Death learning: context snapshots on death + bounded threshold self-tuning
+- Configurable: sliders and rebindable keys under Options > Mods
+- Off by default; splitscreen not supported; MP-safe (client-side only)
 
-Control keys:
-- F10: toggle AutoPilot on/off
-- Home anchor: auto-set when AutoPilot is first enabled
+Control keys (rebindable in mod options):
+- F10: arm/disarm (home anchor is set where you stand when first armed)
+- F11: leveler panel
 
 ## Install and Run (Fast Path)
 

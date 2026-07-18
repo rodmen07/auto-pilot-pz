@@ -27,6 +27,8 @@ local print = _apNoop
 -- Phase 2: daily exercise tracking (resets on day rollover)
 local _exerciseSetsToday = 0
 local _lastTrackedDay    = -1
+-- In-game day of the last equipment-fetch attempt (one trip per day).
+local _equipFetchDay     = -1
 
 -- Phase 3: consecutive loot cycles with no food/drink found (triggers supply run)
 local _emptyLootCycles = 0
@@ -41,8 +43,9 @@ local drinkCooldownMs = 0
 -- Hunger/Thirst/Fatigue: 0.0 = fine, ~1.0 = critical
 -- Boredom: 0-100 scale
 -- Endurance: 1.0 = full, 0.0 = empty
-local HUNGER_STAT_THRESHOLD  = AutoPilot_Constants.HUNGER_THRESHOLD
-local THIRST_STAT_THRESHOLD  = AutoPilot_Constants.THIRST_THRESHOLD
+-- NOTE: hunger/thirst trigger thresholds are read LIVE from
+-- AutoPilot_Constants at each use site (not cached here): the Adaptive layer
+-- lowers them after starvation/dehydration deaths at runtime.
 local FATIGUE_STAT_THRESHOLD = AutoPilot_Constants.FATIGUE_THRESHOLD
 local BOREDOM_STAT_THRESHOLD = AutoPilot_Constants.BOREDOM_THRESHOLD
 local ENDURANCE_REST_MIN     = AutoPilot_Constants.ENDURANCE_REST_MIN
@@ -751,12 +754,28 @@ local function _legsTooStiffForSquats(player)
     return tooStiff
 end
 
--- Ordered exercise candidates for the focus; the first one that is not
--- XP-fatigued and has definition data is used.  Later entries are fallbacks
--- for when the primary exercise stops yielding XP (PZ diminishing returns).
+-- True when the exercise's required item (if any) is in the inventory.
+-- Mirrors the vanilla gate (ISFitnessUI: inventory:contains(item, true)).
+local function _hasExerciseItem(player, exeData)
+    if not exeData.item then return true end
+    local has = false
+    pcall(function()
+        has = player:getInventory():contains(exeData.item, true)
+    end)
+    return has
+end
+
+-- Ordered exercise candidates for the focus; the first one that has
+-- definition data, whose required item is carried, and that is not
+-- XP-fatigued is used.  Later entries are fallbacks for when the primary
+-- exercise stops yielding XP (PZ diminishing returns).
+--
+-- Equipment exercises lead the Strength pool: their xpMod (dumbbell 1.8x,
+-- barbell 1.2x) belongs to the EXERCISE TYPE, so doing dumbbellpress beats
+-- push-ups whenever a dumbbell is carried.  No fitness equipment exists.
 local function _exerciseCandidates(player, focus)
     if focus == "strength" then
-        return { "pushups" }
+        return { "dumbbellpress", "bicepscurl", "barbellcurl", "pushups" }
     elseif focus == "fitness" then
         if _legsTooStiffForSquats(player) then
             print("[Needs] Legs too stiff for squats — switching to sit-ups.")
@@ -764,9 +783,9 @@ local function _exerciseCandidates(player, focus)
         end
         return { "squats", "situp" }
     end
-    -- auto: burpees train both stats at once; when burpees fatigue, alternate
-    -- the single-stat exercises to keep both moving.
-    return { "burpees", "pushups", "squats", "situp" }
+    -- auto: burpees train both stats at once; on fatigue, alternate strength
+    -- (equipment first) and fitness work to keep both moving.
+    return { "burpees", "dumbbellpress", "squats", "pushups", "situp" }
 end
 
 -- ── Per-exercise XP-productivity tracking ───────────────────────────────────
@@ -780,6 +799,8 @@ end
 local _exSetStart     = {}
 -- [exType] -> game-ms until which the exercise is considered fatigued.
 local _exFatiguedUntil = {}
+-- Human-readable state of the trainer, shown in the F11 panel.
+local _exerciseOutcome = "idle"
 
 local function _perkXp(player, perk)
     local ok, xp = pcall(function() return player:getXp():getXP(perk) end)
@@ -836,6 +857,7 @@ local function doExercise(player, focus)
     if _exerciseSetsToday >= AutoPilot_Constants.EXERCISE_DAILY_CAP then
         print(("[Needs] Daily exercise cap %d reached — resting."):format(
             AutoPilot_Constants.EXERCISE_DAILY_CAP))
+        _exerciseOutcome = "resting (daily set cap reached)"
         return false
     end
     -- Phase 2: endurance gate
@@ -843,6 +865,7 @@ local function doExercise(player, focus)
     if _endurance < AutoPilot_Constants.EXERCISE_ENDURANCE_MIN then
         print(("[Needs] Endurance %.2f < %.2f — skipping exercise."):format(
             _endurance, AutoPilot_Constants.EXERCISE_ENDURANCE_MIN))
+        _exerciseOutcome = "resting (endurance recovering)"
         return false
     end
     -- Don't start exercise if endurance is too low — just idle and let it recover
@@ -860,6 +883,7 @@ local function doExercise(player, focus)
                 endurance * 100))
             exerciseWaitLogMs = ms + 30000
         end
+        _exerciseOutcome = "resting (endurance recovering)"
         return false  -- no action queued; endurance recovers passively while idle
     end
 
@@ -868,12 +892,27 @@ local function doExercise(player, focus)
     end)
     nowMs = okMs and nowMs or 0
 
+    -- Once per day (strength/auto focus): fetch a dumbbell/barbell from home
+    -- storage so the higher-XP equipment exercises unlock.  The fetch trip is
+    -- itself this cycle's action.
+    if focus ~= "fitness" and _equipFetchDay ~= _today
+        and AutoPilot_Inventory.fetchExerciseEquipment
+        and not AutoPilot_Inventory.hasExerciseEquipment(player) then
+        _equipFetchDay = _today
+        local okF, fetching = pcall(AutoPilot_Inventory.fetchExerciseEquipment, player)
+        if okF and fetching then
+            _exerciseOutcome = "fetching exercise equipment"
+            return true
+        end
+    end
+
     local candidates = _exerciseCandidates(player, focus)
     local exType, exeData
     for _, cand in ipairs(candidates) do
         local data = FitnessExercises and FitnessExercises.exercisesType
             and FitnessExercises.exercisesType[cand] or nil
-        if data and _exerciseStillProductive(player, cand, nowMs) then
+        if data and _hasExerciseItem(player, data)
+            and _exerciseStillProductive(player, cand, nowMs) then
             exType, exeData = cand, data
             break
         end
@@ -882,6 +921,7 @@ local function doExercise(player, focus)
     if not exeData then
         print("[Needs] All exercises for focus '" .. tostring(focus or "auto")
             .. "' are XP-fatigued — pausing training while they recover.")
+        _exerciseOutcome = "resting (exercises fatigued)"
         return false
     end
     print("[Needs] Exercise — focus: " .. tostring(focus or "auto")
@@ -904,9 +944,16 @@ local function doExercise(player, focus)
     end)
 
     if ok and action then
-        -- Phase 2: equip best available exercise gear before starting
-        local _tier = AutoPilot_Inventory.equipBestExerciseItem(player)
-        print(("[Needs] Exercise tier: %s"):format(_tier))
+        -- Equipment exercises: put the item in hand the same way vanilla's
+        -- fitness UI does before starting (ISFitnessUI.lua:245-262) — prop
+        -- "twohands" equips two-handed, "primary"/"switch" one-handed.
+        if exeData.item then
+            pcall(function()
+                local twoHands = exeData.prop == "twohands"
+                ISWorldObjectContextMenu.equip(player,
+                    player:getPrimaryHandItem(), exeData.item, true, twoHands)
+            end)
+        end
         -- addGetUpAndThen (real 42.19 static, ISTimedActionQueue.lua:219):
         -- stands the character up from any furniture before exercising.
         ISTimedActionQueue.addGetUpAndThen(player, action)
@@ -919,16 +966,29 @@ local function doExercise(player, focus)
             who = player,
         }
         _exerciseSetsToday = _exerciseSetsToday + 1
+        _exerciseOutcome = "training: " .. exType
         print(("[Needs] Exercise set %d/%d queued."):format(
             _exerciseSetsToday, AutoPilot_Constants.EXERCISE_DAILY_CAP))
         return true
     else
         print("[Needs] ISFitnessAction failed for: " .. exType .. " — " .. tostring(action))
+        _exerciseOutcome = "error: could not start " .. tostring(exType)
         return false
     end
 end
 
 -- ── Public API ──────────────────────────────────────────────────────────────
+
+--- Trainer status for the F11 panel.
+--- Returns { outcome = "training: squats" | "resting (...)" | "idle",
+---           setsToday, cap }.
+function AutoPilot_Needs.getExerciseStatus()
+    return {
+        outcome   = _exerciseOutcome,
+        setsToday = _exerciseSetsToday,
+        cap       = AutoPilot_Constants.EXERCISE_DAILY_CAP,
+    }
+end
 
 --- Returns true if an urgent need should interrupt the current action (e.g. exercise).
 --- Called by Main before the isPlayerDoingAction guard.
@@ -938,11 +998,11 @@ function AutoPilot_Needs.shouldInterrupt(player)
 
     -- Thirst interrupts at threshold
     local thirst = AutoPilot_Utils.safeStat(player, CharacterStat.THIRST)
-    if thirst >= THIRST_STAT_THRESHOLD then return true end
+    if thirst >= AutoPilot_Constants.THIRST_THRESHOLD then return true end
 
     -- Hunger interrupts
     local hunger = AutoPilot_Utils.safeStat(player, CharacterStat.HUNGER)
-    if hunger >= HUNGER_STAT_THRESHOLD then return true end
+    if hunger >= AutoPilot_Constants.HUNGER_THRESHOLD then return true end
 
     -- Exhaustion interrupts (stat threshold OR severe moodle — mirrors check())
     local endurance = AutoPilot_Utils.safeStat(player, CharacterStat.ENDURANCE)
@@ -982,7 +1042,7 @@ function AutoPilot_Needs.check(player)
 
     -- 2. Thirst (0.0=hydrated, ~1.0=dying)
     local thirst = AutoPilot_Utils.safeStat(player, CharacterStat.THIRST)
-    if thirst >= THIRST_STAT_THRESHOLD then
+    if thirst >= AutoPilot_Constants.THIRST_THRESHOLD then
         AutoPilot_Telemetry.setDecision("drink", "thirst_thresh")
         return doDrink(player)
     end
@@ -1008,7 +1068,7 @@ function AutoPilot_Needs.check(player)
 
     -- 3. Hunger (0.0=full, ~1.0=starving)
     local hunger = AutoPilot_Utils.safeStat(player, CharacterStat.HUNGER)
-    if hunger >= HUNGER_STAT_THRESHOLD then
+    if hunger >= AutoPilot_Constants.HUNGER_THRESHOLD then
         print(string.format(
             "[Needs] Hunger triggered (%.0f%%). Attempting to eat.", hunger * 100))
         AutoPilot_Telemetry.setDecision("eat", "hunger_thresh")
