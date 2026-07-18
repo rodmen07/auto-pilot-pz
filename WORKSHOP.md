@@ -1,89 +1,63 @@
 # Steam Workshop Description (BB code — paste into Workshop upload page)
 
-[h1]AutoPilot[/h1]
-[b]Keeps your character alive and leveling while you're AFK.[/b]
+[h1]AutoPilot Leveler[/h1]
+[b]Grind Strength and Fitness while AFK — with a survival fail-safe watching your back.[/b]
 
-AutoPilot is a client-side mod for Project Zomboid Build 42 that runs a full survival and fitness routine automatically. Toggle the bot and it auto-sets home on first enable.
+AutoPilot Leveler is a client-side mod for Project Zomboid Build 42 (unstable). Reach a stable spot — vicinity cleared, supplies stocked — then press [b]F10[/b] and your character trains while you're away. This is a deliberate tool, not an always-on autopilot: it does nothing until you arm it.
 
-[h2]Features[/h2]
-
-[b]Survival[/b]
+[h2]Leveling[/h2]
 [list]
-[*]Eats when hungry — calorie-aware food selection (high-cal when underweight, low-cal when over)
-[*]Drinks from sinks, taps, and containers when thirsty
-[*]Sleeps in the nearest bed; rests on the floor when no bed is available
-[*]Bandages wounds automatically, prioritising bleeding and infection
-[*]Manages happiness — prefers tasty food; reads magazines/books when bored
-[*]Temperature-aware clothing — equips warmer/cooler gear based on body temperature
+[*]Pick a focus in the [b]F11[/b] panel:
+[*]— [b]Strength[/b]: push-ups
+[*]— [b]Fitness[/b]: squats, switching to sit-ups while the legs are stiff
+[*]— [b]Auto[/b]: burpees (trains both stats together)
+[*]Live metrics per stat: level, XP to next, session gain, XP/hour, ETA to next level
+[*]Detects the game's per-exercise diminishing returns: when a set stops yielding XP, it rotates exercises — and rests instead of grinding for zero
+[*]Equips dumbbells/barbells from your inventory or home area when available
+[*]Endurance-aware: pauses between sets while wind recovers; daily set cap prevents over-training
 [/list]
 
-[b]Exercise[/b]
+[h2]Survival Fail-Safe (while training)[/h2]
 [list]
-[*]Exercises to level Strength and Fitness evenly — targets whichever stat is lower
-[*]Prefers dumbbells (1.8× XP) and barbells (1.2× XP) over bodyweight exercises
-[*]Searches home area for exercise equipment and equips the best available
-[*]Skips exercise when endurance is below 30%; resumes at 70%
-[*]Caps at 20 sets per in-game day to avoid over-training; resets on day rollover
+[*]Eats, drinks (including sinks/taps), sleeps in the nearest bed, and bandages wounds
+[*]Fights or flees when zombies actually threaten — chasing, visible, or adjacent. Wanderers shambling outside your walls are ignored, not panicked over
+[*]Keeps a small food/drink stockpile with short, near-home loot trips (never wanders the neighborhood)
+[*]Maintains window barricades at your home anchor (hammer + planks + nails)
+[*]Temperature-aware clothing swaps
 [/list]
 
-[b]Combat[/b]
+[h2]Death Learning[/h2]
 [list]
-[*]Detects zombies within 10 tiles
-[*]Fights when safe; flees toward home when bleeding or outnumbered
-[*]Checks weapon durability before combat — auto-swaps to best melee weapon when condition drops below 25%
-[/list]
-
-[b]Looting[/b]
-[list]
-[*]Forages for food, drink, medical supplies, and exercise equipment within home bounds
-[*]Bulk-loots containers — grabs all useful items in one trip
-[*]Tracks depleted containers and skips them on future passes
-[*]Expands search radius to 200 tiles after 5 consecutive empty loot cycles (supply runs)
-[/list]
-
-[b]Home Base[/b]
-[list]
-[*]Home base is auto-set to your current position the first time you enable autopilot
-[*]Bot stays within home bounds for all activities
-[*]Barricades windows once after home is set (requires nails + hammer in inventory)
-[*]Home position persists across sessions via ModData
-[/list]
-
-[b]Local Autonomous Survivor Mode[/b]
-[list]
-[*]No sidecar required — all decision logic runs inside the mod.
-[*]Toggle autopilot with [b]F10[/b] (keyboard/mouse player).
-[*]Controller players (splitscreen) toggle with [b]Back/Select double-tap[/b].
-[*]AutoPilot starts enabled by default — no setup needed.
-[*]Home anchor is auto-set on first enable.
+[*]Every death is recorded with full context: stats, wounds, zombie pressure, position, recent decisions, and a classified cause
+[*]On the next session the mod adjusts its own survival thresholds within safe bounds — flee earlier after horde deaths, eat earlier after starving, stay closer to home after dying far away
+[*]The F11 panel shows deaths on record and active adaptive tweaks
 [/list]
 
 [h2]Controls[/h2]
 [list]
-[*][b]F10[/b] — Toggle autopilot on/off (keyboard/mouse player)
-[*][b]Back / Select × 2[/b] — Toggle autopilot (controller players in splitscreen)
+[*][b]F10[/b] — arm / disarm (starts OFF; home anchors where you stand when first armed)
+[*][b]F11[/b] — leveler panel: focus selection + live XP metrics
 [/list]
 
 [h2]Compatibility[/h2]
 [list]
-[*]Build 42 only
-[*]Client-side — no server mod required
-[*]Safe for private multiplayer servers (client authority only; no cross-player actions)
-[*]Splitscreen: up to 4 local players, each with an independent autopilot instance
+[*]Project Zomboid Build [b]42.19.0 Unstable[/b]
+[*]Client-side only — no server mod required; safe to list on hosted servers ([i]Mods=AutoPilot[/i])
+[*]Multiplayer: each player automates their own character only; all actions go through the normal server-validated action queue
+[*]Focus and home anchor persist per character via ModData
+[*]Splitscreen is NOT supported
 [/list]
 
 [h2]Known Limitations[/h2]
 [list]
-[*]No server-side authority — autopilot actions are local to each client; the server is not aware of the bot.
-[*]No cross-player item transfers in splitscreen — each player's bot only uses their own inventory.
-[*]Telemetry log ([i]~/Zomboid/Lua/auto_pilot_run.log[/i]) grows unbounded; delete it between benchmark sessions.
-[*]The launcher scripts ([i]start_autopilot.bat[/i], [i]sync_after_merge.bat[/i]) are developer tools — they are not required for normal gameplay.
+[*]Exercise-focused by design: it will not explore, clear buildings, or manage a base beyond barricade upkeep
+[*]The survival layer is a fail-safe, not a caretaker — arm it from a stable position
+[*]Telemetry log ([i]~/Zomboid/Lua/auto_pilot_run.log[/i]) grows over long sessions; safe to delete anytime
+[*]B42 multiplayer is itself unstable; expect the usual unstable-branch rough edges
 [/list]
 
-[h2]Requirements[/h2]
-[list]
-[*]Project Zomboid Build 42.15.3+
-[/list]
+[h2]Fair Play Note[/h2]
+This mod automates AFK play. Use it on your own server or with the server owner's blessing.
 
 [h2]Source & Issues[/h2]
 GitHub: [url=https://github.com/rodmen07/auto-pilot-pz]github.com/rodmen07/auto-pilot-pz[/url]
