@@ -79,7 +79,9 @@ end
 
 local function _appendLine(pnum, line)
     pcall(function()
-        local w = getFileWriter(_logFile(pnum), true, false)
+        -- getFileWriter(name, createIfNotExist, append) — append=true, or every
+        -- write truncates the log down to its single most recent line.
+        local w = getFileWriter(_logFile(pnum), true, true)
         if w then
             w:write(line .. "\n")
             w:close()
@@ -98,7 +100,9 @@ local function _writeEndMarker(pnum, status, reason)
         pnum, status, reason, tick, math.floor(timestamp)
     )
     pcall(function()
-        local w = getFileWriter(_endFile(pnum), false, false)
+        -- create=true so the end marker is written even on the first-ever run;
+        -- append=false intentionally keeps only the latest end marker.
+        local w = getFileWriter(_endFile(pnum), true, false)
         if w then
             w:write(json .. "\n")
             w:close()
@@ -174,6 +178,13 @@ function AutoPilot_Telemetry.logTick(player, action, reason)
 
     action = action or _pendingAction[pnum] or "idle"
     reason = reason or _pendingReason[pnum] or ""
+
+    -- Feed the death-learning decision ring buffer (collapses duplicates).
+    if AutoPilot_DeathLog and AutoPilot_DeathLog.recordDecision then
+        pcall(function()
+            AutoPilot_DeathLog.recordDecision(player, action, reason)
+        end)
+    end
     local stage       = _pendingStage[pnum]  or ""
     local fail_reason = _pendingFail[pnum]   or ""
     local retry_count = _pendingRetry[pnum]  or 0
@@ -206,6 +217,10 @@ function AutoPilot_Telemetry.onDeath(player)
     AutoPilot_Telemetry.logTick(player, "dead", "player_died")
     local pnum = player and _pn(player) or 0
     _writeEndMarker(pnum, "dead", "player_died")
+    -- Death learning layer: rich context snapshot for AutoPilot_Adaptive.
+    if AutoPilot_DeathLog and AutoPilot_DeathLog.writeSnapshot then
+        pcall(function() AutoPilot_DeathLog.writeSnapshot(player) end)
+    end
 end
 
 --- Call when autopilot is disabled or the game session ends while autopilot is

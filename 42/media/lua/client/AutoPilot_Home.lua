@@ -89,8 +89,10 @@ local function loadFromModData(player, pnum)
                 end
             end
         end
+        -- Cap the reloaded radius at the default so fresh sessions and reloads
+        -- behave identically (a stray cap of 50 used to shrink 150 -> 50 here).
         _setHome(pnum, hx, hy, hz,
-            math.min(data.r or HOME_DEFAULT_RADIUS, 50))
+            math.min(data.r or HOME_DEFAULT_RADIUS, HOME_DEFAULT_RADIUS))
         return true
     end
     return false

@@ -45,7 +45,6 @@ local HUNGER_STAT_THRESHOLD  = AutoPilot_Constants.HUNGER_THRESHOLD
 local THIRST_STAT_THRESHOLD  = AutoPilot_Constants.THIRST_THRESHOLD
 local FATIGUE_STAT_THRESHOLD = AutoPilot_Constants.FATIGUE_THRESHOLD
 local BOREDOM_STAT_THRESHOLD = AutoPilot_Constants.BOREDOM_THRESHOLD
-local SADNESS_STAT_THRESHOLD = AutoPilot_Constants.SADNESS_THRESHOLD
 local ENDURANCE_REST_MIN     = AutoPilot_Constants.ENDURANCE_REST_MIN
 local ENDURANCE_EXERCISE_MIN = AutoPilot_Constants.ENDURANCE_EXERCISE_MIN
 local EXERCISE_MINUTES       = AutoPilot_Constants.EXERCISE_MINUTES
@@ -295,14 +294,19 @@ local function doRest(player)
 
     if okBed and isBed then
         print("[Needs] Exhausted — using nearby bed to recover.")
+        -- B42 sleep goes through ISWorldObjectContextMenu.onSleepWalkToComplete,
+        -- which takes the 0-based player index (not the player object) and handles
+        -- the walk-to + setAsleep, including MP SleepAllowed checks.
+        local pnum = player:getPlayerNum()
         if AdjacentFreeTileFinder.isTileOrAdjacent(player:getCurrentSquare(), targetSq) then
-            ISTimedActionQueue.add(ISGetOnBedAction:new(player, target))
+            ISWorldObjectContextMenu.onSleepWalkToComplete(pnum, target)
             queued = true
         else
             local adjacent = AdjacentFreeTileFinder.Find(targetSq, player)
             if adjacent then
-                ISTimedActionQueue.add(ISWalkToTimedAction:new(player, adjacent))
-                ISTimedActionQueue.add(ISGetOnBedAction:new(player, target))
+                local walkAction = ISWalkToTimedAction:new(player, adjacent)
+                walkAction:setOnComplete(ISWorldObjectContextMenu.onSleepWalkToComplete, pnum, target)
+                ISTimedActionQueue.add(walkAction)
                 queued = true
             end
         end
@@ -320,6 +324,8 @@ local function doRest(player)
         end
 
         if ISRestAction and ISRestAction.new then
+            -- Real 42.19 signature (shared/TimedActions/ISRestAction.lua:245):
+            -- ISRestAction:new(character, bed, useAnimations).
             local okRest, restAction = pcall(function()
                 return ISRestAction:new(player, target, nil)
             end)
@@ -461,6 +467,18 @@ local function doSleep(player)
 
     local bedObj = _findBedNearby(player)
     if not bedObj then
+        -- Already seated in a vehicle? B42 counts it as "averageBed"
+        -- (onSleepWalkToComplete with a nil bed checks getVehicle()).
+        local inVehicle = false
+        pcall(function() inVehicle = player:getVehicle() ~= nil end)
+        if inVehicle then
+            player:setVariable("ExerciseStarted", false)
+            player:setVariable("ExerciseEnded", true)
+            ISWorldObjectContextMenu.onSleepWalkToComplete(player:getPlayerNum(), nil)
+            print("[Needs] Sleeping in vehicle (no bed found).")
+            sleepCooldownMs = ms + 15000
+            return true
+        end
         -- Forcing sleep via setAsleep is client-only; the server never learns of
         -- the state change, causing fatigue desync in MP.  Retry next cycle.
         if AutoPilot_Home.isSet(player) then
@@ -475,27 +493,24 @@ local function doSleep(player)
     local bedSq = bedObj:getSquare()
     print("[Needs] Found bed — walking to it.")
 
-    -- Build 42 beds are multi-tile sprite grids. Walk to an adjacent tile first,
-    -- then queue ISGetOnBedAction — mirrors ISWorldObjectContextMenu.onConfirmSleep.
+    -- Build 42 sleeps via ISWorldObjectContextMenu.onSleepWalkToComplete(playerIndex, bed):
+    -- it takes the 0-based player index (not the player object), re-resolves the player
+    -- with getSpecificPlayer, runs the zombie/pain/panic safety checks, and calls
+    -- setAsleep(true) — mirrors the vanilla onConfirmSleep flow.
     player:setVariable("ExerciseStarted", false)
     player:setVariable("ExerciseEnded", true)
 
+    local pnum = player:getPlayerNum()
     if AdjacentFreeTileFinder.isTileOrAdjacent(player:getCurrentSquare(), bedSq) then
-        local bedAction = ISGetOnBedAction:new(player, bedObj)
-        ISTimedActionQueue.add(bedAction)
-        print("[Needs] Queued ISGetOnBedAction directly.")
+        ISWorldObjectContextMenu.onSleepWalkToComplete(pnum, bedObj)
+        print("[Needs] Sleeping in adjacent bed.")
     else
         local adjacent = AdjacentFreeTileFinder.Find(bedSq, player)
         if adjacent then
             local walkAction = ISWalkToTimedAction:new(player, adjacent)
-            local bedAction = ISGetOnBedAction:new(player, bedObj)
-            if walkAction.addAfter then
-                walkAction:addAfter(bedAction)
-                ISTimedActionQueue.add(walkAction)
-            else
-                ISTimedActionQueue.add(walkAction)
-                ISTimedActionQueue.add(bedAction)
-            end
+            walkAction:setOnComplete(ISWorldObjectContextMenu.onSleepWalkToComplete, pnum, bedObj)
+            ISTimedActionQueue.add(walkAction)
+            print("[Needs] Walking to bed, then sleeping.")
         else
             print("[Needs] Bed unreachable — no adjacent free tile found.")
             return false
@@ -625,8 +640,22 @@ end
 
 -- Proactive scavenge: loot when carried supply counts are low, even when
 -- hunger/thirst stats have not yet reached their reactive thresholds.
+-- RATE-LIMITED (V3.2): a background chore, not the mod's purpose.  It stays
+-- within PROACTIVE_LOOT_RADIUS of the character, waits SCAVENGE_COOLDOWN
+-- cycles between trips, and after SCAVENGE_STUCK_LIMIT trips with no supply
+-- improvement it backs off for SCAVENGE_BACKOFF_CYCLES (the area is looted
+-- out; reactive hunger/thirst paths still search the full radius when it
+-- actually matters).
+local _scavengeCooldown  = 0
+local _scavengeStuck     = 0
+local _scavengeLastTotal = -1
+
 local function doProactiveScavenge(player)
     if not (AutoPilot_Inventory and AutoPilot_Inventory.getSupplyCounts) then
+        return false
+    end
+    if _scavengeCooldown > 0 then
+        _scavengeCooldown = _scavengeCooldown - 1
         return false
     end
     local ok, foodCount, drinkCount = pcall(function()
@@ -638,17 +667,48 @@ local function doProactiveScavenge(player)
 
     local needFood  = foodCount  < AutoPilot_Constants.SUPPLY_FOOD_MIN
     local needDrink = drinkCount < AutoPilot_Constants.SUPPLY_DRINK_MIN
-    if not needFood and not needDrink then return false end
+    if not needFood and not needDrink then
+        _scavengeStuck     = 0
+        _scavengeLastTotal = -1
+        return false
+    end
+
+    -- Give-up detection: repeated trips without the counts improving mean the
+    -- nearby area has nothing useful left.
+    local total = foodCount + drinkCount
+    if _scavengeLastTotal >= 0 and total <= _scavengeLastTotal then
+        _scavengeStuck = _scavengeStuck + 1
+    else
+        _scavengeStuck = 0
+    end
+    _scavengeLastTotal = total
+    if _scavengeStuck >= AutoPilot_Constants.SCAVENGE_STUCK_LIMIT then
+        print(string.format(
+            "[Needs] Proactive scavenge: no supply gain after %d trips -- backing off.",
+            _scavengeStuck))
+        _scavengeStuck    = 0
+        _scavengeCooldown = AutoPilot_Constants.SCAVENGE_BACKOFF_CYCLES
+        return false
+    end
+
+    _scavengeCooldown = AutoPilot_Constants.SCAVENGE_COOLDOWN_CYCLES
+    local radius = AutoPilot_Constants.PROACTIVE_LOOT_RADIUS
 
     if needFood then
         print(string.format("[Needs] Proactive: food=%d < %d -- looting.",
             foodCount, AutoPilot_Constants.SUPPLY_FOOD_MIN))
-        if AutoPilot_Inventory.lootNearbyFood(player) then return true end
+        if AutoPilot_Inventory.lootNearbyFood(player, radius) then return true end
     end
     if needDrink then
         print(string.format("[Needs] Proactive: drink=%d < %d -- looting.",
             drinkCount, AutoPilot_Constants.SUPPLY_DRINK_MIN))
-        if AutoPilot_Inventory.lootNearbyDrink(player) then return true end
+        if AutoPilot_Inventory.lootNearbyDrink(player, radius) then return true end
+        -- No bottled drinks nearby: top up existing water containers from a
+        -- source instead (only fires while thirst is still low).
+        if AutoPilot_Inventory.proactiveWaterRefill
+            and AutoPilot_Inventory.proactiveWaterRefill(player) then
+            return true
+        end
     end
     return false
 end
@@ -661,32 +721,110 @@ local function doBaseMaintenance(player)
     return AutoPilot_Barricade.checkMaintenance(player)
 end
 
--- Autonomous exploration: delegates to the explore state machine.
-local function doExplore(player)
-    if not (AutoPilot_Explore and AutoPilot_Explore.check) then return false end
-    return AutoPilot_Explore.check(player)
-end
-
--- Daily skill training: delegates to skill scheduler.
-local function doSkillTraining(player)
-    if not (AutoPilot_Skills and AutoPilot_Skills.performDailySkill) then return false end
-    return AutoPilot_Skills.performDailySkill(player)
-end
-
 -- ── Exercise ────────────────────────────────────────────────────────────────
 -- B42: ISFitnessAction:new(character, exercise, timeToExe, exeData, exeDataType)
--- Exercise data comes from FitnessExercises.exercisesType table.
--- Strength: pushups, squats   |   Fitness: situp, burpees
+-- Exercise data comes from FitnessExercises.exercisesType
+-- (shared/Definitions/FitnessExercises.lua): squats(legs), pushups(arms,chest),
+-- situp(abs), burpees(legs,arms,chest).
+--
+-- Focus mapping (player design, V3.2):
+--   strength -> push-ups (pure Strength work)
+--   fitness  -> squats; sit-ups when the legs are too stiff for squats
+--   auto     -> burpees (levels Strength AND Fitness together)
 
-local STRENGTH_EXERCISES = {"pushups", "squats"}
-local FITNESS_EXERCISES  = {"situp",   "burpees"}
+local LEG_PARTS = { "UpperLeg_L", "UpperLeg_R", "LowerLeg_L", "LowerLeg_R" }
 
-local exerciseCycle = 1
+-- True when any leg part's stiffness reaches the squat cutoff.
+local function _legsTooStiffForSquats(player)
+    local tooStiff = false
+    pcall(function()
+        local bd = player:getBodyDamage()
+        for _, name in ipairs(LEG_PARTS) do
+            local part = bd:getBodyPart(BodyPartType[name])
+            if part and part:getStiffness()
+                >= AutoPilot_Constants.SQUAT_STIFFNESS_MAX then
+                tooStiff = true
+                return
+            end
+        end
+    end)
+    return tooStiff
+end
+
+-- Ordered exercise candidates for the focus; the first one that is not
+-- XP-fatigued and has definition data is used.  Later entries are fallbacks
+-- for when the primary exercise stops yielding XP (PZ diminishing returns).
+local function _exerciseCandidates(player, focus)
+    if focus == "strength" then
+        return { "pushups" }
+    elseif focus == "fitness" then
+        if _legsTooStiffForSquats(player) then
+            print("[Needs] Legs too stiff for squats — switching to sit-ups.")
+            return { "situp" }
+        end
+        return { "squats", "situp" }
+    end
+    -- auto: burpees train both stats at once; when burpees fatigue, alternate
+    -- the single-stat exercises to keep both moving.
+    return { "burpees", "pushups", "squats", "situp" }
+end
+
+-- ── Per-exercise XP-productivity tracking ───────────────────────────────────
+-- PZ applies per-exercise diminishing returns: repeat one exercise long
+-- enough and its XP drops to ~zero while the animation happily continues.
+-- The engine does not expose that fatigue to Lua (only long-term
+-- getRegularity), so it is detected the honest way: by measuring the actual
+-- XP a completed set produced.
+
+-- [exType] -> { str, fit, ms }  snapshot taken when the set was queued.
+local _exSetStart     = {}
+-- [exType] -> game-ms until which the exercise is considered fatigued.
+local _exFatiguedUntil = {}
+
+local function _perkXp(player, perk)
+    local ok, xp = pcall(function() return player:getXp():getXP(perk) end)
+    return (ok and type(xp) == "number") and xp or 0
+end
+
+-- Judge the previous set of exType (if one ran to roughly full length):
+-- returns false when the exercise is now fatigued and should be skipped.
+local function _exerciseStillProductive(player, exType, nowMs)
+    local fatiguedUntil = _exFatiguedUntil[exType]
+    if fatiguedUntil and nowMs < fatiguedUntil then
+        return false
+    end
+    local s = _exSetStart[exType]
+    if not s then return true end
+    -- A snapshot from a DIFFERENT character (death/respawn) must never be
+    -- judged: the new character's lower XP would read as negative gain and
+    -- falsely fatigue the exercise.
+    if s.who ~= player then
+        _exSetStart[exType] = nil
+        return true
+    end
+    -- Only judge sets that ran most of their duration (an interrupted set
+    -- legitimately gains nothing).
+    local fullSetMs = AutoPilot_Constants.EXERCISE_MINUTES * 60000
+    if (nowMs - s.ms) < fullSetMs * 0.8 then return true end
+    local gain = (_perkXp(player, Perks.Strength) - s.str)
+               + (_perkXp(player, Perks.Fitness)  - s.fit)
+    if gain < AutoPilot_Constants.EXERCISE_MIN_XP_PER_SET then
+        print(string.format(
+            "[Needs] %s produced %.1f XP last set — fatigued; resting it.",
+            exType, gain))
+        _exFatiguedUntil[exType] = nowMs
+            + AutoPilot_Constants.EXERCISE_FATIGUE_RECOVERY_MS
+        _exSetStart[exType] = nil
+        return false
+    end
+    return true
+end
 
 -- Log cooldown for "waiting for endurance" to prevent spam
 local exerciseWaitLogMs = 0
 
-local function doExercise(player)
+-- focus: "strength" | "fitness" | nil (nil = auto-balance the lower of the two)
+local function doExercise(player, focus)
     -- Phase 2: day-rollover reset
     local _gameTime = GameTime.getInstance()
     local _today    = _gameTime and _gameTime:getDay() or 0
@@ -725,46 +863,42 @@ local function doExercise(player)
         return false  -- no action queued; endurance recovers passively while idle
     end
 
-    local strLevel = getPerkLevel(player, Perks.Strength)
-    local fitLevel = getPerkLevel(player, Perks.Fitness)
+    local okMs, nowMs = pcall(function()
+        return getGameTime():getCalender():getTimeInMillis()
+    end)
+    nowMs = okMs and nowMs or 0
 
-    local exercises
-    if strLevel <= fitLevel then
-        exercises = STRENGTH_EXERCISES
-        print(string.format("[Needs] Exercise — training Strength (STR %d / FIT %d)",
-            strLevel, fitLevel))
-    else
-        exercises = FITNESS_EXERCISES
-        print(string.format("[Needs] Exercise — training Fitness (STR %d / FIT %d)",
-            strLevel, fitLevel))
-    end
-
-    -- Guard: exercises table must be non-empty before indexing.
-    if #exercises == 0 then
-        print("[Needs] No exercises defined for current focus — skipping.")
-        return false
-    end
-    local exType = exercises[((exerciseCycle - 1) % #exercises) + 1]
-    exerciseCycle = exerciseCycle + 1
-
-    local exeData = nil
-    if FitnessExercises and FitnessExercises.exercisesType then
-        exeData = FitnessExercises.exercisesType[exType]
+    local candidates = _exerciseCandidates(player, focus)
+    local exType, exeData
+    for _, cand in ipairs(candidates) do
+        local data = FitnessExercises and FitnessExercises.exercisesType
+            and FitnessExercises.exercisesType[cand] or nil
+        if data and _exerciseStillProductive(player, cand, nowMs) then
+            exType, exeData = cand, data
+            break
+        end
     end
 
     if not exeData then
-        print("[Needs] FitnessExercises data not found for: " .. exType)
+        print("[Needs] All exercises for focus '" .. tostring(focus or "auto")
+            .. "' are XP-fatigued — pausing training while they recover.")
         return false
     end
+    print("[Needs] Exercise — focus: " .. tostring(focus or "auto")
+        .. " -> " .. exType)
 
     -- Pre-initialize the Java Fitness object so currentExe is set before
     -- the action lifecycle starts (prevents exerciseRepeat NPE).
     pcall(function()
         local fitness = player:getFitness()
         fitness:init()
-        fitness:setCurrentExercise(exeData.type)
     end)
 
+    -- 42.19 signature (shared/TimedActions/ISFitnessAction.lua:200, verified
+    -- against the RUNNING game's stack trace):
+    --   ISFitnessAction:new(character, exercise, timeToExe, exeData, exeDataType)
+    -- The 5th arg feeds fitness:setCurrentExercise(exeDataType) — a String-typed
+    -- Java call — so it must be the TYPE STRING, with the data table 4th.
     local ok, action = pcall(function()
         return ISFitnessAction:new(player, exType, EXERCISE_MINUTES, exeData, exeData.type)
     end)
@@ -773,7 +907,17 @@ local function doExercise(player)
         -- Phase 2: equip best available exercise gear before starting
         local _tier = AutoPilot_Inventory.equipBestExerciseItem(player)
         print(("[Needs] Exercise tier: %s"):format(_tier))
+        -- addGetUpAndThen (real 42.19 static, ISTimedActionQueue.lua:219):
+        -- stands the character up from any furniture before exercising.
         ISTimedActionQueue.addGetUpAndThen(player, action)
+        -- Snapshot XP at set start so the NEXT attempt can judge whether this
+        -- set actually produced XP (diminishing-returns detection).
+        _exSetStart[exType] = {
+            str = _perkXp(player, Perks.Strength),
+            fit = _perkXp(player, Perks.Fitness),
+            ms  = nowMs,
+            who = player,
+        }
         _exerciseSetsToday = _exerciseSetsToday + 1
         print(("[Needs] Exercise set %d/%d queued."):format(
             _exerciseSetsToday, AutoPilot_Constants.EXERCISE_DAILY_CAP))
@@ -894,27 +1038,15 @@ function AutoPilot_Needs.check(player)
         return doRest(player)
     end
 
-    -- 7. Proactive supply scavenge (stats fine but supply count is low)
-    AutoPilot_Telemetry.setDecision("scavenge", "low_supplies")
-    if doProactiveScavenge(player) then return true end
-
-    -- 8. Base maintenance (periodic barricade re-check; no-ops most cycles)
-    AutoPilot_Telemetry.setDecision("barricade", "maintenance")
-    if doBaseMaintenance(player) then return true end
-
-    -- 9. Autonomous exploration (frontier scouting and supply runs)
-    AutoPilot_Telemetry.setDecision("explore", "idle")
-    if doExplore(player) then return true end
-
-    -- 9.5. Daily skill training (cooking, carpentry, mechanics, fishing, tailoring)
-    AutoPilot_Telemetry.setDecision("skill", "training")
-    if doSkillTraining(player) then return true end
-
-    -- 10. Bored, Sad, or Unhappy -> prefer tasty food, then read, then go outside
+    -- 7. Bored or Unhappy -> prefer tasty food, then read, then go outside.
+    -- Kept above exercise: unhappiness slows every action (worse XP/hour) and
+    -- these are quick one-shot fixes.
+    -- NOTE: CharacterStat.SANITY reads HIGH when healthy, so it must not be used
+    -- as a "sadness" signal (it made this branch fire nearly every idle cycle).
+    -- The Unhappy moodle level is the correct low-mood source.
     local boredom     = AutoPilot_Utils.safeStat(player, CharacterStat.BOREDOM)
-    local sadness     = AutoPilot_Utils.safeStat(player, CharacterStat.SANITY)
     local unhappyLvl  = safeMoodleLevel(player, MoodleType.Unhappy)
-    if boredom >= BOREDOM_STAT_THRESHOLD or sadness >= SADNESS_STAT_THRESHOLD
+    if boredom >= BOREDOM_STAT_THRESHOLD
         or unhappyLvl >= AutoPilot_Constants.HAPPINESS_LOW_THRESHOLD then
         -- Phase 3: when unhappy, prefer food that reduces boredom first
         if unhappyLvl >= AutoPilot_Constants.HAPPINESS_LOW_THRESHOLD then
@@ -936,9 +1068,29 @@ function AutoPilot_Needs.check(player)
         end
     end
 
-    -- 11. Idle -> exercise (default behavior, lowest priority)
-    AutoPilot_Telemetry.setDecision("exercise", "idle")
-    return doExercise(player)
+    -- 8. EXERCISE — the mod's primary purpose (V3.2 reorder: this sat at the
+    -- bottom and proactive scavenging claimed every idle cycle, so training
+    -- never ran).  Survival needs above always win; the endurance gates inside
+    -- doExercise hand the cycle to the background chores below while
+    -- recovering between sets.
+    AutoPilot_Telemetry.setDecision("exercise", "training")
+    local trained
+    if AutoPilot_Leveler and AutoPilot_Leveler.check then
+        trained = AutoPilot_Leveler.check(player)
+    else
+        trained = doExercise(player)
+    end
+    if trained then return true end
+
+    -- 9. Proactive supply scavenge (rate-limited background chore)
+    AutoPilot_Telemetry.setDecision("scavenge", "low_supplies")
+    if doProactiveScavenge(player) then return true end
+
+    -- 10. Base maintenance (periodic barricade re-check; no-ops most cycles)
+    AutoPilot_Telemetry.setDecision("barricade", "maintenance")
+    if doBaseMaintenance(player) then return true end
+
+    return false
 end
 
 -- ── Public aliases for chain-action use ──────────────────────────────────────
@@ -987,13 +1139,22 @@ function AutoPilot_Needs.getMoodleSnapshot(player)
         sick     = math.floor(AutoPilot_Utils.safeStat(player, CharacterStat.SICKNESS)),
         stressed = math.floor(AutoPilot_Utils.safeStat(player, CharacterStat.STRESS)),
         bored    = math.floor(AutoPilot_Utils.safeStat(player, CharacterStat.BOREDOM)),
-        sad      = math.floor(AutoPilot_Utils.safeStat(player, CharacterStat.SANITY)),
+        -- SANITY reads high when healthy; the Unhappy moodle (0-4) is the real
+        -- low-mood signal. Keep the "sad" key for log-parser compatibility.
+        sad      = safeMoodleLevel(player, MoodleType.Unhappy),
     }
 end
 
 --- Force a single survival action if needed.
 function AutoPilot_Needs.forceSurvival(player)
     return AutoPilot_Needs.check(player)
+end
+
+--- Public seam for the auto-leveler: run one exercise set with an explicit
+--- focus ("strength" | "fitness").  Honors the endurance gates and the daily
+--- set cap.  Returns true when an exercise action was queued.
+function AutoPilot_Needs.trainExercise(player, focus)
+    return doExercise(player, focus)
 end
 
 function AutoPilot_Needs.forceEat(player)

@@ -138,7 +138,14 @@ do
     ISTimedActionQueue_calls = {}
     AutoPilot_Inventory._swapCalled = false
 
-    local weapon = { getMaxDamage = function(self) return 10 end }
+    -- Real InventoryItems always expose condition accessors; getWeaponCondition
+    -- treats a weapon without them as broken (condition 0), so the mock must
+    -- provide them for the fight path to consider the weapon usable.
+    local weapon = {
+        getMaxDamage    = function(self) return 10 end,
+        getCondition    = function(self) return 10 end,
+        getConditionMax = function(self) return 10 end,
+    }
     AutoPilot_Inventory._bestWeapon = weapon
 
     local p = makePlayer({playerNum=3})

@@ -101,9 +101,37 @@ local function analyzeSpread(player, zombies)
     return math.cos(gapMidAngle), math.sin(gapMidAngle), encircled
 end
 
+-- Per-cycle zombie-scan cache.  getNearbyZombies is called up to 3x per
+-- evaluation cycle (HUD, threat check, telemetry); Main calls beginCycle once
+-- per cycle, which clears AND arms the cache so the scan runs only once per
+-- cycle.  Callers that never call beginCycle (tests, external users) always
+-- get a live scan — caching only happens between beginCycle calls.
+AutoPilot_Threat._zombieCache = {}
+AutoPilot_Threat._cacheArmed  = {}
+
+local function _cachePnum(player)
+    local ok, pnum = pcall(function() return player:getPlayerNum() end)
+    return ok and pnum or 0
+end
+
+--- Clear and arm the per-player zombie cache; called by Main at the start of
+--- each evaluation cycle.
+function AutoPilot_Threat.beginCycle(player)
+    local pnum = _cachePnum(player)
+    AutoPilot_Threat._zombieCache[pnum] = nil
+    AutoPilot_Threat._cacheArmed[pnum]  = true
+end
+
 -- Returns living zombies within DETECTION_RADIUS tiles on the same z-level.
 -- Z-level filter prevents zombies on different floors inflating threat counts.
 function AutoPilot_Threat.getNearbyZombies(player)
+    local pnum  = _cachePnum(player)
+    local armed = AutoPilot_Threat._cacheArmed[pnum]
+    if armed then
+        local cached = AutoPilot_Threat._zombieCache[pnum]
+        if cached then return cached end
+    end
+
     local zombies = {}
     local px, py, pz = player:getX(), player:getY(), player:getZ()
 
@@ -120,6 +148,9 @@ function AutoPilot_Threat.getNearbyZombies(player)
                 table.insert(zombies, z)
             end
         end
+    end
+    if armed then
+        AutoPilot_Threat._zombieCache[pnum] = zombies
     end
     return zombies
 end
@@ -261,11 +292,41 @@ function AutoPilot_Threat.check(player)
         return false
     end
 
+    -- Engagement gate (V3.2): radius presence alone is not danger.  Zombies
+    -- milling outside the safehouse walls locked the mod into permanent
+    -- combat mode while the character stood safe indoors (telemetry: every
+    -- cycle combat:threat, zombies=3, and training never ran).  Engage only
+    -- when the ENGINE's threat counters say so — the same signals vanilla
+    -- uses to gate sleeping — or when something is genuinely close.
+    local engaged = false
+    pcall(function()
+        local s = player:getStats()
+        engaged = s:getNumChasingZombies() > 0
+            or s:getNumVeryCloseZombies() > 0
+            or s:getNumVisibleZombies() > 0
+    end)
+    if not engaged then
+        local px, py = player:getX(), player:getY()
+        local closeSq = AutoPilot_Constants.CLOSE_DANGER_RADIUS
+            * AutoPilot_Constants.CLOSE_DANGER_RADIUS
+        for _, z in ipairs(zombies) do
+            local dx, dy = z:getX() - px, z:getY() - py
+            if dx * dx + dy * dy <= closeSq then
+                engaged = true
+                break
+            end
+        end
+    end
+    if not engaged then
+        AutoPilot_Threat._fleeActive   = false
+        AutoPilot_Threat._fleeCooldown = 0
+        return false
+    end
+
     -- Flee stutter prevention: if a flee walk is still executing, leave the queue alone.
+    -- (isPlayerDoingAction is the real B42 helper; isAllDone does not exist.)
     if AutoPilot_Threat._fleeActive then
-        local queueDone = true
-        pcall(function() queueDone = ISTimedActionQueue.isAllDone(player) end)
-        if not queueDone then
+        if ISTimedActionQueue.isPlayerDoingAction(player) then
             return true
         end
         AutoPilot_Threat._fleeActive = false
@@ -278,22 +339,18 @@ function AutoPilot_Threat.check(player)
 
     ISTimedActionQueue.clear(player)
 
+    -- Pre-equip: make sure the best usable weapon is in hand BEFORE the
+    -- engage decision — a fleeing player can still be caught, and a fighting
+    -- player must not start bare-handed.  Cheap when the current weapon is
+    -- fine (the swap scan only runs on a degraded weapon).
+    pcall(function() AutoPilot_Inventory.checkAndSwapWeapon(player) end)
+
     -- Priority 1: Critical wound (active bleeding) -- always flee.
     if AutoPilot_Medical.hasCriticalWound(player) then
         local dx, dy = analyzeSpread(player, zombies)
         print("[Threat] FLEE -- critical wound (bleeding).")
         if not doFlee(player, zombies, dx, dy) then doFight(player, zombies, dx, dy) end
         return true
-    end
-
-    -- Phase 1 Enhancement: Use tactical combat analysis if available
-    if AutoPilot_Combat and AutoPilot_Combat.analyzeThreat then
-        local tacticAnalysis = AutoPilot_Combat.analyzeThreat(player, zombies)
-        if tacticAnalysis and tacticAnalysis.tactic then
-            print(("[Threat] Combat analysis: %s (reason: %s)"):format(
-                tacticAnalysis.tactic, tacticAnalysis.reason or "unknown"))
-            -- Tactic analysis is advisory; continue with existing threat logic
-        end
     end
 
     -- Pre-compute spread once; reused across all remaining priority checks.
@@ -322,7 +379,7 @@ function AutoPilot_Threat.check(player)
         return true
     end
 
-    -- Priority 5: Too many negative moodles -- flee.
+    -- Priority 5: Too many negative moodles -- flee; otherwise fight.
     if AutoPilot_Threat.countNegativeMoodles(player) > FLEE_MOODLE_LIMIT then
         if not doFlee(player, zombies, escDx, escDy) then doFight(player, zombies, escDx, escDy) end
     else

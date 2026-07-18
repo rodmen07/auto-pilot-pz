@@ -636,6 +636,84 @@ do
     AutoPilot_Inventory.preferTastyFood = function(_player) return nil end
 end
 
+-- ── Exercise XP-fatigue detection (V3.2) ─────────────────────────────────────
+-- PZ silently drops a repeated exercise's XP to ~zero; the mod detects that
+-- by measuring the XP a completed set produced and rotates / pauses.
+
+local FULL_SET_MS = AutoPilot_Constants.EXERCISE_MINUTES * 60000
+
+local function exercisePlayer()
+    return MockPlayer.new({
+        stats   = { HUNGER = 0.05, THIRST = 0.05, FATIGUE = 0.05,
+                    ENDURANCE = 0.90 },
+        moodles = { ENDURANCE = 0, Unhappy = 0 },
+    })
+end
+
+print("\n-- Test 24: productive exercise keeps repeating")
+do
+    ISTimedActionQueue_calls = {}
+    MockTime.advance(24 * 60 * 60000)   -- fresh window, clears prior fatigue
+    local p = exercisePlayer()
+    assert_true("first fitness set queues",
+        AutoPilot_Needs.trainExercise(p, "fitness"))
+    assert_eq("fitness focus starts with squats",
+        ISTimedActionQueue_calls[#ISTimedActionQueue_calls].exType, "squats")
+
+    MockTime.advance(FULL_SET_MS)       -- full set elapsed...
+    p._xp.Fitness = (p._xp.Fitness or 0) + 12   -- ...and it produced XP
+    assert_true("productive set repeats",
+        AutoPilot_Needs.trainExercise(p, "fitness"))
+    assert_eq("still squats while productive",
+        ISTimedActionQueue_calls[#ISTimedActionQueue_calls].exType, "squats")
+end
+
+print("\n-- Test 25: zero-XP set rotates to the next exercise in the pool")
+do
+    ISTimedActionQueue_calls = {}
+    MockTime.advance(24 * 60 * 60000)
+    local p = exercisePlayer()
+    assert_true("squat set queues", AutoPilot_Needs.trainExercise(p, "fitness"))
+    MockTime.advance(FULL_SET_MS)
+    -- no XP gained -> squats fatigued -> sit-ups take over
+    assert_true("fatigued squats fall back to sit-ups",
+        AutoPilot_Needs.trainExercise(p, "fitness"))
+    assert_eq("second set is situp",
+        ISTimedActionQueue_calls[#ISTimedActionQueue_calls].exType, "situp")
+end
+
+print("\n-- Test 26: single-exercise pool pauses training when fatigued")
+do
+    ISTimedActionQueue_calls = {}
+    MockTime.advance(24 * 60 * 60000)
+    local p = exercisePlayer()
+    assert_true("push-up set queues", AutoPilot_Needs.trainExercise(p, "strength"))
+    MockTime.advance(FULL_SET_MS)
+    local before = #ISTimedActionQueue_calls
+    assert_false("zero-XP push-ups pause strength training",
+        AutoPilot_Needs.trainExercise(p, "strength"))
+    assert_eq("nothing queued while paused", #ISTimedActionQueue_calls, before)
+
+    -- After the recovery window the exercise is retried.
+    MockTime.advance(AutoPilot_Constants.EXERCISE_FATIGUE_RECOVERY_MS + 60000)
+    assert_true("push-ups retried after recovery window",
+        AutoPilot_Needs.trainExercise(p, "strength"))
+end
+
+print("\n-- Test 27: an interrupted set is not judged as fatigue")
+do
+    ISTimedActionQueue_calls = {}
+    MockTime.advance(24 * 60 * 60000)
+    local p = exercisePlayer()
+    assert_true("set queues", AutoPilot_Needs.trainExercise(p, "fitness"))
+    MockTime.advance(math.floor(FULL_SET_MS * 0.3))   -- interrupted early
+    -- no XP gained, but the set never ran to length -> not fatigue
+    assert_true("early-interrupted set requeues without penalty",
+        AutoPilot_Needs.trainExercise(p, "fitness"))
+    assert_eq("still squats (not rotated)",
+        ISTimedActionQueue_calls[#ISTimedActionQueue_calls].exType, "squats")
+end
+
 -- ── Summary ───────────────────────────────────────────────────────────────────
 print(("\n=== Results: %d passed, %d failed ==="):format(PASS, FAIL))
 if FAIL > 0 then

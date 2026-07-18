@@ -49,6 +49,25 @@ local function _doScan(player)
     local count = 0
     local inv   = player:getInventory()
 
+    -- B42 wood barricade requirements (shared/TimedActions/ISBarricadeAction.lua
+    -- isValid): hammer EQUIPPED (HAMMER tag), plank EQUIPPED (secondary is
+    -- consumed as the material), and >= 2 nails in inventory. The constructor is
+    -- ISBarricadeAction:new(character, windowObj, isMetal, isMetalBar) — the
+    -- window/door object is the `item`, materials come from the equipped hands.
+    local hammer, plank
+    local nailCount = 0
+    pcall(function()
+        hammer    = inv:getFirstTypeRecurse("Hammer")
+        plank     = inv:getFirstTypeRecurse("Plank")
+        nailCount = inv:getItemCount("Base.Nails", true)
+    end)
+    if not hammer or not plank or nailCount < 2 then
+        print("[Barricade] Missing materials (need hammer + plank + 2 nails).")
+        return 0
+    end
+
+    local equipsQueued = false
+
     AutoPilot_Utils.iterateNearbySquares(px, py, pz,
         AutoPilot_Constants.BARRICADE_SEARCH_RADIUS,
         function(sq)
@@ -60,13 +79,19 @@ local function _doScan(player)
                     if not name then return end
                     if not name:lower():find("window") then return end
                     if isBarricaded(obj) then return end
-                    local nails  = inv:getFirstTypeRecurse("Nails")
-                    local hammer = inv:getFirstTypeRecurse("Hammer")
-                    if nails and hammer then
+                    -- Equip hammer (primary) + plank (secondary) once per scan.
+                    if not equipsQueued then
                         ISTimedActionQueue.add(
-                            ISBarricadeAction:new(player, obj, false, hammer, nails))
-                        count = count + 1
+                            ISEquipWeaponAction:new(player, hammer, 50, true))
+                        ISTimedActionQueue.add(
+                            ISEquipWeaponAction:new(player, plank, 50, false))
+                        equipsQueued = true
                     end
+                    -- Walk adjacent to the window without clearing queued equips.
+                    luautils.walkAdjWindowOrDoor(player, sq, obj, true)
+                    ISTimedActionQueue.add(
+                        ISBarricadeAction:new(player, obj, false, false))
+                    count = count + 1
                 end)
             end
         end)

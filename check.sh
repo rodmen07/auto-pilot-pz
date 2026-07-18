@@ -112,10 +112,10 @@ LUA_TEST_FILES=(
     "tests/test_medical_logic.lua"
     "tests/test_home_map_barricade.lua"
     "tests/test_main_logic.lua"
-    "tests/test_splitscreen.lua"
     "tests/test_combat_policy.lua"
     "tests/test_resource_economy.lua"
     "tests/test_telemetry_schema.lua"
+    "tests/test_leveler_metrics.lua"
 )
 
 if [[ -n "$LUA_BIN" ]]; then
@@ -163,7 +163,6 @@ if [[ -n "$PYTHON_BIN" ]]; then
         --ignore=tests/test_medical_logic.lua \
         --ignore=tests/test_home_map_barricade.lua \
         --ignore=tests/lua_mock_pz.lua \
-        --ignore=tests/test_splitscreen.lua \
         --ignore=tests/test_combat_policy.lua \
         --ignore=tests/test_resource_economy.lua \
         --ignore=tests/test_telemetry_schema.lua; then

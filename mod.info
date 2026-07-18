@@ -1,8 +1,8 @@
-name=AutoPilot
+name=AutoPilot Leveler
 poster=poster.png
 id=AutoPilot
-description=Keeps your character alive and improving while AFK. Always-on survival autopilot — no setup needed. Handles hunger, thirst, sleep, exhaustion, wounds (auto-bandage), and boredom automatically. Exercises to level Strength and Fitness using the best available equipment. Fights zombies when cornered; flees when bleeding or outnumbered. Bulk-loots nearby buildings, tracks depleted containers, and expands radius when supplies run low. Splitscreen supported — keyboard player uses F10; controller players use Back/Select double-tap. Client-side only — no server mod required.
+description=Auto-exercise leveler for Build 42. Inactive on spawn: stabilize first (clear the area, stock supplies), then press F10 to start the grind. Pick a focus in the F11 panel: Strength (push-ups), Fitness (squats, switching to sit-ups while the legs are stiff), or Auto (burpees, training both). The panel tracks XP gained, XP/hour, and time to next level. While training, survival acts as a FAIL-SAFE, not a full autopilot: eats, drinks, sleeps, bandages wounds, and fights or flees when zombies actually threaten (distant wanderers are ignored). Learns from your deaths and adjusts its survival thresholds within safe bounds. Multiplayer compatible: client-side only, each player automates their own character; safe to list on hosted servers.
 url=https://github.com/rodmen07/auto-pilot-pz
-modversion=2.0
-pzversion=42.x
-tags=Multiplayer;Build 42;QualityOfLife;AFK;Splitscreen
+modversion=3.2
+pzversion=42.19.0
+tags=Multiplayer;Build 42;QualityOfLife;AFK;Skills

@@ -309,11 +309,26 @@ local function _lootNearbyByPredicate(player, predicate, radius, ignoreHome)
     return false
 end
 
+--- Emergency medical loot: grab the first bandage-capable item within
+--- MEDICAL_LOOT_RADIUS, ignoring home bounds (bleeding out beats containment).
+--- Returns true when a transfer was queued.
+function AutoPilot_Inventory.emergencyMedicalLoot(player)
+    local pred = function(item)
+        local ok, can = pcall(function() return item:isCanBandage() end)
+        return ok and can == true
+    end
+    return _lootNearbyByPredicate(player, pred,
+        AutoPilot_Constants.MEDICAL_LOOT_RADIUS, true)
+end
+
 --- Loot food/drink in an expanded radius for supply runs.
 --- Clears the depletion cache first so previously-empty squares get re-checked.
 --- Returns true if any item was found and queued.
 function AutoPilot_Inventory.supplyRunLoot(player, predicate)
-    AutoPilot_Map.resetDepleted()
+    -- Reset only the CALLING player's depletion cache (splitscreen-safe).
+    local pnum = 0
+    pcall(function() pnum = player:getPlayerNum() end)
+    AutoPilot_Map.resetDepleted(pnum)
     return _lootNearbyByPredicate(player, predicate, AutoPilot_Constants.LOOT_RADIUS_SUPPLY, true)
 end
 
@@ -344,12 +359,18 @@ function AutoPilot_Inventory.lootNearbyReadable(player)
 end
 
 -- Scans nearby containers for food and transfers the highest-calorie item.
-function AutoPilot_Inventory.lootNearbyFood(player)
+-- radius: optional override (proactive scavenging passes a small radius so
+-- background top-ups stay near home; reactive hunger uses the full default).
+function AutoPilot_Inventory.lootNearbyFood(player, radius)
     local best, bestCal, bestContainer = nil, -999, nil
-    _iterateContainersNearby(player, LOOT_SEARCH_RADIUS, function(item, container)
+    _iterateContainersNearby(player, radius or LOOT_SEARCH_RADIUS, function(item, container)
         if item:isFood() and not item:isRotten() then
-            local cal = item:getCalories() or 0
-            if cal > bestCal then
+            -- Match getSupplyCounts: only calorie-positive, non-drink items
+            -- count as food, so looting always improves the supply counter
+            -- (mismatched predicates caused an endless loot loop).
+            local cal    = item:getCalories() or 0
+            local thirst = item:getThirstChange() or 0
+            if cal > 0 and thirst >= 0 and cal > bestCal then
                 bestCal = cal
                 best = item
                 bestContainer = container
@@ -366,9 +387,10 @@ function AutoPilot_Inventory.lootNearbyFood(player)
 end
 
 -- Scans nearby containers for drinks and transfers the first hydrating item.
-function AutoPilot_Inventory.lootNearbyDrink(player)
+-- radius: optional override (see lootNearbyFood).
+function AutoPilot_Inventory.lootNearbyDrink(player, radius)
     local found, foundContainer = nil, nil
-    _iterateContainersNearby(player, LOOT_SEARCH_RADIUS, function(item, container)
+    _iterateContainersNearby(player, radius or LOOT_SEARCH_RADIUS, function(item, container)
         if item:isFood() and not item:isRotten() then
             local thirstChange = item:getThirstChange()
             if thirstChange and thirstChange < 0 then
@@ -385,75 +407,6 @@ function AutoPilot_Inventory.lootNearbyDrink(player)
     end
     print("[Inventory] No drinks found in nearby containers.")
     return false
-end
-
--- ── Smart Foraging Integration ───────────────────────────────────────────────
-
---- Loot a specific item type from nearby containers, using learned zone quality.
---- Returns true if item was found and queued; records zone quality for learning.
-function AutoPilot_Inventory.lootByItemType(player, itemType, radius)
-    if not AutoPilot_Foraging then return false end
-
-    local bestZoneInfo = AutoPilot_Foraging.findBestZoneForItem(player, itemType, radius)
-    if not bestZoneInfo then
-        print("[Inventory] No high-quality zones found for " .. tostring(itemType))
-        return false
-    end
-
-    local zone = bestZoneInfo.zone
-    local px, py, pz = player:getX(), player:getY(), player:getZ()
-    local targetSq = getCell():getGridSquare(zone.x, zone.y, zone.z)
-
-    if not targetSq then
-        print("[Inventory] Zone square not found; skipping.")
-        AutoPilot_Foraging.recordZoneEmpty(player, targetSq)
-        return false
-    end
-
-    -- Walk to zone if not adjacent
-    local distSq = (zone.x - px) ^ 2 + (zone.y - py) ^ 2
-    if distSq > 4 then
-        pcall(function()
-            luautils.walkAdj(player, targetSq, true)
-        end)
-    end
-
-    -- Scan zone's containers for the item type
-    local itemsFound = {}
-    for i = 0, targetSq:getObjects():size() - 1 do
-        local obj = targetSq:getObjects():get(i)
-        if obj then
-            local container = obj:getContainer()
-            if container then
-                for j = 0, container:getItems():size() - 1 do
-                    local item = container:getItems():get(j)
-                    if item and AutoPilot_Foraging.categorizeItem(item) == itemType then
-                        table.insert(itemsFound, item)
-                        print("[Inventory] Found " .. tostring(item:getName())
-                            .. " in zone (" .. zone.x .. "," .. zone.y .. ")")
-                        _queueTransfer(player, item, container, tostring(itemType))
-                    end
-                end
-            end
-        end
-    end
-
-    -- Record zone learning
-    if #itemsFound > 0 then
-        AutoPilot_Foraging.recordZone(player, targetSq, {itemType})
-        return true
-    else
-        AutoPilot_Foraging.recordZoneEmpty(player, targetSq)
-        return false
-    end
-end
-
---- Get telemetry about learned zones.
-function AutoPilot_Inventory.getForagingStats()
-    if AutoPilot_Foraging then
-        return AutoPilot_Foraging.getZoneStats()
-    end
-    return nil
 end
 
 -- Counts how many food/drink items are available.
@@ -597,6 +550,19 @@ end
 -- Returns true if a water source is nearby.
 function AutoPilot_Inventory.hasNearbyWaterSource(player)
     return AutoPilot_Inventory.findWaterSource(player) ~= nil
+end
+
+--- Proactively top up water containers while calm.  Only runs when thirst is
+--- still low (the normal doDrink path handles active thirst) and a water
+--- source is within range.  Returns true when a refill action was queued.
+function AutoPilot_Inventory.proactiveWaterRefill(player)
+    local thirst = AutoPilot_Utils.safeStat(player, CharacterStat.THIRST)
+    if thirst >= AutoPilot_Constants.PROACTIVE_WATER_THIRST_MAX then
+        return false
+    end
+    local waterObj = AutoPilot_Inventory.findWaterSource(player)
+    if not waterObj then return false end
+    return AutoPilot_Inventory.refillWaterContainer(player, waterObj) == true
 end
 
 -- ── Item search & loot (for Pilot mode) ──────────────────────────────────────

@@ -11,6 +11,7 @@ max_line_length = 120
 globals = {
     -- Core game accessors
     "getPlayer",
+    "getSpecificPlayer",
     "getCell",
     "getGameTime",
     "getFileWriter",
@@ -35,13 +36,13 @@ globals = {
     "luautils",
     "FitnessExercises",
     "GameTime",
-    "RecipeManager",
 
     -- Timed-action queue and action constructors used by this mod
+    -- (verified against the B42 install; ISGetOnBedAction and
+    -- ISEnterVehicleAction do NOT exist in B42 and must stay removed)
     "ISTimedActionQueue",
     "ISEatFoodAction",
     "ISWalkToTimedAction",
-    "ISGetOnBedAction",
     "ISEquipWeaponAction",
     "ISFitnessAction",
     "ISApplyBandage",
@@ -51,7 +52,7 @@ globals = {
     "ISInventoryTransferAction",
     "ISWearClothing",
     "ISBarricadeAction",
-    "ISEnterVehicleAction",
+    "ISWorldObjectContextMenu",
 
     -- PZ engine utility functions
     "instanceof",
@@ -66,18 +67,24 @@ globals = {
     "AutoPilot_Threat",
     "AutoPilot_Inventory",
     "AutoPilot_Medical",
-    "AutoPilot_Actions",
     "AutoPilot_Home",
     "AutoPilot_Map",
     "AutoPilot_Barricade",
     "AutoPilot_Telemetry",
-    "AutoPilot_Explore",
 
-    -- Phase 1 Expansion modules
-    "AutoPilot_Combat",
-    "AutoPilot_Foraging",
-    "AutoPilot_Skills",
-    "AutoPilot_Vehicles",
+    -- V3.x auto-leveler modules
+    "AutoPilot_XP",
+    "AutoPilot_Leveler",
+    "AutoPilot_UI",
+    "AutoPilot_DeathLog",
+    "AutoPilot_Adaptive",
+
+    -- V3.x engine globals (verified against 42.19)
+    "PerkFactory",
+    "getTimestampMs",
+    "ISCollapsableWindow",
+    "ISButton",
+    "UIFont",
 
     -- PZ B42 engine global for persistent mod storage
     "ModData",
@@ -96,10 +103,3 @@ globals = {
 -- 211: unused local variable  — common in PZ boilerplate (loop indices, etc.)
 -- 212: unused argument        — tolerate when mirroring PZ callback signatures
 ignore = { "211", "212" }
-
--- Per-file ignores: suppress non-standard global warnings for module definitions
-files["42/media/lua/client/AutoPilot_Combat.lua"].ignore = { "111" }
-files["42/media/lua/client/AutoPilot_Foraging.lua"].ignore = { "111" }
-files["42/media/lua/client/AutoPilot_Skills.lua"].ignore = { "111" }
-files["42/media/lua/client/AutoPilot_Vehicles.lua"].ignore = { "111" }
-files["42/media/lua/client/AutoPilot_Explore.lua"].ignore = { "111" }

@@ -30,9 +30,19 @@ BodyPartType = {
 }
 
 -- ── Perks ─────────────────────────────────────────────────────────────────────
+-- 42.19 naming: Carpentry = Woodwork, First Aid = Doctor, Foraging =
+-- PlantScavenging (verified against server/XpSystem/XPSystem_SkillBook.lua).
 Perks = {
-    Strength = "Strength",
-    Fitness  = "Fitness",
+    Strength        = "Strength",
+    Fitness         = "Fitness",
+    Woodwork        = "Woodwork",
+    Doctor          = "Doctor",
+    Cooking         = "Cooking",
+    Fishing         = "Fishing",
+    Tailoring       = "Tailoring",
+    Mechanics       = "Mechanics",
+    PlantScavenging = "PlantScavenging",
+    Carpentry       = "Carpentry",  -- legacy alias used by AutoPilot_Skills
 }
 
 -- ── IsoFlagType ───────────────────────────────────────────────────────────────
@@ -42,16 +52,23 @@ IsoFlagType = {
 
 -- ── Timed-action queue ────────────────────────────────────────────────────────
 -- ISTimedActionQueue_calls is reset between test cases via reset().
+-- Real 42.19 static surface (verified via shell against the LIVE install —
+-- client/TimedActions/ISTimedActionQueue.lua): add, addAfter, addGetUpAndThen,
+-- clear, hasAction, hasActionType, isPlayerDoingAction, getTimedActionQueue,
+-- queueActions.  isAllDone does NOT exist and stays absent so production calls
+-- to it fail loudly here, exactly as in-game.
 ISTimedActionQueue_calls = {}
 
 ISTimedActionQueue = {
     add = function(action)
         table.insert(ISTimedActionQueue_calls, action)
     end,
-    addGetUpAndThen = function(_, action)
+    addGetUpAndThen = function(_character, action)
         table.insert(ISTimedActionQueue_calls, action)
     end,
     clear = function(_) end,
+    isPlayerDoingAction = function(_player) return false end,
+    getTimedActionQueue = function(_player) return { queue = {} } end,
 }
 
 -- ── Timed-action constructors ─────────────────────────────────────────────────
@@ -61,9 +78,15 @@ ISEatFoodAction = {
     end,
 }
 
-ISGetOnBedAction = {
-    new = function(_, player, bedObj)
-        return { type = "sleep", bedObj = bedObj }
+-- ISGetOnBedAction does NOT exist in B42 — it is intentionally absent here.
+-- B42 sleeps through ISWorldObjectContextMenu.onSleepWalkToComplete(playerIndex, bed),
+-- which takes the 0-based player index (NOT the player object).
+ISWorldObjectContextMenu = {
+    onSleepWalkToComplete = function(playerIndex, bed)
+        assert(type(playerIndex) == "number",
+            "onSleepWalkToComplete expects a numeric player index, got "
+            .. type(playerIndex))
+        table.insert(ISTimedActionQueue_calls, { type = "sleep", bed = bed })
     end,
 }
 
@@ -75,13 +98,37 @@ ISSitOnGround = {
 
 ISWalkToTimedAction = {
     new = function(_, player, sq)
-        return { type = "walk", sq = sq }
+        return {
+            type = "walk",
+            sq = sq,
+            -- Real walk actions support completion callbacks (used by the
+            -- walk-to-bed-then-sleep path).
+            setOnComplete = function(self, fn, ...)
+                self.onComplete = { fn = fn, args = { ... } }
+            end,
+            addAfter = function(self, _action) end,
+        }
     end,
 }
 
+-- Real 42.19 signature (shared/TimedActions/ISFitnessAction.lua:200, verified
+-- against the RUNNING game's stack trace after a phantom-file mixup):
+--   new(character, exercise, timeToExe, exeData, exeDataType)
+-- Line 217 feeds exeDataType into the String-typed Java call
+-- fitness:setCurrentExercise(exeDataType), so the mock enforces table-4th /
+-- string-5th — wrong slots fail loudly here, exactly as in-game.
 ISFitnessAction = {
-    new = function(_, player, exType, _mins, _exeData, _exeDataType)
-        return { type = "exercise", exType = exType }
+    new = function(_, player, exercise, timeToExe, exeData, exeDataType)
+        assert(type(timeToExe) == "number",
+            "ISFitnessAction:new expects numeric timeToExe as 3rd arg")
+        assert(type(exeData) == "table",
+            "ISFitnessAction:new expects exeData table as 4th arg (got "
+            .. type(exeData) .. ")")
+        assert(type(exeDataType) == "string",
+            "ISFitnessAction:new expects exeDataType STRING as 5th arg (got "
+            .. type(exeDataType) .. ")")
+        player:getFitness():setCurrentExercise(exeDataType)
+        return { type = "exercise", exType = exercise }
     end,
 }
 
@@ -108,15 +155,94 @@ ISPathFindAction = {
     end,
 }
 
+-- Real 42.19 signature (shared/TimedActions/ISRestAction.lua:245):
+-- ISRestAction:new(character, bed, useAnimations).
 ISRestAction = {
-    new = function(_, player, target, _)
-        return { type = "rest_furniture", target = target }
+    new = function(_, player, bed, _useAnimations)
+        return { type = "rest_furniture", target = bed }
     end,
 }
 
 AdjacentFreeTileFinder = {
     Find = function(sq, player, _)
         return nil
+    end,
+    isTileOrAdjacent = function(_sqA, _sqB)
+        return false
+    end,
+}
+
+-- ── Splitscreen player registry ───────────────────────────────────────────────
+-- getSpecificPlayer(n) is the real B42 accessor (getPlayer() ignores args and
+-- returns player 0).  Tests populate MockPlayers[n] as needed.
+MockPlayers = {}
+
+function getSpecificPlayer(n)
+    return MockPlayers[n]
+end
+
+-- ── File writer/reader (telemetry, death log) ─────────────────────────────────
+-- Real signatures: getFileWriter(name, createIfNotExist, append) and
+-- getFileReader(name, createIfNotExist) with reader:readLine()/close().
+-- MockFiles captures truncate-vs-append behaviour so tests can verify the
+-- telemetry log actually grows, and lets reader tests round-trip content.
+MockFiles = {}
+
+function getFileWriter(name, _create, append)
+    MockFiles[name] = MockFiles[name] or { lines = {}, appends = 0, truncates = 0 }
+    local f = MockFiles[name]
+    if append then
+        f.appends = f.appends + 1
+    else
+        f.lines = {}
+        f.truncates = f.truncates + 1
+    end
+    return {
+        write = function(_self, s) table.insert(f.lines, s) end,
+        close = function(_self) end,
+    }
+end
+
+function getFileReader(name, _create)
+    local f = MockFiles[name] or { lines = {} }
+    local i = 0
+    return {
+        readLine = function(_self)
+            i = i + 1
+            local line = f.lines[i]
+            if line == nil then return nil end
+            return (line:gsub("\n$", ""))
+        end,
+        close = function(_self) end,
+    }
+end
+
+-- ── Real-time clock ───────────────────────────────────────────────────────────
+-- getTimestampMs() is PZ's wall-clock; tests control it via MockRealTime.
+MockRealTime = {}
+
+local _mockRealMs = 0
+
+function MockRealTime.set(ms)     _mockRealMs = ms end
+function MockRealTime.advance(ms) _mockRealMs = _mockRealMs + ms end
+
+function getTimestampMs()
+    return _mockRealMs
+end
+
+-- ── Perk XP tables ────────────────────────────────────────────────────────────
+-- PerkFactory.getPerk(perk):getTotalXpForLevel(n) — cumulative XP threshold.
+-- Simple deterministic mock table: level n needs n*100 total XP.
+PerkFactory = {
+    getPerk = function(_perk)
+        return {
+            getTotalXpForLevel = function(_self, level)
+                return level * 100
+            end,
+            getXpForLevel = function(_self, level)
+                return level * 100 - (level - 1) * 100
+            end,
+        }
     end,
 }
 
@@ -253,7 +379,23 @@ function MockPlayer.new(cfg)
         getItems = function(self) return emptyItems end,
     }
 
+    -- Mutable XP store: tests write player._xp[perk] = number, and set
+    -- player._xpMult[perk] for skill-book multipliers.
+    local xpStore   = cfg.xp   or {}
+    local multStore = cfg.mult or {}
+
+    local xpObj = {
+        getXP = function(self, perk)
+            return xpStore[perk] or 0
+        end,
+        getMultiplier = function(self, perk)
+            return multStore[perk] or 0
+        end,
+    }
+
     local player = {
+        _xp           = xpStore,
+        _xpMult       = multStore,
         getStats      = function(self) return statsObj end,
         getMoodles    = function(self) return moodlesObj end,
         getBodyDamage = function(self) return bodyDamageObj end,
@@ -264,6 +406,13 @@ function MockPlayer.new(cfg)
         getY          = function(self) return 0 end,
         getZ          = function(self) return 0 end,
         getCurrentSquare = function(self) return nil end,
+        getXp         = function(self) return xpObj end,
+        getHoursSurvived = function(self) return cfg.hoursSurvived or 0 end,
+        getModData    = function(self)
+            self._modData = self._modData or (cfg.modData or {})
+            return self._modData
+        end,
+        transmitModData = function(self) end,
         getFitness    = function(self)
             return {
                 init                = function(self) end,

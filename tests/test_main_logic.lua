@@ -155,6 +155,12 @@ function getPlayer(idx)
     return _mockPlayers[idx]
 end
 
+-- getSpecificPlayer mock — the real B42 splitscreen accessor used by
+-- _getPlayerByIndex; overrides the registry stub from lua_mock_pz.lua.
+function getSpecificPlayer(idx)
+    return _mockPlayers[idx or 0]
+end
+
 function getPlayerCount()
     local n = 0
     for k, _ in pairs(_mockPlayers) do
@@ -236,37 +242,59 @@ end
 
 -- Simulate enough OnTick calls to pass the TICK_INTERVAL gate.
 -- TICK_INTERVAL is defined in AutoPilot_Constants.
+-- The real clock advances per fired tick: onTick dedupes duplicate handler
+-- registrations by frame timestamp, so a frozen clock would skip every tick
+-- after the first.
 local function tickN(n)
     for _ = 1, (n or 1) * AutoPilot_Constants.TICK_INTERVAL do
+        MockRealTime.advance(16)   -- ~one 60fps frame per engine tick
         fireEvent("OnTick")
+    end
+end
+
+-- Arm/disarm helpers (V3.2: the mod starts OFF by design — the player reaches
+-- a stable state first, then presses F10 to start the grind).
+local function arm()
+    if not AutoPilot.isActive() then
+        fireEvent("OnKeyPressed", Keyboard.KEY_F10)
+    end
+end
+
+local function disarm()
+    if AutoPilot.isActive() then
+        fireEvent("OnKeyPressed", Keyboard.KEY_F10)
     end
 end
 
 -- ── Test cases ────────────────────────────────────────────────────────────────
 print("=== AutoPilot_Main Logic Tests ===")
 
--- 1. Default mode is "autopilot" — no toggle needed.
-print("\n-- Test 1: Default player mode is 'autopilot'")
+-- 1. Default mode is "off" — arming with F10 starts evaluation.
+print("\n-- Test 1: Default mode is OFF; F10 arms the mod")
 do
     reset()
+    disarm()
     local player = makePlayer(0)
     _mockPlayers[0] = player
-    -- The first tick should log something (not "off").
     tickN(1)
-    -- If autopilot mode is active, logTick should have been called.
-    assert_true("logTick called on first tick (autopilot is on by default)",
-        #_telemLog > 0)
+    assert_eq("no evaluation before arming (default OFF)", #_telemLog, 0)
+    assert_false("isActive() false by default", AutoPilot.isActive())
+
+    fireEvent("OnKeyPressed", Keyboard.KEY_F10)
+    assert_true("isActive() true after F10", AutoPilot.isActive())
+    tickN(1)
+    assert_true("logTick called once armed", #_telemLog > 0)
 end
 
--- 2. F10 toggles player 0 off then back on.
-print("\n-- Test 2: F10 key toggles player 0 mode off and back on")
+-- 2. F10 toggles off then back on.
+print("\n-- Test 2: F10 key toggles mode off and back on")
 do
     reset()
     local player = makePlayer(0)
     _mockPlayers[0] = player
+    arm()
     -- Tick once to register player in init state.
     tickN(1)
-    local before = #_telemLog
 
     -- Toggle off.
     fireEvent("OnKeyPressed", Keyboard.KEY_F10)
@@ -288,6 +316,7 @@ do
     reset()
     local player = makePlayer(0, { dead = true })
     _mockPlayers[0] = player
+    arm()
     tickN(3)
     local deaths = _telemDead[0] or 0
     assert_eq("onDeath called exactly once for repeated dead-ticks", deaths, 1)
@@ -299,6 +328,7 @@ do
     reset()
     local player = makePlayer(0, { asleep = true })
     _mockPlayers[0] = player
+    arm()
     tickN(1)
     local sleepLog = false
     for _, entry in ipairs(_telemLog) do
@@ -313,14 +343,17 @@ do
     reset()
     local player = makePlayer(0)
     _mockPlayers[0] = player
+    arm()
     AutoPilot_Needs._returnVal = true  -- Needs.check() returns true → action taken
     tickN(1)
     -- Reset returnVal so the next tick won't queue another action.
     AutoPilot_Needs._returnVal = false
     -- Next tick should be cooldown.
     _telemLog = {}
-    -- Tick once more — should be "cooldown".
+    -- Tick once more — should be "cooldown".  (Advance the frame clock per
+    -- tick or the duplicate-handler dedupe skips the repeats.)
     for _ = 1, AutoPilot_Constants.TICK_INTERVAL do
+        MockRealTime.advance(16)
         fireEvent("OnTick")
     end
     local cooldownSeen = false
@@ -334,9 +367,13 @@ end
 print("\n-- Test 6: shouldInterrupt causes queue clear and re-evaluation")
 do
     reset()
-    -- Use pnum=1 to avoid cooldown state left by Test 5 (which used pnum=0).
-    local player = makePlayer(1)
-    _mockPlayers[1] = player
+    -- Splitscreen was removed (V3.2): only the local player (index 0) ticks.
+    -- Test 5 left a post-action cooldown on that player, so drain it first.
+    local player = makePlayer(0)
+    _mockPlayers[0] = player
+    arm()
+    AutoPilot_Needs._returnVal = false
+    tickN(AutoPilot_Constants.ACTION_COOLDOWN_CYCLES)   -- burn residual cooldown
     -- Simulate an exercise action already running: isPlayerDoingAction returns true,
     -- and the current action is ISFitnessAction.
     local queueCleared = false
@@ -354,7 +391,6 @@ do
     end
     -- Make shouldInterrupt return true.
     AutoPilot_Needs.shouldInterrupt = function(_player) return true end
-    AutoPilot_Needs._returnVal = false
     tickN(1)
     assert_true("ISTimedActionQueue.clear called when shouldInterrupt is true",
         queueCleared)
@@ -362,7 +398,7 @@ do
     ISTimedActionQueue.clear = origClear
     ISTimedActionQueue.isPlayerDoingAction = function(_p) return false end
     ISTimedActionQueue.getTimedActionQueue = function(_p) return nil end
-    _mockPlayers[1] = nil
+    _mockPlayers[0] = nil
 end
 
 -- 7. Session-end handler writes shutdown telemetry.
@@ -371,7 +407,7 @@ do
     reset()
     local player = makePlayer(0)
     _mockPlayers[0] = player
-    -- Ensure player is in autopilot mode (default).
+    arm()
     tickN(1)
     _telemShut = {}
     -- Simulate returning to main menu.
@@ -386,6 +422,7 @@ do
     reset()
     local player = makePlayer(0)
     _mockPlayers[0] = player
+    arm()
     tickN(1)
     _telemShut = {}
     fireEvent("OnQueueNewGame")
@@ -399,8 +436,7 @@ do
     reset()
     local player = makePlayer(0)
     _mockPlayers[0] = player
-    -- Toggle player 0 off.
-    fireEvent("OnKeyPressed", Keyboard.KEY_F10)
+    disarm()
     _telemShut = {}
     fireEvent("OnMainMenuEnter")
     -- Player mode is "off", so onShutdown should NOT be called.

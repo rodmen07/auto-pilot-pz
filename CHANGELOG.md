@@ -2,6 +2,350 @@
 
 All notable changes to AutoPilot are documented here.
 
+## [V3.2] — 2026-07-18 — SPLITSCREEN REMOVED
+
+Splitscreen support is removed entirely (it could not be made to work
+reliably); multiplayer compatibility is kept — in MP each client automates
+its own character.
+
+### Removed
+
+- The per-player tick loop (`getPlayerCount`/index iteration): Main now
+  drives only the local player via `getSpecificPlayer(0)`.
+- The controller Back/Select double-tap toggle (OnJoypadButtonPress handler)
+  and the `JOYPAD_*` constants.
+- The F11 panel's P1-P4 player selector: the panel configures the local
+  player only.
+- `tests/test_splitscreen.lua` (15 assertions) and all splitscreen items in
+  TESTING.md / MULTIPLAYER.md; the "Splitscreen" Workshop tag.
+
+### Changed
+
+- Main's per-player state tables simplified to plain locals (mode, cooldown,
+  streak, init/death flags).
+- HUD hint is now "F10 Toggle, F11 Panel".
+- Internal per-player keying in Home/Map/Telemetry/Leveler/XP remains (it is
+  harmless plumbing and always keys 0 now); the MP Lua-reload hardening from
+  the dry-run fix is unchanged.
+- modversion 3.2.
+
+### Fixed — second MP dry-run finding
+
+- **Launch error + dead F11 panel**: `Events.OnQueueNewGame` does not exist
+  during the 42.19 server-connect Lua reload; the unguarded `.Add` on the
+  last line of AutoPilot_Main crashed that file's load — and PZ then skipped
+  every alphabetically-later module (Needs, Threat, Telemetry, UI...), which
+  is why F11 silently did nothing. Both session-end registrations are now
+  existence-guarded. F11 failures are also no longer silent: panel errors
+  print to the console (via the real print, not the debug noop) and flash a
+  HUD warning, and pressing F11 while the UI module is missing says exactly
+  that instead of doing nothing.
+
+### Fixed — third MP dry-run finding (exercise never started)
+
+- **`ISFitnessAction:new` args**: the real 42.19 signature is
+  `(character, exercise, timeToExe, exeData, exeDataType)` — data table 4th,
+  type STRING 5th (feeds the String-typed `setCurrentExercise` at line 217,
+  which is exactly where the live stack trace pointed). The V2.1 "fix" that
+  swapped these was based on a stale phantom copy of the file; the ORIGINAL
+  mod call was correct and is restored. Same story for
+  `ISTimedActionQueue.addGetUpAndThen` (it exists; restored — stands the
+  character up before exercising) and `ISRestAction:new(character, bed,
+  useAnimations)` (3-arg restored).
+- Re-verified every other V2.1 signature change against the live install via
+  shell: barricade (equip hammer+plank, 4-arg), water actions, equip action,
+  walk helpers, `isPlayerDoingAction` (and `isAllDone` truly does not exist),
+  and the sleep flow (`onSleepWalkToComplete(playerIndex, bed)`) are all
+  correct as shipped.
+- Test mocks updated to the runtime-verified signatures (type-asserting
+  table-4th/string-5th on the fitness constructor).
+
+### Fixed — fourth MP dry-run finding (aimless wandering, still no exercise)
+
+- **Proactive scavenging starved the trainer**: telemetry showed an endless
+  `scavenge -> cooldown -> busy(walking)` loop — with under 3 food / 2 drink
+  carried, the character toured an 80-tile radius looting every idle cycle,
+  and exercise (bottom of the priority chain) never ran.
+  - **Priority reorder**: exercise/leveler now sits directly above the
+    background chores (survival needs still win; endurance gates hand cycles
+    to the chores while recovering between sets).
+  - **Scavenge is now a bounded background chore**: 25-tile radius, ~1 min
+    cooldown between trips, and a give-up backoff (~15 min) after 3 trips
+    with no supply-count improvement. Reactive hunger/thirst still search the
+    full radius.
+  - **Predicate alignment**: lootNearbyFood now only picks calorie-positive,
+    non-drink items — the same definition getSupplyCounts uses — so each loot
+    trip actually raises the counter it is trying to satisfy.
+
+### Fixed — fifth MP dry-run finding (permanent combat mode, still no exercise)
+
+- **Radius presence treated as danger**: telemetry showed every cycle stuck on
+  `combat:threat, zombies=3` — zombies milling outside the safehouse walls
+  kept the threat branch claiming every cycle (and with home set, fight
+  redirects to flee-toward-home, i.e. standing still). Threat.check now has
+  an ENGAGEMENT GATE: it only responds when the engine's own threat counters
+  fire (`getNumChasingZombies` / `getNumVeryCloseZombies` /
+  `getNumVisibleZombies` — the same signals vanilla uses to gate sleeping) or
+  when a zombie is within the new `CLOSE_DANGER_RADIUS` (6 tiles, catches
+  approaches from behind). Distant/unseen zombies no longer block training.
+
+### Changed — opt-in activation + exercise mapping (dry-run feedback)
+
+- **Inactive on spawn**: the mod now starts OFF. Intended flow: reach a
+  stable state first (vicinity cleared, supplies stocked), then press F10 to
+  start grinding — the survival layer is a FAIL-SAFE while training, not a
+  comprehensive autopilot. Home anchors on the first ACTIVE cycle instead of
+  the first tick. New `AutoPilot.isActive()` accessor.
+- **Exercise mapping** (player design; the old lists alternated
+  push-ups/squats under a Strength focus even though squats train Fitness):
+  - Strength -> push-ups only.
+  - Fitness -> squats; automatically switches to sit-ups while any leg
+    part's stiffness is at/above `SQUAT_STIFFNESS_MAX` (20).
+  - Auto -> burpees (train Strength AND Fitness together).
+  Verified against shared/Definitions/FitnessExercises.lua (squats=legs,
+  pushups=arms/chest, situp=abs, burpees=all) and the real
+  `bodyPart:getStiffness()` API.
+
+### Added — XP-fatigue detection (sixth dry-run finding)
+
+- **PZ applies per-exercise diminishing returns**: repeat one exercise long
+  enough and its XP silently drops to ~zero while the animation continues
+  (observed live: character kept exercising, session gain flatlined). The
+  engine exposes no short-term fatigue to Lua (only long-term
+  `getRegularity`), so the mod measures the XP each completed set actually
+  produced:
+  - a set gaining under `EXERCISE_MIN_XP_PER_SET` (0.5) marks that exercise
+    fatigued for `EXERCISE_FATIGUE_RECOVERY_MS` (3 in-game hours);
+  - the focus pool rotates (fitness: squats -> sit-ups; auto: burpees ->
+    push-ups/squats/sit-ups); a fully fatigued pool PAUSES training instead
+    of burning food and endurance for zero XP;
+  - interrupted sets (under 80% of set length) are never judged;
+  - snapshots are guarded by character identity so a death/respawn can never
+    false-fatigue an exercise against the old character's XP.
+
+### Testing
+
+- Suite: 9 files, 190 assertions, all green (4 new fatigue-detection tests);
+  luacheck 0 warnings / 0 errors across 16 modules.
+
+## [V3.1] — 2026-07-18 — SCOPE REFOCUS: AUTO-EXERCISE LEVELER
+
+Deliberate scope-down from V3.0's broad skill registry to a focused identity:
+**auto-exercise leveler (Strength/Fitness) with full survival mechanics**.
+MP + splitscreen support and the death-learning layer are kept; survival is
+always on (the life-support toggle is removed).
+
+### Removed (aggressive trim — 6 modules deleted)
+
+- `AutoPilot_Skills` (daily skill rotation), `AutoPilot_Foraging` (zone
+  learning), `AutoPilot_Vehicles` (registry/boarding), `AutoPilot_Combat`
+  (walker/runner advisory), `AutoPilot_Explore` (frontier exploration), and
+  `AutoPilot_Actions` (legacy LLM command registry), plus all their wiring in
+  Threat/Needs/Main/Inventory and the EXPLORE_* constants.
+- Leveler: non-exercise skills, skill-book reading (no STR/FIT books exist in
+  B42), and the life-support toggle.
+- Kept from the vehicle work: sleeping in a vehicle you are ALREADY seated in
+  still counts as a bed (uses only vanilla APIs, no module needed).
+
+### Changed
+
+- Leveler focus options are now **Auto (balance) / Strength / Fitness**;
+  default Auto preserves the classic train-the-lower-stat behavior. Focus
+  persists per player in ModData.
+- F11 panel shows BOTH exercise perks' metrics (level, XP-to-next, session
+  gain, XP/hour, ETA), highlighting the focused one; P1-P4 selector kept for
+  splitscreen.
+- The exercise step remains the lowest survival priority (idle slot), now
+  routed through the leveler for focus + metrics.
+- Adaptive away-death rule retargets `LOOT_RADIUS_SUPPLY` (floor 80) since
+  the explore frontier no longer exists.
+- modversion 3.1; description refocused.
+
+### Survival core retained (always on)
+
+Eat/drink/sleep/rest, medical + auto-bandage, threat fight-or-flee, looting +
+supply runs + depletion memory, proactive water refill + supply top-up, home
+anchor + barricade maintenance, temperature clothing, boredom reading.
+
+### Fixed — MP dry-run finding (live 42.19 server)
+
+- **Error spam ("__add not defined") every engine tick in multiplayer**:
+  joining a server makes PZ re-execute all mod Lua, and a previously
+  registered OnTick closure can survive with dead upvalues — the first
+  statement (`tickCounter + 1`) then throws every tick, which also blocked
+  ALL evaluation (no exercise, frozen metrics). Tick state now lives on the
+  shared global `AutoPilot` table (resolved at call time, immune to stale
+  upvalues), self-heals via coercion, and duplicate handler registrations
+  dedupe by frame timestamp. Keyboard/joypad handlers got matching
+  stale-closure guards. Found via the in-game error counter (2671 and
+  climbing) + console.txt stack traces.
+
+### Testing
+
+- Suite adjusted to the trimmed surface: 10 files, 188 assertions, all green;
+  luacheck 0 warnings / 0 errors across the 16 remaining modules.
+
+## [V3.0] — 2026-07-18 — AUTO-LEVELER PIVOT
+
+The mod's identity pivots from "AFK survival autopilot" to "auto-leveler with
+optional life support". Target: Build **42.19.0 Unstable** (the current public
+unstable; 42.20 is still internal, and 42.19 saves will not carry into it).
+
+### Added — auto-leveler core
+
+- **`AutoPilot_Leveler`**: per-player target-skill selection (persisted in
+  ModData, MP-safe via transmitModData). Skill registry with honest status per
+  skill:
+  - *ready*: Strength, Fitness (exercise), Carpentry (barricading).
+  - *passive*: First Aid (trains when treating real wounds).
+  - *planned* (greyed out with the reason): Tailoring, Mechanics, Cooking,
+    Fishing, Foraging — 42.19 verification found no clean queueable action
+    path yet (crafting rework / minigame / UI-bound systems). Direct addXp()
+    grants are deliberately NOT used: they bypass real actions, desync in MP,
+    and amount to cheating rather than automation.
+- **Skill-book reading**: before training, the leveler reads a matching,
+  unfinished skill book covering the current level band (XP multiplier prep;
+  `SkillBook` table + `ISReadABook`, verified).
+- **`AutoPilot_XP`**: metrics engine — level, XP, XP-to-next
+  (`PerkFactory...getTotalXpForLevel`), session gain, XP/hour over a rolling
+  10-minute real-time window, and ETA to next level.
+- **F11 panel (`AutoPilot_UI`)**: skill selector (per player, with a P1-P4
+  selector so the keyboard user can configure splitscreen players), live
+  metrics, book-multiplier indicator, deaths + adaptive-tweaks summary.
+- **Life-support toggle** (per player, persisted): ON = survival layer keeps
+  the character alive while training; OFF = pure leveler, the player handles
+  eating/drinking/sleeping/combat manually. Combat response is part of the
+  toggle.
+
+### Added — death learning layer
+
+- **`AutoPilot_DeathLog`**: per-player ring buffer of recent decisions; on
+  death writes a full context snapshot (stats, wounds, zombie count, position,
+  distance from home, hours survived, active skill, recent decisions,
+  classified cause) to `Zomboid/Lua/auto_pilot_deaths.log`.
+- **`AutoPilot_Adaptive`**: at session start, reads the death log and applies
+  BOUNDED, transparent threshold adjustments (each rule has a hard floor/cap;
+  only the last 25 deaths count). Examples: horde deaths lower the flee
+  threshold and widen detection; starvation deaths lower the hunger trigger
+  and raise the food stockpile minimum; far-from-home deaths shrink the
+  explore frontier. All applied tweaks are listed in the F11 panel.
+
+### Changed
+
+- `pzversion` targets **42.19.0** (was mistakenly aimed at the unreleased
+  42.20); modversion 3.0; mod renamed "AutoPilot Leveler" with pivoted
+  description.
+- Priority chain: the selected target skill replaces the legacy daily skill
+  rotation and the idle STR/FIT exercise default (both still apply when no
+  target is selected, preserving pre-3.0 behavior).
+- Exercise seam `AutoPilot_Needs.trainExercise(player, focus)` exposes
+  focused STR-vs-FIT training to the leveler.
+- CI now runs ALL Lua test files (previously only 5 of 9, letting the others
+  rot unnoticed).
+
+### Multiplayer
+
+- B42 MP shipped to unstable in Dec 2025; 42.19 improves MP stability. The mod
+  stays client-side only; see the new **MULTIPLAYER.md** for dedicated-server
+  setup (Mods=/WorkshopItems=, RAM sizing, SleepAllowed) and splitscreen notes
+  (players 2-4 need controllers; F11 panel configures all players).
+
+### Testing
+
+- New `tests/test_leveler_metrics.lua`: 46 assertions across XP metrics,
+  death-log round-trip + cause classification, adaptive rule bounds and
+  idempotence, leveler selection persistence, trainer dispatch, and book
+  reading. Full suite: 188 assertions, 10 files, all green.
+
+## [V2.1] — 2026-07-18
+
+Build 42.20 stable compatibility pass. Every timed-action call was verified
+against the installed B42 Lua API; several core loops silently called classes
+or signatures that do not exist in B42 (hidden by blanket `pcall`s and by test
+mocks that mirrored the wrong assumptions).
+
+### Fixed — compatibility (load-blocking)
+
+- **Missing `common/` folder**: B42 requires both `42/` and `common/` at the mod
+  root; without `common/` the mod can fail to appear in the mod list at all.
+- **`pzversion`**: `42.x` (non-numeric placeholder) → `42.20.0`.
+
+### Fixed — broken core loops (silent API failures)
+
+- **Sleep/bed-rest**: `ISGetOnBedAction` does not exist in B42. Sleep now uses
+  the vanilla flow: `ISWorldObjectContextMenu.onSleepWalkToComplete(playerIndex,
+  bed)` (takes the 0-based player index), with `setOnComplete` on the walk-to.
+  Fatigue previously climbed unbounded because every bed sleep errored.
+- **Exercise**: `ISFitnessAction:new` args were in the wrong slots (real
+  signature: `character, exercise, timeToExe, fitnessUI, exeData`), and
+  `ISTimedActionQueue.addGetUpAndThen` does not exist (now `add`). Exercise
+  never started before.
+- **Telemetry**: `getFileWriter(..., append=false)` truncated the run log on
+  every line — the log only ever held one line. Now appends; end-marker file is
+  now created on first run.
+- **Barricading**: real signature is `ISBarricadeAction:new(character,
+  windowObj, isMetal, isMetalBar)` and materials must be EQUIPPED (hammer
+  primary + plank secondary, 2+ nails carried). Previous call passed the hammer
+  and nails items as the boolean/time args; windows were never barricaded.
+- **Splitscreen**: `getPlayer(n)` ignores its argument (always player 0); the
+  real accessor is `getSpecificPlayer(n)`. Players 1-3 previously all resolved
+  to player 0.
+- **Vehicles**: `ISEnterVehicleAction` → real class `ISEnterVehicle:new(
+  character, vehicle, seat)`.
+
+### Fixed — logic
+
+- **Boredom/sadness**: `CharacterStat.SANITY` reads HIGH when healthy; using it
+  as "sadness" made the bored branch fire nearly every idle cycle. Now driven by
+  the Unhappy moodle.
+- **Flee stutter / explore return**: `ISTimedActionQueue.isAllDone` does not
+  exist (pcall default made both checks no-ops). Now
+  `isPlayerDoingAction`-based.
+- **Home radius**: a stray `math.min(..., 50)` cap on ModData reload shrank the
+  containment circle from 150 to 50 after save/load.
+- **Idle-streak counter**: compared a value it had just overwritten (always
+  true); now compares the previous label.
+- **Supply-run depletion reset** is now per-calling-player (splitscreen-safe).
+- **Foraging categorizer**: literature magazines no longer classified as
+  firearm AMMO.
+
+### Added — feature wiring (previously scaffolded/dead)
+
+- **Combat advisory wired into Threat**: walker/runner tactical analysis now
+  decides the default fight/flee branch (unknown tactics resolve to flee;
+  safety gates unchanged).
+- **Weapon pre-equip at check** (V2.0 changelog claim, now actually
+  implemented): best usable weapon is readied before the engage decision.
+- **Skills**: carpentry day runs a real barricade pass (Carpentry XP); the
+  daily slot is only consumed when a real action queues. Other skills are
+  detection-only until their B42.20 action paths are verified.
+- **Vehicles**: nearby vehicles register at init; with no bed available the bot
+  boards a safe vehicle and sleeps in it (B42 treats a vehicle as
+  "averageBed").
+- **Foraging**: every successful world-container loot teaches the zone system;
+  supply runs target the best learned zone before blind sweeps.
+- **`AutoPilot_Inventory.proactiveWaterRefill`** (V2.0 claim, now implemented):
+  tops up water containers while calm; wired into proactive scavenge.
+- **`AutoPilot_Inventory.emergencyMedicalLoot`** (V2.0 claim, now implemented):
+  expanded-radius bandage loot ignoring home bounds.
+
+### Performance
+
+- Scan radii capped at 80 tiles (was 150; supply runs 150, was 300) — the
+  radius-150 scans visited ~90k squares per call on a 0.75 s cycle.
+- Zombie scan now cached per evaluation cycle (was up to 3 scans per cycle for
+  HUD, threat, telemetry).
+
+### Testing
+
+- `tests/lua_mock_pz.lua` now mirrors the REAL B42 API surface: fake helpers
+  (`ISGetOnBedAction`, `addGetUpAndThen`, `isAllDone`) removed so production
+  calls to them fail loudly; `ISFitnessAction` mock asserts argument types;
+  `getSpecificPlayer`, `getFileWriter` (append-aware), and
+  `ISWorldObjectContextMenu.onSleepWalkToComplete` added.
+- All 9 Lua test files pass (142 assertions), including the two files that were
+  broken before this pass (`test_combat_policy`, `test_resource_economy`).
+
 ## [V2.0] — 2026-04-12
 
 ### Added

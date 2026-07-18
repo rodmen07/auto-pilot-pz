@@ -29,18 +29,19 @@ AutoPilot_Constants.MEDICAL_LOOT_RADIUS = 30
 AutoPilot_Constants.PLACE_SEARCH_DIST = 50
 
 -- Radius for rest-furniture search (beds > sofas > chairs).
--- 150 tiles = one full cell radius; covers entire neighbourhood.
-AutoPilot_Constants.REST_SEARCH_DIST = 150
+-- Capped at 80: iterateNearbySquares visits (2r+1)^2 squares per scan and its
+-- own docs warn r > 80 risks frame hitches on the ~0.75 s eval cycle.
+AutoPilot_Constants.REST_SEARCH_DIST = 80
 
 -- General container-loot radius used for food, drink, and readable items.
--- 150 tiles = one full cell radius.
-AutoPilot_Constants.LOOT_SEARCH_RADIUS = 150
+-- Capped at 80 (see REST_SEARCH_DIST rationale).
+AutoPilot_Constants.LOOT_SEARCH_RADIUS = 80
 
 -- Water-source search radius (sinks, rain barrels, water dispensers).
-AutoPilot_Constants.WATER_SEARCH_RADIUS = 150
+AutoPilot_Constants.WATER_SEARCH_RADIUS = 80
 
 -- Outdoor-square search for boredom relief.
-AutoPilot_Constants.OUTDOOR_SEARCH_DIST = 150
+AutoPilot_Constants.OUTDOOR_SEARCH_DIST = 80
 
 -- Home / safehouse ----------------------------------------------------------
 
@@ -48,8 +49,9 @@ AutoPilot_Constants.OUTDOOR_SEARCH_DIST = 150
 -- 150 tiles = one full cell radius; covers a city block in all directions.
 AutoPilot_Constants.HOME_DEFAULT_RADIUS = 150
 
--- Bed-search parameters.  150 tiles = one full cell radius.
-AutoPilot_Constants.BED_SEARCH_DIST   = 150
+-- Bed-search parameters.  Capped at 80: this scan multiplies (2r+1)^2 by
+-- BED_SEARCH_FLOORS, so it is the single heaviest search in the mod.
+AutoPilot_Constants.BED_SEARCH_DIST   = 80
 AutoPilot_Constants.BED_SEARCH_FLOORS = 3   -- checks z, z+1, z-1
 
 -- Threat detection ---------------------------------------------------------
@@ -58,6 +60,13 @@ AutoPilot_Constants.BED_SEARCH_FLOORS = 3   -- checks z, z+1, z-1
 -- speed before a detected zombie reaches melee range -- enough for the action
 -- queue to drain (eating, looting) before the fight/flee response fires.
 AutoPilot_Constants.DETECTION_RADIUS = 20
+
+-- Engagement override: a zombie within this many tiles is ALWAYS treated as
+-- danger, even when the engine's visible/chasing counters have not flagged it
+-- yet (e.g. approaching from behind).  Beyond it, mere radius presence is not
+-- danger — zombies milling outside the safehouse walls must not lock the mod
+-- into permanent combat mode (observed live).
+AutoPilot_Constants.CLOSE_DANGER_RADIUS = 6
 
 -- Flee if MORE THAN this many debuff stats are elevated at once.
 -- 2 elevated = moderately compromised; > 2 = high-risk, better to run.
@@ -132,6 +141,21 @@ AutoPilot_Constants.STATE_WRITE_INTERVAL = 14
 -- Exercise set duration sent to ISFitnessAction (game minutes).
 AutoPilot_Constants.EXERCISE_MINUTES = 20
 
+-- Fitness focus does squats until any leg part's stiffness reaches this,
+-- then switches to sit-ups while the legs recover.  The health panel starts
+-- showing stiffness above 5; 20 = clearly sore.
+AutoPilot_Constants.SQUAT_STIFFNESS_MAX = 20
+
+-- Per-exercise diminishing returns: PZ silently reduces an exercise's XP to
+-- ~zero when it is repeated too long (observed live: character kept
+-- exercising, XP flatlined).  A completed set that gains less than this much
+-- XP marks the exercise "fatigued"...
+AutoPilot_Constants.EXERCISE_MIN_XP_PER_SET = 0.5
+-- ...for this long (game-time ms; 3 in-game hours), after which it is tried
+-- again.  While every exercise in the focus pool is fatigued, training
+-- pauses instead of burning food and endurance for nothing.
+AutoPilot_Constants.EXERCISE_FATIGUE_RECOVERY_MS = 3 * 60 * 60 * 1000
+
 -- Max search results stored for state reporting after searchItem.
 AutoPilot_Constants.SEARCH_RESULTS_MAX = 10
 
@@ -146,7 +170,7 @@ AutoPilot_Constants.EXERCISE_EQUIPMENT = {
     { keyword = "Barbell",    tier = "barbell",  multiplier = 1.2 },
     { keyword = "WeightBar",  tier = "barbell",  multiplier = 1.2 },
 }
-AutoPilot_Constants.EXERCISE_EQUIP_SEARCH_RADIUS = 150  -- tiles (one full cell radius)
+AutoPilot_Constants.EXERCISE_EQUIP_SEARCH_RADIUS = 80  -- tiles (capped for scan cost)
 
 -- Phase 2: Endurance gating thresholds (0.0-1.0)
 AutoPilot_Constants.EXERCISE_ENDURANCE_MIN    = 0.30    -- skip exercise below this
@@ -171,19 +195,19 @@ AutoPilot_Constants.HAPPINESS_FOOD_PRIORITY  = 40
 AutoPilot_Constants.BARRICADE_RECHECK_INTERVAL = 3  -- in-game days
 
 -- Phase 3: Foraging / supply run radii
-AutoPilot_Constants.LOOT_RADIUS_HOME   = 150   -- normal home-area loot radius (one cell)
-AutoPilot_Constants.LOOT_RADIUS_SUPPLY = 300   -- expanded radius for supply runs (full cell diameter)
+AutoPilot_Constants.LOOT_RADIUS_HOME   = 80    -- normal home-area loot radius (capped for scan cost)
+AutoPilot_Constants.LOOT_RADIUS_SUPPLY = 150   -- expanded radius for supply runs (rare; hitch accepted)
 AutoPilot_Constants.SUPPLY_RUN_TRIGGER = 5     -- consecutive empty loot cycles before expanding radius
 
 -- Phase 4: Combat weapon management
 AutoPilot_Constants.WEAPON_CONDITION_MIN  = 0.25  -- swap weapon if condition drops below this (0.0-1.0)
-AutoPilot_Constants.WEAPON_SEARCH_RADIUS  = 150   -- tiles to search for a replacement weapon
+AutoPilot_Constants.WEAPON_SEARCH_RADIUS  = 80    -- tiles to search for a replacement weapon
 
 -- Phase 4: Temperature / clothing thresholds
 -- BodyStats temperature is roughly -100 (freezing) to +100 (boiling), 0 = comfortable
 AutoPilot_Constants.TEMP_TOO_COLD = -20   -- equip warmer clothing below this
 AutoPilot_Constants.TEMP_TOO_HOT  =  20   -- equip lighter clothing above this
-AutoPilot_Constants.CLOTHING_SEARCH_RADIUS = 150
+AutoPilot_Constants.CLOTHING_SEARCH_RADIUS = 80
 
 -- Phase 4: Barricading
 AutoPilot_Constants.BARRICADE_SEARCH_RADIUS = 15  -- only barricade windows/doors within home radius
@@ -204,17 +228,18 @@ AutoPilot_Constants.DEPLETED_CAP = 500
 AutoPilot_Constants.SUPPLY_FOOD_MIN  = 3  -- food items (non-rotten, caloric)
 AutoPilot_Constants.SUPPLY_DRINK_MIN = 2  -- drink items (thirst-reducing)
 
--- Exploration ----------------------------------------------------------------
--- Distinct compass sectors visited per rotation before expanding the frontier.
-AutoPilot_Constants.EXPLORE_SECTORS = 8
--- Tiles beyond home radius to target per exploration step.
-AutoPilot_Constants.EXPLORE_STEP_TILES = 40
--- Eval cycles between exploration trips (~90 s at 0.75 s/cycle).
-AutoPilot_Constants.EXPLORE_COOLDOWN_CYCLES = 120
--- Tiles added to explore frontier per full sector rotation.
-AutoPilot_Constants.EXPLORE_RADIUS_INCREMENT = 25
--- Hard cap on the explore frontier radius.
-AutoPilot_Constants.EXPLORE_RADIUS_MAX = 300
+-- Proactive water refill only runs while calm: thirst below this (0.0-1.0).
+-- At/above it the normal doDrink path is about to handle hydration anyway.
+AutoPilot_Constants.PROACTIVE_WATER_THIRST_MAX = 0.10
+
+-- Proactive scavenging is a background chore, not the mod's purpose: keep it
+-- near home, infrequent, and able to give up.  (Without these limits it
+-- dragged the character across an 80-tile radius every idle cycle and
+-- exercise never ran — observed live via telemetry.)
+AutoPilot_Constants.PROACTIVE_LOOT_RADIUS     = 25    -- tiles, home-ish only
+AutoPilot_Constants.SCAVENGE_COOLDOWN_CYCLES  = 80    -- ~1 min between trips
+AutoPilot_Constants.SCAVENGE_STUCK_LIMIT      = 3     -- attempts w/o supply gain
+AutoPilot_Constants.SCAVENGE_BACKOFF_CYCLES   = 1200  -- ~15 min after giving up
 
 -- Base maintenance -----------------------------------------------------------
 -- Eval cycles between barricade re-checks (~3 min at 0.75 s/cycle).
@@ -226,17 +251,6 @@ AutoPilot_Constants.BARRICADE_RECHECK_CYCLES = 240
 --   TICK_INTERVAL = 15  ->  evaluation every ~0.75 s
 --   ACTION_COOLDOWN_CYCLES = 4  ->  ~3 s suppression after any queued action
 --
--- ── Controller toggle (splitscreen players 1-3) ──────────────────────────────
--- Joypad button index for the AutoPilot toggle (double-tap to activate).
--- 6 = Back / Select / View on xinput (Xbox View, PS Share, Switch Minus).
--- Not bound by PZ default controller mappings; safe to use as a mod toggle.
--- Change this constant if button 6 conflicts with a custom PZ binding.
-AutoPilot_Constants.JOYPAD_TOGGLE_BUTTON = 6
-
--- Maximum milliseconds between two button presses to register as a double-tap.
--- 500 ms gives a comfortable window without being easy to trigger accidentally.
-AutoPilot_Constants.JOYPAD_DOUBLE_TAP_MS = 500
-
 -- Max consecutive identical-action ticks before the queue-thrash guard fires.
 -- At TICK_INTERVAL=15 ticks/eval, 15 evals ≈ 11 s of identical action.
 AutoPilot_Constants.MAX_ACTION_STREAK = 15

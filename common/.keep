@@ -1,0 +1,2 @@
+# Build 42 requires this `common/` folder to exist alongside `42/`.
+# A missing common/ folder can prevent the mod from loading. Leave empty.

@@ -61,7 +61,11 @@ jobs:
               tests/test_threat_logic.lua \
               tests/test_medical_logic.lua \
               tests/test_home_map_barricade.lua \
-              tests/test_main_logic.lua; do
+              tests/test_main_logic.lua \
+              tests/test_combat_policy.lua \
+              tests/test_resource_economy.lua \
+              tests/test_telemetry_schema.lua \
+              tests/test_leveler_metrics.lua; do
             echo "=== $test_file ==="
             lua5.1 "$test_file"
           done

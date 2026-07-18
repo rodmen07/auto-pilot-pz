@@ -11,10 +11,32 @@ dofile("tests/lua_mock_pz.lua")
 -- ── Load constants ────────────────────────────────────────────────────────────
 dofile("42/media/lua/client/AutoPilot_Constants.lua")
 
--- Additional action stub required by Barricade
+-- Additional action stubs required by Barricade.
+-- Real B42 signature (shared/TimedActions/ISBarricadeAction.lua):
+-- new(character, item, isMetal, isMetalBar) — item is the WINDOW object and
+-- both flags are booleans; materials come from the equipped hands.
 ISBarricadeAction = {
-    new = function(_, _player, obj, _isPanelDoor, _hammer, _nails)
+    new = function(_, _player, obj, isMetal, isMetalBar)
+        assert(type(isMetal) == "boolean",
+            "ISBarricadeAction:new expects boolean isMetal, got " .. type(isMetal))
+        assert(type(isMetalBar) == "boolean",
+            "ISBarricadeAction:new expects boolean isMetalBar, got " .. type(isMetalBar))
         return { type = "barricade", obj = obj }
+    end,
+}
+
+ISEquipWeaponAction = {
+    new = function(_, _player, item, _time, primary)
+        return { type = "equip", item = item, primary = primary }
+    end,
+}
+
+luautils = {
+    walkAdjWindowOrDoor = function(_player, _sq, _obj, _keepActions)
+        return true
+    end,
+    walkAdj = function(_player, _sq, _keepActions)
+        return true
     end,
 }
 
