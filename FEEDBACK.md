@@ -24,6 +24,12 @@ All paths are Windows form; on Linux replace `%USERPROFILE%` with `~`.
 | `triage_run_log.py` | `python triage_run_log.py [path]` | Action mix, transitions, time split, threat events, per-session STR/FIT deltas, suspicious patterns |
 | Mod options | Options > Mods > AutoPilot Leveler | Slider and keybind deviations from defaults (the form requires this list) |
 
+[docs/triage.md](docs/triage.md) is the full `triage_run_log.py`
+reference: the run-log schema, how to read each report section, the
+suspicious-pattern catalog (including V4.5 signatures the tool does not
+auto-detect, like `foreign_action` ticks and training-backoff gaps), and
+the fixture workflow for adding new detectors.
+
 **The first-error rule.** Project Zomboid loads client Lua files
 alphabetically and stops loading a file at its FIRST error. One early crash
 therefore silently prevents every later module from loading, and the visible
