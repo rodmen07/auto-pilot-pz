@@ -1,4 +1,4 @@
-# In-Game Test Checklist — AutoPilot V3.2
+# In-Game Test Checklist — AutoPilot V3.3
 
 Run these on a **fresh save** (no existing mods, default sandbox settings) on
 **Build 42.19.0 Unstable** before Workshop upload. Check each box when
@@ -9,12 +9,16 @@ verified. A fresh character starts with no skills and no home base.
 > while the real class does not exist in B42). Every new timed-action call
 > must be smoke-tested in the actual game once.
 
-## Auto-Exercise Leveler (V3.2)
+## Auto-Exercise Leveler
 - [ ] Mod is INACTIVE on spawn (HUD shows OFF); nothing happens until F10 arms it
 - [ ] F10 arms the mod; home anchors at the current position on the first
       active cycle
 - [ ] F11 opens/closes the leveler panel
-- [ ] Strength focus: push-ups ONLY (no squat/sit-up drift)
+- [ ] Strength focus (no gear carried): push-ups ONLY (no squat/sit-up drift)
+- [ ] With a dumbbell in inventory + Strength focus: dumbbell press runs
+      (not push-ups); without gear: push-ups
+- [ ] Once per day the bot fetches a dumbbell/barbell from home containers
+      when none is carried (strength/auto focus)
 - [ ] Fitness focus: squats; switches to sit-ups once leg stiffness builds,
       back to squats after recovery
 - [ ] Auto focus: burpees first (levels Strength AND Fitness together)
@@ -24,13 +28,18 @@ verified. A fresh character starts with no skills and no home base.
       hours later
 - [ ] Panel shows BOTH perk blocks; metrics update: XP rises, XP/hour appears
       after ~1 min, ETA shown; focused perk is highlighted
+- [ ] F11 panel: shows live status line ("training: squats", "resting (...)"),
+      sets today N/cap, regularity of the current exercise, arm/disarm button
+      works, panel position is remembered after reopening
+- [ ] Options > Mods > AutoPilot Leveler: sliders apply in-game after Save
+      (e.g. lower daily cap and watch training stop at it); F10/F11 rebind works
 - [ ] Focus survives save/quit/reload (ModData)
 - [ ] MP: error counter stays at 0 after joining a server (Lua-reload fix)
 - [ ] Zombies wandering OUTSIDE the walls do not interrupt training (HUD may
       show Z:2+ while exercising); a chasing or adjacent zombie still triggers
       fight-or-flee immediately
 
-## Death Learning (V3.2)
+## Death Learning
 - [ ] Die once → `Zomboid/Lua/auto_pilot_deaths.log` gains one line with a
       plausible cause= field and recent decisions
 - [ ] Next session start: console shows "[Adaptive] N death(s) on record" and
@@ -38,7 +47,7 @@ verified. A fresh character starts with no skills and no home base.
 - [ ] After 2+ horde deaths, FLEE_HORDE_SIZE drops (flees earlier) but never
       below 3 (bounded)
 
-## B42 Compatibility (V2.1 fixes, verified against 42.19)
+## B42 Compatibility and Telemetry (verified against 42.19)
 - [ ] Mod appears in the in-game mod list (verifies `common/` folder +
       `pzversion` fix — a missing `common/` silently hides the mod)
 - [ ] High fatigue near a bed → character walks to the bed and actually falls
@@ -49,6 +58,8 @@ verified. A fresh character starts with no skills and no home base.
       (hammer/plank equip actions first, then hammering animation)
 - [ ] `%USERPROFILE%/Zomboid/Lua/auto_pilot_run.log` GROWS across cycles
       (append fix — previously held only the single most recent line)
+- [ ] Telemetry: with a run log over 20k lines, session start trims it to 5k
+      ("[Telemetry] Rotated log" in console)
 
 ## Setup
 - [ ] Mod loads without Lua errors in PZ console
@@ -92,19 +103,6 @@ verified. A fresh character starts with no skills and no home base.
 - [ ] Mod loads on client; no errors on server console
 - [ ] Bot actions affect only the local player (no cross-player item transfers)
 - [ ] Home ModData persists after reconnect
-
-## V3.3 Additions
-- [ ] With a dumbbell in inventory + Strength focus: dumbbell press runs
-      (not push-ups); without gear: push-ups
-- [ ] Once per day the bot fetches a dumbbell/barbell from home containers
-      when none is carried (strength/auto focus)
-- [ ] F11 panel: shows live status line ("training: squats", "resting (...)"),
-      sets today N/cap, regularity of the current exercise, arm/disarm button
-      works, panel position is remembered after reopening
-- [ ] Options > Mods > AutoPilot Leveler: sliders apply in-game after Save
-      (e.g. lower daily cap and watch training stop at it); F10/F11 rebind works
-- [ ] Telemetry: with a run log over 20k lines, session start trims it to 5k
-      ("[Telemetry] Rotated log" in console)
 
 ## Soak Test (multi-hour stability)
 - [ ] 2+ real hours armed on the server: no error counter growth, no FPS decay
