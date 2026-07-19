@@ -259,5 +259,21 @@ AutoPilot_Constants.MAX_ACTION_STREAK = 15
 -- Prevents exercise-spam at high game speeds (e.g. 3× time warp).
 -- 600 000 ms = 10 minutes of real time; the in-game day duration is ~28 minutes.
 AutoPilot_Constants.EXERCISE_REAL_TIME_CAP_MS = 600000
+
+-- Session history (V4.2, expansion candidate C5) -----------------------------
+-- AutoPilot_SessionHistory keeps one compact summary line per session in
+-- auto_pilot_sessions.log: written at session end (death or shutdown) and
+-- refreshed by periodic "open" checkpoints so a crash still leaves a
+-- recent summary (the latest line per session wins at read time).
+--
+-- Checkpoint interval in evaluation cycles.
+-- 400 cycles * 0.75 s/cycle = ~5 min of real time between checkpoint lines.
+AutoPilot_Constants.SESSION_HISTORY_CHECKPOINT_CYCLES = 400
+-- Retention bound: once per session the file is collapsed (one line per
+-- session) and only the newest KEEP summaries survive (V3.3 rotation
+-- pattern; keeps the file bounded by design).
+AutoPilot_Constants.SESSION_HISTORY_KEEP = 30
+-- Sessions shown in the F11 panel's history block (newest first).
+AutoPilot_Constants.SESSION_HISTORY_PANEL_ROWS = 5
 -- format `AutoPilot_Constants.FIELD = <number>` with no leading whitespace.
 -- Do not introduce leading spaces or multi-line assignments for tunable lines.

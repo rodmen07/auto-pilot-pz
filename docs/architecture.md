@@ -1,4 +1,4 @@
-# AutoPilot Leveler Architecture (V4.1)
+# AutoPilot Leveler Architecture (V4.2)
 
 ## Overview
 
@@ -15,7 +15,7 @@ mod is client-side only and MP-compatible (in multiplayer each client
 automates its own character). Splitscreen is not supported (removed in
 V3.2). The mod starts OFF; arming it is a deliberate player action.
 
-The runtime is 17 modules under `42/media/lua/client/`. PZ loads client Lua
+The runtime is 18 modules under `42/media/lua/client/`. PZ loads client Lua
 files alphabetically; `AutoPilot_Constants` loads before every module that
 reads it at load time, and the modules that sort earlier (`Adaptive`,
 `Barricade`) only touch Constants inside function bodies, never at load.
@@ -56,7 +56,8 @@ both `AutoPilot_Options` (player sliders) and `AutoPilot_Adaptive`
 |---|---|---|
 | `AutoPilot_DeathLog` | Death learning, recording half: a per-player ring buffer of the last 15 distinct decisions (consecutive duplicates collapse) and, on death, one key=value context snapshot line (stats, wounds, zombie count, position, distance from home, hours survived, focus, recent decisions, classified cause) appended to `auto_pilot_deaths.log`. | `recordDecision` is fed by `Telemetry.logTick` each cycle; `writeSnapshot` is triggered by `Telemetry.onDeath`. Snapshot collection reads `Home`, `Medical`, `Threat`, `Leveler`, and `Utils`. `readLines`/`parseLine` serve `Adaptive`; `getDeathCount` serves the panel. |
 | `AutoPilot_Adaptive` | Death learning, adaptation half: once per session, reads the death log, buckets causes over the most recent 25 deaths, and applies bounded, transparent threshold adjustments to `AutoPilot_Constants` (each rule has a hard floor or cap). | `init` is called from `Main`'s tick (after `Options.applyOnce`, so player settings are the base the deltas apply to). Reads `DeathLog`; `getApplied` lists this session's adjustments in the F11 panel. |
-| `AutoPilot_Telemetry` | Per-tick run-log writer: one key=value CSV line per evaluation cycle to `auto_pilot_run.log`, a JSON end marker (`dead` or `timeout`) to `auto_pilot_run_end.json`, and once-per-session log rotation. | `logTick` is called by `Main` every evaluation; `setDecision` by `Needs` at each decision point; `onDeath`/`onShutdown` by `Main`. Collects stats via `Utils.safeStat`, `Threat.getNearbyZombies` (cached scan), and `Medical.getWoundSnapshot`; feeds `DeathLog.recordDecision` and triggers `DeathLog.writeSnapshot`. |
+| `AutoPilot_SessionHistory` | Session history data layer (V4.2): one compact key=value summary line per session (ticks, STR/FIT/Woodwork/Doctor start/end levels, end reason) appended to `auto_pilot_sessions.log`, written at session end and refreshed by periodic "open" checkpoints; a versioned header line, a tolerant parser, once-per-session collapse rotation (newest `SESSION_HISTORY_KEEP` sessions survive), and pre-formatted panel strings (rows + trend sparkline). Registers NO events. | `observe` is fed by `Telemetry.logTick` each cycle; `finalize` by `Telemetry.onDeath` ("dead") and `Telemetry.onShutdown` ("timeout"), all existence-guarded. `getPanelLines` serves the F11 history block (the UI renders the returned strings verbatim). |
+| `AutoPilot_Telemetry` | Per-tick run-log writer: one key=value CSV line per evaluation cycle to `auto_pilot_run.log`, a JSON end marker (`dead` or `timeout`) to `auto_pilot_run_end.json`, and once-per-session log rotation. | `logTick` is called by `Main` every evaluation; `setDecision` by `Needs` at each decision point; `onDeath`/`onShutdown` by `Main`. Collects stats via `Utils.safeStat`, `Threat.getNearbyZombies` (cached scan), and `Medical.getWoundSnapshot`; feeds `DeathLog.recordDecision` and `SessionHistory.observe`/`finalize` (V4.2) and triggers `DeathLog.writeSnapshot`. |
 | `AutoPilot_Constants` | Central registry of tunable thresholds and constants, with documented units and rationale. The shared tuning surface: `Options` writes player settings into it, then `Adaptive` applies its deltas on top; consuming modules read tunables live at their use sites (the V3.3 fix). | Read by every module. Written only by `Options` and `Adaptive`. |
 | `AutoPilot_Utils` | Safe shared helpers: `safeStat` (pcall-wrapped B42 `getStats():get(CharacterStat.X)` access) and the square-scan primitives `iterateNearbySquares` (flat radius scan) and `findNearestSquare` (outward spiral). | Leaf module; called from nearly everywhere. Sorts last alphabetically, which is safe because its globals are only resolved when functions are called, never at load. |
 
@@ -180,9 +181,15 @@ equipment") with sets today N/cap, the long-term `getRegularity` of the
 exercise currently training, both exercise perks' metric blocks (level, XP
 to next, session gain, XP/hour, ETA), the V4.1 Woodwork and Doctor blocks in
 the same style (read-only visibility of the XP the game grants for the
-barricade maintenance and wound treatment the mod already performs), and the
-death count plus up to four applied adaptive tweaks. Panel position persists
-per character via ModData.
+barricade maintenance and wound treatment the mod already performs), the
+V4.2 session-history block (the last `SESSION_HISTORY_PANEL_ROWS` sessions,
+newest first, each row showing session number, ticks, STR/FIT/Woodwork/
+Doctor level deltas, and end reason, plus a trend sparkline of total level
+gains across the retained sessions), and the death count plus up to four
+applied adaptive tweaks. Every history string is pre-formatted by
+`AutoPilot_SessionHistory` (where the logic is unit-tested); the panel only
+draws what the data layer returns. Panel position persists per character
+via ModData.
 
 ## Death Learning: DeathLog Ring and Adaptive Tuning
 
@@ -270,11 +277,37 @@ run log exceeds `TELEMETRY_MAX_LINES` (20,000) the oldest lines are dropped
 and only the newest `TELEMETRY_KEEP_LINES` (5,000) are kept. This closed
 the "log grows unbounded" limitation.
 
+## Session History (V4.2)
+
+`AutoPilot_SessionHistory` owns `~/Zomboid/Lua/auto_pilot_sessions.log`:
+line one is a versioned header (`# auto_pilot_sessions schema=1`) and each
+following line is one session's key=value summary in fixed, additive-only
+field order: `schema`, `session` (monotonic id), `player`, `ticks`,
+`str_start`/`str_end`, `fit_start`/`fit_end`, `wood_start`/`wood_end`,
+`doc_start`/`doc_end`, `ended` (`open`/`dead`/`timeout`). The field
+conventions mirror `triage_run_log.py`'s per-session summaries; in-game the
+values are accumulated directly from `Telemetry.logTick`'s stat collection
+instead of re-parsing the run log in Kahlua.
+
+Writes are append-only: the definitive line lands at session end
+(`Telemetry.onDeath` -> `ended=dead`, `Telemetry.onShutdown` ->
+`ended=timeout`, idempotent so a shutdown after a death changes nothing),
+and every `SESSION_HISTORY_CHECKPOINT_CYCLES` (400) evaluation cycles an
+`ended=open` checkpoint line is refreshed so a crash still leaves a recent
+summary. At read time the latest line per session id wins, collapsing the
+checkpoints; the parser is tolerant (comment lines, malformed lines, and
+unknown or missing additive fields never abort a read). Once per Lua
+session, on the first session begin, the file is collapsed to one line per
+session and only the newest `SESSION_HISTORY_KEEP` (30) summaries are
+retained (the module's only non-append write, mirroring the run-log
+rotation). A death followed by a respawn in the same Lua state finalizes
+the old session and starts the next id.
+
 ## CI Guards
 
 `check.sh` (mirrored by `.github/workflows/ci.yml`) enforces:
 
-1. **luacheck**: zero errors and zero warnings across the 17 modules in
+1. **luacheck**: zero errors and zero warnings across the 18 modules in
    `42/media/lua/client/`.
 2. **Static API guard**: no deprecated direct stat getters
    (`:getHunger()`, `:getThirst()`, `:getFatigue()`, `:getEndurance()`,
@@ -284,7 +317,7 @@ the "log grows unbounded" limitation.
    (non-fatal).
 4. **Lua test suite**: glob-driven discovery of `tests/test_*.lua` (zero
    matches fails the run), so new test files are picked up with no list
-   edits; currently 9 files, all green.
+   edits; currently 10 files, all green.
 5. **pytest**: the Python benchmark and log-analysis tests.
 
 `release.yml` packages this file (with `42/`, the rest of `docs/`, and
