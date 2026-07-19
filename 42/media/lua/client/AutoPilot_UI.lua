@@ -3,8 +3,11 @@
 -- watch live XP metrics for both exercise perks plus the V4.1 action perks
 -- (Woodwork from the barricade pass, Doctor from wound treatment), see
 -- exactly what the trainer is doing right now (current exercise, resting
--- reasons, sets today), arm or disarm the mod, and review the death-learning
--- adjustments.
+-- reasons, sets today), arm or disarm the mod, review the death-learning
+-- adjustments, and (V4.2) scan the session-history block: the last few
+-- sessions' ticks, per-perk level deltas, end reason, and a trend
+-- sparkline, all pre-formatted by AutoPilot_SessionHistory (the UI renders
+-- strings only; the data layer owns the logic and the tests).
 --
 -- Built on vanilla ISUI widgets (ISCollapsableWindow + ISButton), standard
 -- :new -> :initialise -> :addToUIManager pattern.  Configures the LOCAL
@@ -55,7 +58,9 @@ function AutoPilot_UI:createChildren()
     self.metricsY = y
     -- Metrics + status + adaptive list drawn in render().
     -- V4.1: +4 rows for the Woodwork/Doctor visibility blocks.
-    self:setHeight(self.metricsY + ROW_H * 17 + PAD)
+    -- V4.2: +7 rows for the session-history block (title + up to
+    -- SESSION_HISTORY_PANEL_ROWS sessions + trend sparkline).
+    self:setHeight(self.metricsY + ROW_H * 24 + PAD)
 end
 
 -- ── Button handlers ──────────────────────────────────────────────────────────
@@ -171,6 +176,27 @@ function AutoPilot_UI:render()
     y = y + 4
     y = self:_drawPerkBlock("Doctor", mDoc, y, false)
     y = y + ROW_H
+
+    -- V4.2 session history (C5): the longitudinal view.  Every string is
+    -- pre-formatted by the AutoPilot_SessionHistory data layer (which owns
+    -- all parsing/aggregation logic and is unit-tested); this block only
+    -- draws what it is handed.
+    local histLines = nil
+    pcall(function()
+        histLines = AutoPilot_SessionHistory.getPanelLines(player,
+            AutoPilot_Constants.SESSION_HISTORY_PANEL_ROWS)
+    end)
+    if type(histLines) == "table" and #histLines > 0 then
+        self:drawText("Session history (newest first):",
+            PAD, y, 0.6, 0.8, 1, 1, UIFont.Small)
+        y = y + ROW_H
+        for i = 1, #histLines do
+            self:drawText("  " .. tostring(histLines[i]),
+                PAD, y, 0.75, 0.75, 0.85, 1, UIFont.Small)
+            y = y + ROW_H
+        end
+        y = y + 4
+    end
 
     -- Death-learning summary + applied adjustments.
     local deaths = 0

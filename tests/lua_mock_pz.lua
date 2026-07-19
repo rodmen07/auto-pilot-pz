@@ -84,8 +84,15 @@
 --          ignores its argument and always returns player 0, V2.1)
 --   [MA] getFileWriter(name, createIfNotExist, append)   append=false
 --          TRUNCATES (the V2.1 telemetry one-line-log bug); this mock counts
---          truncates vs appends so tests can verify the log actually grows
+--          truncates vs appends so tests can verify the log actually grows.
+--          V4.2 (C5): AutoPilot_SessionHistory rides this same surface for
+--          auto_pilot_sessions.log (append-only summary/checkpoint lines;
+--          the once-per-session rotation rewrite is its ONLY truncate);
+--          test_session_history.lua asserts the discipline via the
+--          appends/truncates counters.  No new mock surface.
 --   [MA] getFileReader(name, createIfNotExist) with :readLine()/:close()
+--          V4.2 (C5): also the SessionHistory read path (same pattern as
+--          DeathLog.readLines)
 --   [M]  getCell()   stub cell whose getGridSquare() returns nil
 --          (getZombieList is suite-local: test_threat_logic overrides getCell)
 --   [M]  getGameTime():getCalender():getTimeInMillis() / :getDay()

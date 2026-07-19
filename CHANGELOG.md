@@ -2,6 +2,61 @@
 
 All notable changes to AutoPilot are documented here.
 
+## [V4.2] - 2026-07-19 - F11 SESSION HISTORY AND TRENDS
+
+Implements approved V4.0 expansion candidate C5
+(docs/EXPANSION_PROPOSAL_V4.md): a longitudinal view of the grind. No new
+engine APIs; everything rides the verified getFileWriter/getFileReader
+surfaces already used by the run log and death log.
+
+### Added - session summaries (data layer)
+
+- New module `AutoPilot_SessionHistory` (loads before Telemetry
+  alphabetically; registers no events): persists one compact key=value
+  summary line per session to `~/Zomboid/Lua/auto_pilot_sessions.log` with
+  ticks, STR/FIT/Woodwork/Doctor start/end levels, and the end reason
+  (dead/timeout), reusing triage_run_log.py's per-session field
+  conventions.
+- Written at session end via the existing Telemetry.onDeath/onShutdown
+  hooks (idempotent: a shutdown after a death changes nothing) and
+  refreshed by an `ended=open` checkpoint line every
+  SESSION_HISTORY_CHECKPOINT_CYCLES (400) evaluation cycles, so a crash
+  still leaves a recent summary. At read time the latest line per session
+  id wins.
+- File format: versioned header line (`# auto_pilot_sessions schema=1`),
+  additive-only fields, tolerant parser (comment/malformed lines and
+  missing or unknown fields never abort a read). Bounded by design: once
+  per session the file is collapsed to one line per session and only the
+  newest SESSION_HISTORY_KEEP (30) summaries survive (the run-log rotation
+  pattern; the collapse rewrite is the module's only non-append write).
+- A death followed by a respawn in the same Lua state closes the old
+  session and opens the next id.
+
+### Added - F11 history block
+
+- The panel gains a "Session history" block: the last
+  SESSION_HISTORY_PANEL_ROWS (5) sessions, newest first, each row showing
+  session number, ticks, per-perk level deltas, and end reason
+  (`#3  812t  S+1 F+0 W+2 D+0  dead`), plus a trend sparkline of total
+  level gains across the retained sessions (oldest to newest).
+- The UI stays thin: every string is pre-formatted by
+  AutoPilot_SessionHistory.getPanelLines, so all logic sits in the
+  unit-tested data layer and the documented UI coverage gap does not
+  widen.
+
+### Testing
+
+- Suite: 10 Lua files, 320 assertions (was 225), all green: new
+  `tests/test_session_history.lua` (95 assertions) covers write/parse
+  round-trips, checkpoint cadence and collapse, rotation/retention, parser
+  tolerance, delta computation, panel formatting, the trend sparkline, and
+  the Telemetry integration, asserting append-vs-truncate discipline
+  through the mock's counting getFileWriter. No new mock surface (the
+  writer/reader were already assertion-bearing); the mock header records
+  the V4.2 callsites. Run-log schema is untouched (summaries are a
+  separate file), so `triage_run_log.py` and its 45 pytest tests are
+  unchanged. luacheck stays 0 warnings / 0 errors across 18 modules.
+
 ## [V4.1] - 2026-07-19 - ACTION-PERK XP VISIBILITY (WOODWORK + DOCTOR)
 
 Implements the two approved V4.0 expansion candidates C2 and C6

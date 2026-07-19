@@ -80,6 +80,9 @@ globals = {
     "AutoPilot_Adaptive",
     "AutoPilot_Options",
 
+    -- V4.2 session-history data layer (expansion candidate C5)
+    "AutoPilot_SessionHistory",
+
     -- V3.3 engine globals (verified against 42.19)
     "PZAPI",
 

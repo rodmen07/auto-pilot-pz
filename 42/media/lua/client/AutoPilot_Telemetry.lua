@@ -9,6 +9,11 @@
 --   ~/Zomboid/Lua/auto_pilot_run_end.json    (player 0)
 --   ~/Zomboid/Lua/auto_pilot_run_p1_end.json (player 1, etc.)
 --
+-- V4.2 (C5): each logTick also feeds AutoPilot_SessionHistory.observe, and
+-- onDeath/onShutdown finalize the session summary (auto_pilot_sessions.log,
+-- owned by AutoPilot_SessionHistory).  All three callsites are existence
+-- guarded + pcall-wrapped, same pattern as the DeathLog feed.
+--
 -- File I/O uses getFileWriter() — the only game-safe file API in PZ's sandbox.
 -- All operations are wrapped in pcall to prevent crashes on any I/O failure.
 
@@ -257,6 +262,12 @@ function AutoPilot_Telemetry.logTick(player, action, reason)
         s.zombies, s.bleeding, s.str, s.fit, s.wood, s.doc
     )
     _appendLine(pnum, line)
+
+    -- Feed the V4.2 session-history data layer (per-session summaries with
+    -- checkpoint writes; see AutoPilot_SessionHistory).
+    if AutoPilot_SessionHistory and AutoPilot_SessionHistory.observe then
+        pcall(function() AutoPilot_SessionHistory.observe(player, s) end)
+    end
 end
 
 --- Call exactly once when a player dies.
@@ -269,6 +280,10 @@ function AutoPilot_Telemetry.onDeath(player)
     if AutoPilot_DeathLog and AutoPilot_DeathLog.writeSnapshot then
         pcall(function() AutoPilot_DeathLog.writeSnapshot(player) end)
     end
+    -- Session history: the definitive "dead" summary line (V4.2).
+    if AutoPilot_SessionHistory and AutoPilot_SessionHistory.finalize then
+        pcall(function() AutoPilot_SessionHistory.finalize(player, "dead") end)
+    end
 end
 
 --- Call when autopilot is disabled or the game session ends while autopilot is
@@ -279,6 +294,13 @@ end
 function AutoPilot_Telemetry.onShutdown(player)
     local pnum = player and _pn(player) or 0
     _writeEndMarker(pnum, "timeout", "session_end")
+    -- Session history: the definitive "timeout" summary line (V4.2).  A
+    -- no-op when the session was already finalized by a death.
+    if AutoPilot_SessionHistory and AutoPilot_SessionHistory.finalize then
+        pcall(function()
+            AutoPilot_SessionHistory.finalize(player, "timeout")
+        end)
+    end
 end
 
 --- Return the pending action label for a player (defaults to player 0).
