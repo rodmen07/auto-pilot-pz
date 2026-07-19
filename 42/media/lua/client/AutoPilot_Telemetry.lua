@@ -16,7 +16,9 @@ AutoPilot_Telemetry = {}
 
 -- Telemetry schema version — increment when new fields are added.
 -- Old parsers that don't know this field simply ignore it (additive-only).
-local SCHEMA_VERSION = 2
+-- v3 (V4.1): appends wood/doc (Woodwork and Doctor perk levels) after fit,
+-- the read-only action-perk visibility from expansion candidates C2/C6.
+local SCHEMA_VERSION = 3
 
 -- ── Per-player state ───────────────────────────────────────────────────────────
 -- Keys are playerNum (0-based integer from player:getPlayerNum()).
@@ -169,6 +171,13 @@ local function _collectStats(player)
     pcall(function() strLvl = player:getPerkLevel(Perks.Strength) end)
     pcall(function() fitLvl = player:getPerkLevel(Perks.Fitness)  end)
 
+    -- Schema v3 (V4.1 C2/C6): action-perk levels for the perks the mod
+    -- trains through real queued actions (barricade pass / wound treatment).
+    local woodLvl = 0
+    local docLvl  = 0
+    pcall(function() woodLvl = player:getPerkLevel(Perks.Woodwork) end)
+    pcall(function() docLvl  = player:getPerkLevel(Perks.Doctor)   end)
+
     return {
         hunger    = math.floor(hunger    * 100),
         thirst    = math.floor(thirst    * 100),
@@ -178,6 +187,8 @@ local function _collectStats(player)
         bleeding  = bleeding,
         str       = strLvl,
         fit       = fitLvl,
+        wood      = woodLvl,
+        doc       = docLvl,
     }
 end
 
@@ -239,11 +250,11 @@ function AutoPilot_Telemetry.logTick(player, action, reason)
         "schema_version=%d,player=%d,mode=autopilot,ff=%s,run_tick=%d,"
         .. "action=%s,reason=%s,class=%s,stage=%s,fail_reason=%s,retry_count=%d,"
         .. "hunger=%d,thirst=%d,fatigue=%d,endurance=%d,"
-        .. "zombies=%d,bleeding=%d,str=%d,fit=%d",
+        .. "zombies=%d,bleeding=%d,str=%d,fit=%d,wood=%d,doc=%d",
         SCHEMA_VERSION, pnum, ff, _runTick[pnum],
         action, reason, cls, stage, fail_reason, retry_count,
         s.hunger, s.thirst, s.fatigue, s.endurance,
-        s.zombies, s.bleeding, s.str, s.fit
+        s.zombies, s.bleeding, s.str, s.fit, s.wood, s.doc
     )
     _appendLine(pnum, line)
 end

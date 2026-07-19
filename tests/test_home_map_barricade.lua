@@ -263,6 +263,92 @@ do
     assert_eq("second doBarricade call also returns 0", count, 0)
 end
 
+print("\n-- Barricade Test 6 (V4.1 C2): maintenance pass samples the Woodwork perk")
+do
+    ISTimedActionQueue_calls = {}
+
+    -- Suite-local recording stub for the mod's XP metrics module: Barricade
+    -- resolves AutoPilot_XP at call time, so defining it here is enough.
+    AutoPilot_XP = {
+        _samples = {},
+        sample = function(_player, perk)
+            table.insert(AutoPilot_XP._samples, perk)
+        end,
+    }
+
+    -- Player with barricade materials: hammer + plank + 2+ nails.
+    local player = makeBarricadePlayer(false)
+    player.getInventory = function(_self)
+        return {
+            getFirstTypeRecurse = function(_inv, itemType)
+                if itemType == "Hammer" then return { type = "Hammer" } end
+                if itemType == "Plank"  then return { type = "Plank" }  end
+                return nil
+            end,
+            getItemCount = function(_inv, fullType, _recurse)
+                return (fullType == "Base.Nails") and 4 or 0
+            end,
+        }
+    end
+    AutoPilot_Home.set(player)  -- home at (100,100,0), radius 150
+
+    -- One in-bounds square carrying one un-barricaded window object.
+    local windowObj = {
+        getName = function(_self) return "Double Pane Window" end,
+        getBarricadeOnSurface = function(_self) return nil end,
+    }
+    local windowSq = {
+        getX = function(_self) return 100 end,
+        getY = function(_self) return 101 end,
+        getZ = function(_self) return 0 end,
+        getObjects = function(_self)
+            return {
+                size = function(_o) return 1 end,
+                get  = function(_o, _i) return windowObj end,
+            }
+        end,
+    }
+    local origIterate = AutoPilot_Utils.iterateNearbySquares
+    AutoPilot_Utils.iterateNearbySquares = function(_x, _y, _z, _r, cb)
+        cb(windowSq)
+    end
+
+    AutoPilot_Barricade._recheckCountdown = 0
+    local queued = AutoPilot_Barricade.checkMaintenance(player)
+    AutoPilot_Utils.iterateNearbySquares = origIterate
+
+    assert_true("maintenance pass queues barricade work", queued)
+    local sawBarricade = false
+    for _, a in ipairs(ISTimedActionQueue_calls) do
+        if a.type == "barricade" then sawBarricade = true end
+    end
+    assert_true("a barricade action was queued", sawBarricade)
+    assert_eq("exactly one Woodwork sample recorded", #AutoPilot_XP._samples, 1)
+    assert_eq("sample uses the verified 42.19 perk name",
+        AutoPilot_XP._samples[1], Perks.Woodwork)
+
+    -- Countdown now armed: the next cycle is a decrement-only no-op and must
+    -- not sample again (visibility is event-driven, not per-cycle).
+    local again = AutoPilot_Barricade.checkMaintenance(player)
+    assert_false("countdown cycle queues nothing", again)
+    assert_eq("no extra Woodwork sample on a no-op cycle",
+        #AutoPilot_XP._samples, 1)
+end
+
+print("\n-- Barricade Test 7 (V4.1 C2): a scan that queues nothing never samples")
+do
+    ISTimedActionQueue_calls = {}
+    AutoPilot_XP._samples = {}
+    -- Default MockPlayer inventory has no materials, so _doScan exits early.
+    local player = makeBarricadePlayer(false)
+    AutoPilot_Home.set(player)
+    AutoPilot_Barricade._recheckCountdown = 0
+    local queued = AutoPilot_Barricade.checkMaintenance(player)
+    assert_false("scan without materials queues nothing", queued)
+    assert_eq("no Woodwork sample without queued work",
+        #AutoPilot_XP._samples, 0)
+end
+
 -- ── AutoPilot_Map edge cases ──────────────────────────────────────────────────
 print("\n=== AutoPilot_Map Edge-Case Tests ===")
 

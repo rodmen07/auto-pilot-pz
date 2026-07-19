@@ -96,6 +96,15 @@ local function _doScan(player)
             end
         end)
 
+    -- V4.1 (C2): read-only Woodwork XP visibility.  When a maintenance pass
+    -- queues real ISBarricadeAction work, sample the Woodwork perk so the XP
+    -- metrics window / F11 panel can show the XP the game itself grants for
+    -- the barricading.  Observational only: no XP is granted here (the
+    -- standing no-addXp rule), and no extra actions are queued.
+    if count > 0 and AutoPilot_XP and AutoPilot_XP.sample then
+        pcall(function() AutoPilot_XP.sample(player, Perks.Woodwork) end)
+    end
+
     return count
 end
 

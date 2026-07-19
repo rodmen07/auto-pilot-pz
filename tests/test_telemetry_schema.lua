@@ -139,6 +139,28 @@ do
     assert_eq("pending action is 'recover'", AutoPilot_Telemetry.getPendingAction(p), "recover")
 end
 
+-- ── Test 8: schema v3 appends wood/doc perk levels after fit ─────────────────
+-- V4.1 (C2/C6): the run-log line ends str,fit,wood,doc so old parsers keep
+-- reading their known prefix and new parsers get the action-perk levels.
+print("\n=== Telemetry Test 8: schema v3 line carries wood/doc after fit ===")
+do
+    MockFiles["auto_pilot_run.log"] = nil
+    local p = MockPlayer.new({
+        playerNum = 0,
+        stats = { HUNGER = 0.10, THIRST = 0.05, ENDURANCE = 0.90, FATIGUE = 0.10 },
+        perks = { Strength = 1, Fitness = 2, Woodwork = 4, Doctor = 3 },
+    })
+    AutoPilot_Telemetry.logTick(p, "barricade", "maintenance")
+
+    local f = MockFiles["auto_pilot_run.log"]
+    assert_true("run-log line written", f ~= nil and #f.lines >= 1)
+    local line = (f and f.lines[#f.lines]) or ""
+    assert_true("schema_version=3 emitted",
+        line:find("schema_version=3,", 1, true) ~= nil)
+    assert_true("wood/doc appended after fit (additive order)",
+        line:find("str=1,fit=2,wood=4,doc=3", 1, true) ~= nil)
+end
+
 -- ── Summary ───────────────────────────────────────────────────────────────────
 print(string.format("\n=== Results: %d passed, %d failed ===", PASS, FAIL))
 if FAIL > 0 then os.exit(1) end

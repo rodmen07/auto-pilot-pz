@@ -135,6 +135,12 @@
 --          (not in the verified record; doRead's illiterate fallback is what
 --          the suites exercise).  The stale "Carpentry" alias was removed by
 --          this audit so Perks.Carpentry resolves nil here, as in-game.
+--          V4.1 (C2/C6): Perks.Woodwork and Perks.Doctor became production
+--          callsites (AutoPilot_XP.sample at the Barricade/Medical action
+--          sites plus getPerkLevel in Telemetry's schema-v3 wood/doc fields),
+--          all riding surfaces already in this record (no new mock surface);
+--          the sampling callsites are asserted via suite-local AutoPilot_XP
+--          recording stubs in test_home_map_barricade / test_medical_logic.
 --   [M]  IsoFlagType.bed
 --   [M]  FitnessExercises.exercisesType   mirrors shared/Definitions/
 --          FitnessExercises.lua including the V3.3 equipment item/prop fields

@@ -2,6 +2,52 @@
 
 All notable changes to AutoPilot are documented here.
 
+## [V4.1] - 2026-07-19 - ACTION-PERK XP VISIBILITY (WOODWORK + DOCTOR)
+
+Implements the two approved V4.0 expansion candidates C2 and C6
+(docs/EXPANSION_PROPOSAL_V4.md): read-only XP visibility for the two perks
+the mod already trains through real queued actions. No new engine APIs, no
+new actions, and no XP grants (the standing no-addXp rule holds); everything
+rides the verified `getXp():getXP` / `getPerkLevel` /
+`PerkFactory.getPerk():getTotalXpForLevel` surfaces and the verified 42.19
+perk naming (Carpentry=Woodwork, FirstAid=Doctor).
+
+### Added - Woodwork visibility (C2)
+
+- When a barricade maintenance pass queues real `ISBarricadeAction` work,
+  the Woodwork perk is sampled into the XP metrics window (session baseline
+  plus rolling rate), so the safehouse upkeep the mod already performs shows
+  up as leveling progress. Sampling is event-driven (only when actions
+  queue), and deliberate de-barricade grind loops remain out of scope.
+- F11 panel: a Woodwork block (level, XP to next, session gain, XP/h, ETA)
+  in the same style as the Strength/Fitness blocks.
+
+### Added - Doctor visibility (C6)
+
+- When Medical queues a real treatment action (`ISApplyBandage`), the Doctor
+  perk is sampled the same way; First Aid trains passively from exactly that
+  treatment. Purely observational: no behavior change to Medical.
+- F11 panel: a matching Doctor block.
+
+### Changed - telemetry schema v3
+
+- Run-log lines now end `...,str=N,fit=N,wood=N,doc=N`: the Woodwork and
+  Doctor perk levels append after `fit` and `schema_version` bumps to 3.
+  Additive-only as always: old parsers ignore unknown keys and v2 (and
+  older) logs still parse. `triage_run_log.py` coerces the new fields
+  tolerantly (absent in old logs is fine).
+
+### Testing
+
+- Suite: 9 Lua files, 225 assertions (was 194), all green: Woodwork/Doctor
+  metrics cases in `test_leveler_metrics.lua`, sampling-callsite assertions
+  via suite-local AutoPilot_XP recording stubs in
+  `test_home_map_barricade.lua` and `test_medical_logic.lua`, a schema-v3
+  line-format check in `test_telemetry_schema.lua`, and v2/v3 tolerance
+  tests in `tests/test_triage_run_log.py` (45 pytest tests). No new mock
+  surface; the mock header records the V4.1 perk callsites. luacheck stays
+  0 warnings / 0 errors across 17 modules.
+
 ## [V3.3] — 2026-07-18 — EQUIPMENT TRAINING, PANEL STATUS, MOD OPTIONS
 
 ### Added — deeper training

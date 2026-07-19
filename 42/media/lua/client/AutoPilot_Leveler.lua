@@ -117,10 +117,22 @@ function AutoPilot_Leveler.check(player)
     return false
 end
 
---- Metrics for one exercise perk ("strength" | "fitness") for the UI.
+-- Perks the metrics engine tracks for the F11 panel.  Exercise perks are
+-- sampled every Leveler.check; the V4.1 action perks (C2/C6) are sampled at
+-- their action sites (Barricade maintenance / Medical treatment) and are
+-- read-only visibility of XP the game itself grants for real queued actions.
+local METRIC_PERKS = {
+    strength = "Strength",
+    fitness  = "Fitness",
+    woodwork = "Woodwork",   -- V4.1 C2: barricade maintenance pass
+    doctor   = "Doctor",     -- V4.1 C6: wound treatment
+}
+
+--- Metrics for one tracked perk ("strength" | "fitness" | "woodwork" |
+--- "doctor") for the UI.  Unknown ids fall back to Strength.
 function AutoPilot_Leveler.getMetricsFor(player, id)
     if not AutoPilot_XP then return nil end
-    local perkKey = (id == "fitness") and "Fitness" or "Strength"
+    local perkKey = METRIC_PERKS[id] or "Strength"
     local ok, perk = pcall(function() return Perks[perkKey] end)
     if not ok or not perk then return nil end
     return AutoPilot_XP.getMetrics(player, perk)

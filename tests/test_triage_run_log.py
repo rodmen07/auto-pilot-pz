@@ -1,11 +1,15 @@
 """Unit tests for triage_run_log.py - run-log parser and triage summarizer.
 
 The main fixture (tests/fixtures/run_log_v2_sample.log) is a synthetic
-schema_version=2 excerpt matching the exact line format written by
-AutoPilot_Telemetry.logTick: two sessions for player 0, the first ending in a
-death marker, the second still open.  Field order, empty stage=/fail_reason=
+schema_version=2 excerpt matching the line format AutoPilot_Telemetry.logTick
+wrote before V4.1: two sessions for player 0, the first ending in a death
+marker, the second still open.  Field order, empty stage=/fail_reason=
 values, and the class=idle fall-through for scavenge/barricade all mirror the
-real writer.
+real writer.  Since V4.1 the writer emits schema_version=3, which appends
+wood= and doc= (Woodwork / Doctor perk levels) after fit=; the v2 fixtures
+stay as the backward-compat control (the schema is additive-only, so old
+logs must keep parsing) and the v3 additions are covered inline in
+TestSchemaV3WoodDoc.
 
 A second fixture (tests/fixtures/run_log_v2_suspicious.log) is a four-session
 log where each session trips exactly one suspicious-pattern detector: a
@@ -121,6 +125,81 @@ class TestParseRunLog(unittest.TestCase):
         self.assertEqual(entries[0]["action"], "eat")
         self.assertEqual(entries[0]["run_tick"], 3)
         self.assertEqual(skipped, 0)
+
+
+# ── Schema v3 (V4.1) wood/doc tolerance tests ─────────────────────────────────
+
+V3_LINE = (
+    "schema_version=3,player=0,mode=autopilot,ff=normal,run_tick={tick},"
+    "action={action},reason=maintenance,class=idle,stage=,fail_reason=,"
+    "retry_count=0,hunger=5,thirst=5,fatigue=5,endurance=90,"
+    "zombies=0,bleeding=0,str=1,fit=2,wood=4,doc=3"
+)
+
+
+class TestSchemaV3WoodDoc(unittest.TestCase):
+    """V4.1 telemetry appends wood=/doc= after fit=; parsing must be tolerant
+    in both directions: v3 lines coerce the new ints, v2 lines without them
+    still parse (additive-only schema)."""
+
+    def test_v3_line_parses_wood_doc_as_ints(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            log = _write_log(td, [
+                V3_LINE.format(tick=1, action="barricade"),
+                V3_LINE.format(tick=2, action="bandage"),
+            ])
+            entries, skipped = tr.parse_run_log(log)
+
+        self.assertEqual(len(entries), 2)
+        self.assertEqual(skipped, 0)
+        e = entries[0]
+        self.assertEqual(e["schema_version"], 3)
+        self.assertEqual(e["wood"], 4)
+        self.assertEqual(e["doc"], 3)
+        self.assertIsInstance(e["wood"], int)
+        self.assertIsInstance(e["doc"], int)
+
+    def test_v2_fixture_lacks_wood_doc_but_parses(self) -> None:
+        """The legacy fixture has no wood/doc keys and must stay parseable."""
+        entries, skipped = tr.parse_run_log(FIXTURE)
+        self.assertEqual(skipped, 0)
+        self.assertTrue(entries)
+        self.assertNotIn("wood", entries[0])
+        self.assertNotIn("doc", entries[0])
+
+    def test_v3_entries_summarize_without_error(self) -> None:
+        """Extra v3 fields ride through summarize/format_report untouched."""
+        with tempfile.TemporaryDirectory() as td:
+            log = _write_log(td, [
+                V3_LINE.format(tick=1, action="barricade"),
+                V3_LINE.format(tick=2, action="exercise"),
+            ])
+            entries, skipped = tr.parse_run_log(log)
+        summary = tr.summarize(entries, skipped)
+        self.assertEqual(summary.total_ticks, 2)
+        self.assertEqual(summary.action_counts.get("barricade"), 1)
+        report = tr.format_report(summary)
+        self.assertIn("Parsed 2 tick(s)", report)
+
+    def test_mixed_v2_v3_log_parses_both(self) -> None:
+        """A log spanning the V4.1 upgrade mixes v2 and v3 lines."""
+        v2_line = (
+            "schema_version=2,player=0,mode=autopilot,ff=normal,run_tick=1,"
+            "action=idle,reason=no_action,class=idle,stage=,fail_reason=,"
+            "retry_count=0,hunger=5,thirst=5,fatigue=5,endurance=90,"
+            "zombies=0,bleeding=0,str=1,fit=1"
+        )
+        with tempfile.TemporaryDirectory() as td:
+            log = _write_log(td, [
+                v2_line,
+                V3_LINE.format(tick=2, action="barricade"),
+            ])
+            entries, skipped = tr.parse_run_log(log)
+
+        self.assertEqual(len(entries), 2)
+        self.assertEqual(skipped, 0)
+        self.assertNotIn("wood", entries[0])
+        self.assertEqual(entries[1]["wood"], 4)
 
 
 # ── Category mapping tests ────────────────────────────────────────────────────
