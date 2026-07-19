@@ -6,6 +6,12 @@ AutoPilot_Telemetry.logTick: two sessions for player 0, the first ending in a
 death marker, the second still open.  Field order, empty stage=/fail_reason=
 values, and the class=idle fall-through for scavenge/barricade all mirror the
 real writer.
+
+A second fixture (tests/fixtures/run_log_v2_suspicious.log) is a four-session
+log where each session trips exactly one suspicious-pattern detector: a
+45-tick exercise streak, a 32-tick zero-XP training loop, a combat-bandage
+oscillation with 4 re-entries, and a 16-tick empty-loot scavenge spiral.
+The main fixture doubles as the clean control: no detector may fire on it.
 """
 
 from __future__ import annotations
@@ -17,6 +23,8 @@ from pathlib import Path
 import triage_run_log as tr
 
 FIXTURE = Path(__file__).parent / "fixtures" / "run_log_v2_sample.log"
+FIXTURE_SUSPICIOUS = (Path(__file__).parent / "fixtures"
+                      / "run_log_v2_suspicious.log")
 
 
 # ── Helper ────────────────────────────────────────────────────────────────────
@@ -243,6 +251,104 @@ class TestSummarize(unittest.TestCase):
         self.assertEqual(summary.sessions, [])
 
 
+# ── Suspicious-pattern tests ──────────────────────────────────────────────────
+
+class TestSuspiciousPatterns(unittest.TestCase):
+    """Each detector fires on the suspicious fixture, stays silent on clean."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        clean_entries, _ = tr.parse_run_log(FIXTURE)
+        bad_entries, cls.bad_skipped = tr.parse_run_log(FIXTURE_SUSPICIOUS)
+        cls.clean_sessions = tr.split_sessions(clean_entries)
+        cls.bad_sessions = tr.split_sessions(bad_entries)
+        cls.bad_total = len(bad_entries)
+
+    def test_suspicious_fixture_parses(self) -> None:
+        self.assertEqual(self.bad_total, 111)
+        self.assertEqual(self.bad_skipped, 0)
+        self.assertEqual(len(self.bad_sessions), 4)
+
+    def test_streak_fires_on_bad_fixture(self) -> None:
+        findings = tr.detect_action_streaks(self.bad_sessions)
+        self.assertEqual(len(findings), 1)
+        f = findings[0]
+        self.assertEqual(f.pattern, "action streak")
+        self.assertIn("session 1", f.detail)
+        self.assertIn("'exercise' repeated 45 ticks", f.detail)
+        self.assertTrue(f.hint)
+
+    def test_streak_silent_on_clean_fixture(self) -> None:
+        self.assertEqual(tr.detect_action_streaks(self.clean_sessions), [])
+
+    def test_zero_xp_fires_on_bad_fixture(self) -> None:
+        findings = tr.detect_zero_xp_training(self.bad_sessions)
+        self.assertEqual(len(findings), 1)
+        f = findings[0]
+        self.assertEqual(f.pattern, "zero-XP training")
+        self.assertIn("session 2", f.detail)
+        self.assertIn("32 training tick(s)", f.detail)
+        self.assertIn("STR 6 -> 6", f.detail)
+        self.assertIn("FIT 6 -> 6", f.detail)
+        self.assertTrue(f.hint)
+
+    def test_zero_xp_silent_on_clean_fixture(self) -> None:
+        self.assertEqual(tr.detect_zero_xp_training(self.clean_sessions), [])
+
+    def test_zero_xp_needs_both_levels_flat(self) -> None:
+        """Session 1 trains 45 ticks but FIT rises, so no zero-XP finding."""
+        findings = tr.detect_zero_xp_training(self.bad_sessions)
+        self.assertNotIn("session 1", findings[0].detail)
+
+    def test_combat_cycle_fires_on_bad_fixture(self) -> None:
+        findings = tr.detect_combat_cycles(self.bad_sessions)
+        self.assertEqual(len(findings), 1)
+        f = findings[0]
+        self.assertEqual(f.pattern, "flee/combat cycle")
+        self.assertIn("session 3", f.detail)
+        self.assertIn("re-entered 4 time(s)", f.detail)
+        self.assertIn("5 combat episode(s)", f.detail)
+        self.assertTrue(f.hint)
+
+    def test_combat_cycle_silent_on_clean_fixture(self) -> None:
+        """One combat burst then death is normal play, not oscillation."""
+        self.assertEqual(tr.detect_combat_cycles(self.clean_sessions), [])
+
+    def test_loot_spiral_fires_on_bad_fixture(self) -> None:
+        findings = tr.detect_loot_spirals(self.bad_sessions)
+        self.assertEqual(len(findings), 1)
+        f = findings[0]
+        self.assertEqual(f.pattern, "empty-loot spiral")
+        self.assertIn("session 4", f.detail)
+        self.assertIn("16 scavenge tick(s)", f.detail)
+        self.assertIn("hunger moved +35", f.detail)
+        self.assertIn("thirst +27", f.detail)
+        self.assertTrue(f.hint)
+
+    def test_loot_spiral_silent_on_clean_fixture(self) -> None:
+        self.assertEqual(tr.detect_loot_spirals(self.clean_sessions), [])
+
+    def test_detect_suspicious_combines_all_detectors(self) -> None:
+        findings = tr.detect_suspicious(self.bad_sessions)
+        self.assertEqual(
+            [f.pattern for f in findings],
+            ["action streak", "zero-XP training",
+             "flee/combat cycle", "empty-loot spiral"],
+        )
+
+    def test_summarize_populates_suspicious(self) -> None:
+        entries, skipped = tr.parse_run_log(FIXTURE_SUSPICIOUS)
+        summary = tr.summarize(entries, skipped)
+        self.assertEqual(len(summary.suspicious), 4)
+
+    def test_clean_summary_has_no_findings(self) -> None:
+        entries, skipped = tr.parse_run_log(FIXTURE)
+        self.assertEqual(tr.summarize(entries, skipped).suspicious, [])
+
+    def test_empty_log_has_no_findings(self) -> None:
+        self.assertEqual(tr.summarize([]).suspicious, [])
+
+
 # ── format_report tests ───────────────────────────────────────────────────────
 
 class TestFormatReport(unittest.TestCase):
@@ -259,6 +365,23 @@ class TestFormatReport(unittest.TestCase):
         self.assertIn("STR 2 -> 3 (+1)", report)
         self.assertIn("FIT 5 -> 6 (+1)", report)
         self.assertIn("ended: dead", report)
+        self.assertIn("Suspicious patterns", report)
+
+    def test_clean_report_says_none_detected(self) -> None:
+        entries, skipped = tr.parse_run_log(FIXTURE)
+        report = tr.format_report(tr.summarize(entries, skipped), FIXTURE)
+        self.assertIn("none detected", report)
+
+    def test_suspicious_report_lists_findings_and_hints(self) -> None:
+        entries, skipped = tr.parse_run_log(FIXTURE_SUSPICIOUS)
+        report = tr.format_report(tr.summarize(entries, skipped),
+                                  FIXTURE_SUSPICIOUS)
+        self.assertIn("[action streak]", report)
+        self.assertIn("[zero-XP training]", report)
+        self.assertIn("[flee/combat cycle]", report)
+        self.assertIn("[empty-loot spiral]", report)
+        self.assertEqual(report.count("hint:"), 4)
+        self.assertNotIn("none detected", report)
 
     def test_empty_summary_report_does_not_raise(self) -> None:
         report = tr.format_report(tr.summarize([]))

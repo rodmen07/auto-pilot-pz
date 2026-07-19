@@ -162,6 +162,24 @@ Since V3.3 the run log rotates automatically: once per session, if it exceeds
 20,000 lines the oldest lines are dropped and only the newest 5,000 are kept
 (TELEMETRY_MAX_LINES / TELEMETRY_KEEP_LINES in AutoPilot_Constants.lua).
 
+### Run-log triage
+
+To turn a long run log into a quick health check:
+
+```bash
+python triage_run_log.py
+```
+
+It reads `~/Zomboid/Lua/auto_pilot_run.log` by default (pass a path to triage
+another file) and prints: action mix, top action transitions, a
+training/resting/survival/idle time split, threat events, and per-session
+STR/FIT level deltas. A final "Suspicious patterns" section flags long
+single-action streaks, zero-XP training loops, repeated flee/combat cycles,
+and empty-loot scavenge spirals, each with a one-line hint; a clean log prints
+"none detected". The heuristics are deliberately conservative (triage, not
+diagnosis). Read-only, stdlib-only; thresholds are constants at the top of
+the script.
+
 ## Contributing
 
 1. Create a branch
