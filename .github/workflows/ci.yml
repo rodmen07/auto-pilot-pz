@@ -56,26 +56,19 @@ jobs:
 
       - name: Lua logic tests
         run: |
-          for test_file in \
-              tests/test_priority_logic.lua \
-              tests/test_threat_logic.lua \
-              tests/test_medical_logic.lua \
-              tests/test_home_map_barricade.lua \
-              tests/test_main_logic.lua \
-              tests/test_combat_policy.lua \
-              tests/test_resource_economy.lua \
-              tests/test_telemetry_schema.lua \
-              tests/test_leveler_metrics.lua; do
+          shopt -s nullglob
+          test_files=(tests/test_*.lua)
+          shopt -u nullglob
+          if [ "${#test_files[@]}" -eq 0 ]; then
+            echo "ERROR: no Lua test files found matching tests/test_*.lua"
+            echo "Test discovery is glob-driven; zero matches means the suite is missing."
+            exit 1
+          fi
+          echo "Discovered ${#test_files[@]} Lua test file(s)."
+          for test_file in "${test_files[@]}"; do
             echo "=== $test_file ==="
             lua5.1 "$test_file"
           done
 
       - name: Python tests
-        run: |
-          python -m pytest tests/ -v \
-            --ignore=tests/test_priority_logic.lua \
-            --ignore=tests/test_threat_logic.lua \
-            --ignore=tests/test_medical_logic.lua \
-            --ignore=tests/test_home_map_barricade.lua \
-            --ignore=tests/test_main_logic.lua \
-            --ignore=tests/lua_mock_pz.lua
+        run: python -m pytest tests/ -v
