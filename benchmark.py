@@ -202,6 +202,8 @@ _ACTION_CLASS_MAP: dict[str, str] = {
     "shelter":  "survival",
     "bandage":  "survival",
     "loot":     "survival",
+    "scavenge": "survival",
+    "barricade": "survival",
     "fight":    "combat",
     "flee":     "combat",
     "combat":   "combat",
