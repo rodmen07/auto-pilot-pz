@@ -3,6 +3,10 @@
 --   AutoPilot_XP        — metrics engine (xp, rate, ETA)
 --   AutoPilot_DeathLog  — decision ring + death snapshot + parse round-trip
 --   AutoPilot_Adaptive  — aggregation + bounded rule application
+--   AutoPilot_Leveler   -  focus selection/dispatch plus (V4.3, expansion
+--                          candidate C3) the weekly training-program
+--                          scheduler (program table, weekday resolution,
+--                          rest-day yield, live-read program selection)
 --
 -- Run from the project root with standard Lua 5.1+:
 --   lua tests/test_leveler_metrics.lua
@@ -422,6 +426,289 @@ do
     local mUnknown = AutoPilot_Leveler.getMetricsFor(p, "carpentry")
     assert_eq("unknown id falls back to Strength metrics",
         mUnknown and mUnknown.xp, 42)
+end
+
+-- ══ AutoPilot_Leveler training programs (V4.3, expansion candidate C3) ═══════
+-- The scheduler is pure and the calendar rides the mock's MockTime clock:
+-- weekday = (floor(ms / day) + 4) % 7 because epoch day zero (1970-01-01)
+-- was a Thursday.  Day 3 is therefore a Sunday and day 4 a Monday.
+local MS_DAY = 24 * 60 * 60 * 1000
+local SUNDAY, MONDAY = 3 * MS_DAY, 4 * MS_DAY
+
+print("\n=== Program Test 1 (V4.3): program table completeness ===")
+do
+    local valid = { auto = true, strength = true, fitness = true, rest = true }
+    local wantIds = { "balanced", "strength", "fitness", "alternating",
+                      "restsplit" }
+    assert_eq("five presets defined", #AutoPilot_Leveler.PROGRAMS, 5)
+    for i, id in ipairs(wantIds) do
+        assert_eq("preset order stable (Options index mapping): " .. id,
+            AutoPilot_Leveler.PROGRAMS[i] and AutoPilot_Leveler.PROGRAMS[i].id,
+            id)
+    end
+    for _, prog in ipairs(AutoPilot_Leveler.PROGRAMS) do
+        assert_true(prog.id .. " has a display name",
+            type(prog.name) == "string" and #prog.name > 0)
+        assert_eq(prog.id .. " covers all 7 weekdays", #prog.days, 7)
+        local allValid = true
+        for d = 1, 7 do
+            if not valid[prog.days[d]] then allValid = false end
+        end
+        assert_true(prog.id .. " days are all auto/strength/fitness/rest",
+            allValid)
+        assert_eq(prog.id .. " lookup by id works",
+            AutoPilot_Leveler.getProgramDef(prog.id), prog)
+    end
+
+    local function countDays(prog, v)
+        local n = 0
+        for d = 1, 7 do if prog.days[d] == v then n = n + 1 end end
+        return n
+    end
+    -- Only the opt-in rest preset may ever idle the trainer (the V3.2
+    -- starvation lesson: no compiled-in default may rest).
+    for _, prog in ipairs(AutoPilot_Leveler.PROGRAMS) do
+        if prog.id == "restsplit" then
+            assert_eq("restsplit has exactly one rest day",
+                countDays(prog, "rest"), 1)
+        else
+            assert_eq(prog.id .. " has zero rest days",
+                countDays(prog, "rest"), 0)
+        end
+    end
+    -- Balanced is all-auto: identical to the pre-V4.3 behavior.
+    local bal = AutoPilot_Leveler.getProgramDef("balanced")
+    assert_eq("balanced defers every day to the focus selection",
+        countDays(bal, "auto"), 7)
+    -- Emphasis ratios from the proposal: 5/2 splits.
+    local emph = AutoPilot_Leveler.getProgramDef("strength")
+    assert_eq("strength emphasis: 5 STR days", countDays(emph, "strength"), 5)
+    assert_eq("strength emphasis: 2 FIT days", countDays(emph, "fitness"), 2)
+    emph = AutoPilot_Leveler.getProgramDef("fitness")
+    assert_eq("fitness emphasis: 5 FIT days", countDays(emph, "fitness"), 5)
+    assert_eq("fitness emphasis: 2 STR days", countDays(emph, "strength"), 2)
+end
+
+print("\n=== Program Test 2 (V4.3): weekday from the verified calendar ===")
+do
+    MockTime.set(0)                              -- epoch day 0 = Thursday
+    assert_eq("epoch day zero resolves to Thursday (4)",
+        AutoPilot_Leveler.getWeekday(), 4)
+    MockTime.set(SUNDAY)
+    assert_eq("day 3 resolves to Sunday (0)", AutoPilot_Leveler.getWeekday(), 0)
+    MockTime.set(MONDAY + 12 * 60 * 60 * 1000)   -- Monday midday
+    assert_eq("midday keeps the same weekday (Monday 1)",
+        AutoPilot_Leveler.getWeekday(), 1)
+    MockTime.set(MONDAY + 7 * MS_DAY)
+    assert_eq("a full week later wraps to the same weekday",
+        AutoPilot_Leveler.getWeekday(), 1)
+    MockTime.set(0)
+end
+
+print("\n=== Program Test 3 (V4.3): 14-day sweep per preset ===")
+do
+    -- Expected weeks (Sun..Sat) written out independently of the module's
+    -- table, so an accidental preset edit fails here.
+    local expectedWeek = {
+        balanced    = { "auto", "auto", "auto", "auto", "auto", "auto",
+                        "auto" },
+        strength    = { "fitness", "strength", "strength", "fitness",
+                        "strength", "strength", "strength" },
+        fitness     = { "strength", "fitness", "fitness", "strength",
+                        "fitness", "fitness", "fitness" },
+        alternating = { "strength", "fitness", "strength", "fitness",
+                        "strength", "fitness", "strength" },
+        restsplit   = { "rest", "strength", "fitness", "strength",
+                        "fitness", "strength", "fitness" },
+    }
+    for _, prog in ipairs(AutoPilot_Leveler.PROGRAMS) do
+        local week = expectedWeek[prog.id]
+        local want, got = {}, {}
+        for day = 0, 13 do
+            MockTime.set(SUNDAY + day * MS_DAY)  -- sweep starts on a Sunday
+            table.insert(want, week[(day % 7) + 1])
+            table.insert(got, AutoPilot_Leveler.resolveFocus(prog.id,
+                AutoPilot_Leveler.getWeekday()))
+        end
+        assert_eq(prog.id .. ": 14 consecutive days repeat the weekly pattern",
+            table.concat(got, ","), table.concat(want, ","))
+    end
+    MockTime.set(0)
+end
+
+print("\n=== Program Test 4 (V4.3): rest day yields the exercise slot ===")
+do
+    AutoPilot_Leveler.resetForTest()
+    AutoPilot_XP.resetAll()
+    AutoPilot_Needs._trainCalls = {}
+    local p = MockPlayer.new({ perks = { Strength = 1 } })
+    p._xp.Strength = 150
+
+    AutoPilot_Constants.TRAINING_PROGRAM = "restsplit"
+    MockTime.set(SUNDAY)
+    assert_false("rest day: check yields (returns false)",
+        AutoPilot_Leveler.check(p))
+    assert_eq("rest day: trainExercise never called",
+        #AutoPilot_Needs._trainCalls, 0)
+    -- The yield skips training ONLY: metrics still sample, so the panel
+    -- stays fresh through rest days.
+    local m = AutoPilot_Leveler.getMetricsFor(p, "strength")
+    assert_eq("rest day still samples XP metrics", m and m.xp, 150)
+
+    -- The same Sunday under the default program trains as always: the
+    -- yield belongs to the opt-in program, not to the weekday.
+    AutoPilot_Constants.TRAINING_PROGRAM = "balanced"
+    assert_true("same day, balanced program: trains",
+        AutoPilot_Leveler.check(p))
+    assert_eq("balanced Sunday dispatches into the seam",
+        #AutoPilot_Needs._trainCalls, 1)
+
+    -- A non-rest restsplit day trains with the program's day focus.
+    AutoPilot_Constants.TRAINING_PROGRAM = "restsplit"
+    MockTime.set(MONDAY)
+    assert_true("restsplit Monday trains", AutoPilot_Leveler.check(p))
+    assert_eq("restsplit Monday forwards strength",
+        AutoPilot_Needs._trainCalls[2], "strength")
+
+    AutoPilot_Constants.TRAINING_PROGRAM = "balanced"
+    MockTime.set(0)
+end
+
+print("\n=== Program Test 5 (V4.3): day focus overrides, auto days defer ===")
+do
+    AutoPilot_Leveler.resetForTest()
+    AutoPilot_Needs._trainCalls = {}
+    local p = MockPlayer.new({})
+
+    -- A program day focus overrides the F11 selection for that day.
+    AutoPilot_Leveler.setTargetSkill(p, "strength")
+    AutoPilot_Constants.TRAINING_PROGRAM = "strength"
+    MockTime.set(SUNDAY)   -- Sunday is a FIT day under strength emphasis
+    assert_true("strength emphasis Sunday trains", AutoPilot_Leveler.check(p))
+    assert_eq("Sunday under strength emphasis forwards fitness",
+        AutoPilot_Needs._trainCalls[1], "fitness")
+    MockTime.set(MONDAY)
+    AutoPilot_Leveler.check(p)
+    assert_eq("Monday under strength emphasis forwards strength",
+        AutoPilot_Needs._trainCalls[2], "strength")
+
+    -- Alternating flips between consecutive days.
+    AutoPilot_Constants.TRAINING_PROGRAM = "alternating"
+    MockTime.set(SUNDAY)
+    AutoPilot_Leveler.check(p)
+    MockTime.set(MONDAY)
+    AutoPilot_Leveler.check(p)
+    assert_eq("alternating Sunday forwards strength",
+        AutoPilot_Needs._trainCalls[3], "strength")
+    assert_eq("alternating Monday forwards fitness",
+        AutoPilot_Needs._trainCalls[4], "fitness")
+
+    -- Auto days defer to the player's selection (pre-V4.3 behavior).
+    AutoPilot_Constants.TRAINING_PROGRAM = "balanced"
+    AutoPilot_Leveler.setTargetSkill(p, "fitness")
+    AutoPilot_Leveler.check(p)
+    assert_eq("balanced day defers to the selected fitness focus",
+        AutoPilot_Needs._trainCalls[5], "fitness")
+    AutoPilot_Leveler.setTargetSkill(p, "auto")
+    AutoPilot_Leveler.check(p)
+    assert_eq("balanced day with auto focus passes nil (recorded as false)",
+        AutoPilot_Needs._trainCalls[6], false)
+
+    MockTime.set(0)
+end
+
+print("\n=== Program Test 6 (V4.3): calendar absence falls back gracefully ===")
+do
+    AutoPilot_Leveler.resetForTest()
+    AutoPilot_Needs._trainCalls = {}
+    local p = MockPlayer.new({})
+    AutoPilot_Leveler.setTargetSkill(p, "fitness")
+    AutoPilot_Constants.TRAINING_PROGRAM = "restsplit"
+
+    local savedGetGameTime = getGameTime
+    getGameTime = function() error("no calendar in this environment") end
+
+    assert_eq("weekday is nil without a calendar",
+        AutoPilot_Leveler.getWeekday(), nil)
+    assert_eq("nil weekday resolves to auto even under restsplit",
+        AutoPilot_Leveler.resolveFocus("restsplit", nil), "auto")
+    assert_eq("out-of-range weekday resolves to auto",
+        AutoPilot_Leveler.resolveFocus("restsplit", 7), "auto")
+    assert_true("check still trains without a calendar",
+        AutoPilot_Leveler.check(p))
+    assert_eq("always-on focus behavior preserved (player's fitness)",
+        AutoPilot_Needs._trainCalls[1], "fitness")
+
+    getGameTime = savedGetGameTime
+    AutoPilot_Constants.TRAINING_PROGRAM = "balanced"
+end
+
+print("\n=== Program Test 7 (V4.3): ModOptions value is read live ===")
+do
+    AutoPilot_Leveler.resetForTest()
+    AutoPilot_Needs._trainCalls = {}
+    local p = MockPlayer.new({})
+    MockTime.set(SUNDAY)
+
+    -- The Leveler reads AutoPilot_Constants.TRAINING_PROGRAM at every check
+    -- (the V3.3 live-read pattern).  That constant is exactly the seam
+    -- Options.applyToConstants writes on options-save, so a mid-session
+    -- write changes the very next cycle: no reload, no re-init.
+    AutoPilot_Constants.TRAINING_PROGRAM = "balanced"
+    assert_true("cycle 1 (balanced): trains", AutoPilot_Leveler.check(p))
+    AutoPilot_Constants.TRAINING_PROGRAM = "restsplit"
+    assert_false("cycle 2 (switched to restsplit, Sunday): rests",
+        AutoPilot_Leveler.check(p))
+    AutoPilot_Constants.TRAINING_PROGRAM = "fitness"
+    AutoPilot_Leveler.check(p)
+    assert_eq("cycle 3 (switched to fitness emphasis): forwards strength",
+        AutoPilot_Needs._trainCalls[2], "strength")
+
+    -- Unknown and missing values validate to balanced instead of failing.
+    AutoPilot_Constants.TRAINING_PROGRAM = "bogus"
+    assert_eq("unknown id validates to balanced",
+        AutoPilot_Leveler.getProgramId(), "balanced")
+    assert_true("unknown id still trains (balanced behavior)",
+        AutoPilot_Leveler.check(p))
+    AutoPilot_Constants.TRAINING_PROGRAM = nil
+    assert_eq("missing id validates to balanced",
+        AutoPilot_Leveler.getProgramId(), "balanced")
+
+    AutoPilot_Constants.TRAINING_PROGRAM = "balanced"
+    MockTime.set(0)
+end
+
+print("\n=== Program Test 8 (V4.3): panel status lines ===")
+do
+    MockTime.set(MONDAY)
+    AutoPilot_Constants.TRAINING_PROGRAM = "strength"
+    local st = AutoPilot_Leveler.getProgramStatus()
+    assert_eq("status carries the program id", st.program, "strength")
+    assert_eq("status resolves the day", st.day, "strength")
+    assert_eq("proposal-format line",
+        st.line, "today: STR day (program: Strength emphasis)")
+
+    AutoPilot_Constants.TRAINING_PROGRAM = "restsplit"
+    MockTime.set(SUNDAY)
+    st = AutoPilot_Leveler.getProgramStatus()
+    assert_eq("rest day is announced on the panel line", st.line,
+        "today: rest day (program: Rest-day split), survival chores only")
+
+    AutoPilot_Constants.TRAINING_PROGRAM = "balanced"
+    st = AutoPilot_Leveler.getProgramStatus()
+    assert_eq("balanced auto day line",
+        st.line, "today: auto day (program: Balanced)")
+
+    local savedGetGameTime = getGameTime
+    getGameTime = function() error("no calendar") end
+    st = AutoPilot_Leveler.getProgramStatus()
+    assert_eq("calendar-absent line names the program",
+        st.line, "program: Balanced (no calendar, focus always on)")
+    assert_eq("calendar-absent day is nil", st.day, nil)
+    getGameTime = savedGetGameTime
+
+    AutoPilot_Constants.TRAINING_PROGRAM = "balanced"
+    MockTime.set(0)
 end
 
 -- ── Summary ──────────────────────────────────────────────────────────────────

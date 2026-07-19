@@ -275,5 +275,17 @@ AutoPilot_Constants.SESSION_HISTORY_CHECKPOINT_CYCLES = 400
 AutoPilot_Constants.SESSION_HISTORY_KEEP = 30
 -- Sessions shown in the F11 panel's history block (newest first).
 AutoPilot_Constants.SESSION_HISTORY_PANEL_ROWS = 5
+
+-- Training program (V4.3, expansion candidate C3) -----------------------------
+-- Weekly split for the exercise slot.  The program table and all day
+-- resolution live in AutoPilot_Leveler (pure, unit-tested); this is the
+-- live-read selection seam the Options selector writes into (V3.3 pattern:
+-- read at the use site every cycle, so options-save applies immediately).
+-- STRING program id, not a numeric tunable: one of "balanced", "strength",
+-- "fitness", "alternating", "restsplit" (unknown values validate to
+-- "balanced").  The compiled-in default "balanced" has no rest days and
+-- defers every day to the F11 focus selection, i.e. it is exactly the
+-- pre-V4.3 behavior whenever Options never loads.
+AutoPilot_Constants.TRAINING_PROGRAM = "balanced"
 -- format `AutoPilot_Constants.FIELD = <number>` with no leading whitespace.
 -- Do not introduce leading spaces or multi-line assignments for tunable lines.

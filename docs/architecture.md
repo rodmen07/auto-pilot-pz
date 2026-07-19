@@ -1,4 +1,4 @@
-# AutoPilot Leveler Architecture (V4.2)
+# AutoPilot Leveler Architecture (V4.3)
 
 ## Overview
 
@@ -33,10 +33,10 @@ both `AutoPilot_Options` (player sliders) and `AutoPilot_Adaptive`
 | Module | Responsibility | Key interactions |
 |---|---|---|
 | `AutoPilot_Main` | Orchestrator for the local player: OnTick evaluation loop, F10 arm/disarm, HUD status line, queue-thrash guard, session-end telemetry hooks. Owns the mode (off/autopilot), post-action cooldown, and action-streak counters. | Registers `Events.OnTick` / `OnKeyPressed` (plus guarded session-end events). Calls `Threat.beginCycle`/`check`, `Needs.check`/`shouldInterrupt`, `Telemetry.logTick`/`onDeath`/`onShutdown`, `Home.set`, `Barricade.doBarricade`, `Options.applyOnce`, `Adaptive.init`, `UI.toggle`. Exposes `AutoPilot.isActive()` / `AutoPilot.toggle()` for the panel. |
-| `AutoPilot_Leveler` | Training focus selection per character: Auto (balance the lower of STR/FIT), Strength, or Fitness. Focus persists in player ModData (MP-safe via `transmitModData`). | Called by `Needs.check`'s exercise slot (`Leveler.check`). Samples both exercise perks via `AutoPilot_XP.sample` every call, then delegates the actual set to `Needs.trainExercise(player, focus)`. `getMetricsFor` serves the UI. |
+| `AutoPilot_Leveler` | Training focus selection per character: Auto (balance the lower of STR/FIT), Strength, or Fitness. Focus persists in player ModData (MP-safe via `transmitModData`). V4.3: also owns the weekly training-program scheduler, a pure table plus day-resolution logic mapping the in-game weekday to that day's focus (auto/strength/fitness/rest); the selected program id is read live from `AutoPilot_Constants.TRAINING_PROGRAM`. | Called by `Needs.check`'s exercise slot (`Leveler.check`). Samples both exercise perks via `AutoPilot_XP.sample` every call, resolves today's program day (rest days yield the slot; a program day focus overrides the selection for that day), then delegates the actual set to `Needs.trainExercise(player, focus)`. `getMetricsFor` and `getProgramStatus` serve the UI. |
 | `AutoPilot_XP` | XP metrics engine: per-perk session baseline plus a rolling real-time sample window that yields session gain, XP/hour, and ETA to next level. | Leaf module (no calls into other AutoPilot modules). `sample`/`getMetrics` are called by `Leveler` (STR/FIT every exercise cycle) and, since V4.1, by `Barricade`/`Medical` when real barricade or treatment actions queue (Woodwork/Doctor visibility, read-only); the UI reads metrics through `Leveler.getMetricsFor`. |
 | `AutoPilot_UI` | F11 leveler panel (`ISCollapsableWindow`): focus buttons, arm/disarm button, live trainer status, sets/day, exercise regularity, both perks' metrics, death count, and the applied adaptive tweaks. Panel position is remembered per character in ModData. | Opened from `Main`'s key handler (panel errors are printed to the real console and flashed on the HUD, never swallowed). Reads `Leveler` (focus + metrics), `Needs.getExerciseStatus`, `DeathLog.getDeathCount`, `Adaptive.getApplied`; the arm button calls `AutoPilot.toggle`. |
-| `AutoPilot_Options` | In-game configurability via 42.19's `PZAPI.ModOptions`: sliders for training and fail-safe tunables plus rebindable arm/panel keys. | Registers at load. `applyOnce` (called from `Main`'s tick, before `Adaptive.init`) copies slider values into `AutoPilot_Constants`; saving the options screen re-applies live. `Main` reads `getKey` for the rebindable F10/F11 bindings. |
+| `AutoPilot_Options` | In-game configurability via 42.19's `PZAPI.ModOptions`: sliders for training and fail-safe tunables, rebindable arm/panel keys, and (V4.3) the weekly training-program selector. | Registers at load. `applyOnce` (called from `Main`'s tick, before `Adaptive.init`) copies slider values into `AutoPilot_Constants` (V4.3: including the program pick, mapped to a program id in `TRAINING_PROGRAM`); saving the options screen re-applies live. `Main` reads `getKey` for the rebindable F10/F11 bindings. |
 
 ### Survival fail-safe
 
@@ -122,6 +122,13 @@ cycle). Survival needs always win; when the endurance gates inside
 `doExercise` decline a set, the cycle falls through to the chores while
 endurance recovers.
 
+On a training-program rest day (V4.3) the exercise slot yields the same
+way the endurance gates do: `Leveler.check` returns false without training
+and the cycle falls through to the chores. The scheduler only refines this
+one slot's focus-or-rest decision; it never reorders the chain or claims
+cycles, so survival behavior is untouched and a scheduler bug cannot
+starve anything above or below it (the V3.2 lesson).
+
 Proactive scavenging is deliberately bounded so it can never starve the
 trainer again: 25-tile radius, a cooldown of about a minute between trips,
 and a back-off of about 15 minutes after 3 trips with no supply-count
@@ -130,9 +137,12 @@ improvement. Reactive hunger/thirst still search the full loot radius.
 ## Exercise Focus Flow
 
 The exercise slot in `Needs.check` calls `Leveler.check`, which samples
-both exercise perks for the metrics window and then delegates to
-`Needs.trainExercise(player, focus)` with the persisted focus (`nil` for
-Auto, which balances the lower of STR/FIT). `doExercise` then:
+both exercise perks for the metrics window, resolves today's
+training-program day (V4.3, see Training Programs below; a rest day
+returns false here and the cycle falls to the chores), and then delegates
+to `Needs.trainExercise(player, focus)` with the day's focus: the
+program's day focus when it names one, otherwise the persisted selection
+(`nil` for Auto, which balances the lower of STR/FIT). `doExercise` then:
 
 1. Resets the sets-per-day counter on day rollover and enforces the daily
    set cap and the endurance gates (skipping a set is reported to the
@@ -160,6 +170,38 @@ training rather than burning food and endurance for zero XP. Snapshots are
 guarded by character identity so a death/respawn can never false-fatigue an
 exercise against the old character's XP.
 
+## Training Programs (V4.3)
+
+`AutoPilot_Leveler.PROGRAMS` defines five weekly presets (expansion
+candidate C3), each mapping the in-game weekday, Sunday through Saturday,
+to a day focus:
+
+| Program | Week (Sun..Sat) |
+|---|---|
+| Balanced (default) | auto every day (identical to pre-V4.3 behavior) |
+| Strength emphasis | FIT, STR, STR, FIT, STR, STR, STR (5 STR / 2 FIT) |
+| Fitness emphasis | STR, FIT, FIT, STR, FIT, FIT, FIT (5 FIT / 2 STR) |
+| Alternating days | STR, FIT, STR, FIT, STR, FIT, STR |
+| Rest-day split | rest, STR, FIT, STR, FIT, STR, FIT (Sunday off) |
+
+An "auto" day defers to the player's F11 focus selection (the pre-V4.3
+behavior); a "strength" or "fitness" day overrides the selection for that
+day; a "rest" day makes the exercise slot yield so the survival chores own
+the cycle (no training that day; the F11 program line says so). Only the
+opt-in Rest-day split contains rest days: the compiled-in default
+("balanced", via `AutoPilot_Constants.TRAINING_PROGRAM`) can never idle
+the trainer. Program selection is read live from that constant at every
+cycle (the V3.3 live-read pattern), so saving the options screen takes
+effect on the next cycle, and unknown values validate to "balanced".
+
+The weekday derives ONLY from the verified
+`getGameTime():getCalender():getTimeInMillis()` surface: weekday =
+(floor(millis / day) + 4) % 7, the +4 because epoch day zero (1970-01-01)
+was a Thursday. No day-of-week calendar API is in the verified record, so
+none is called. When the calendar is unavailable the resolution is
+pcall-guarded to "auto", i.e. the always-on focus behavior: the scheduler
+can only ever narrow the exercise slot's decision, never break it.
+
 ## XP Metrics Window
 
 `AutoPilot_XP` tracks each perk with a session baseline (first sample) and
@@ -178,7 +220,10 @@ current focus highlighted, the live trainer status line from
 `Needs.getExerciseStatus` ("training: squats", "resting (endurance
 recovering)", "resting (exercises fatigued)", "fetching exercise
 equipment") with sets today N/cap, the long-term `getRegularity` of the
-exercise currently training, both exercise perks' metric blocks (level, XP
+exercise currently training, the V4.3 training-program day line
+pre-formatted by `Leveler.getProgramStatus` ("today: STR day (program:
+Strength emphasis)"; rest days read "today: rest day (program: Rest-day
+split), survival chores only"), both exercise perks' metric blocks (level, XP
 to next, session gain, XP/hour, ETA), the V4.1 Woodwork and Doctor blocks in
 the same style (read-only visibility of the XP the game grants for the
 barricade maintenance and wound treatment the mod already performs), the
@@ -223,6 +268,17 @@ panel keys. Values are copied into `AutoPilot_Constants` once per session
 from `Main`'s tick, BEFORE `Adaptive.init`, so player settings and
 death-learning deltas compose in a stable order; saving the options screen
 re-applies immediately.
+
+V4.3 adds the weekly training-program selector to the page: a dropdown
+where `addComboBox` exists (it is NOT in the mock's verified 42.19 record,
+so the call is existence-checked inside its own pcall and cannot take the
+sliders down with it), with a slider over the 1-based program indices (a
+verified surface) as the fallback. Either control's value is mapped to a
+program id (index or display text; unmappable values leave the constant
+untouched) and written to `AutoPilot_Constants.TRAINING_PROGRAM`, which
+the Leveler reads live at the exercise slot. The program table itself and
+all day resolution live in `AutoPilot_Leveler`, keeping the documented
+no-suite-loads-Options coverage gap exactly as narrow as it was.
 
 This works because of the V3.3 fix: tunable constants are read live from
 `AutoPilot_Constants` at their use sites. Before V3.3, several modules
