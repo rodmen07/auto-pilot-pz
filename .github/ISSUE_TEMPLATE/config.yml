@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Steam Workshop page (general comments and questions)
+    url: https://steamcommunity.com/sharedfiles/filedetails/?id=3767254910
+    about: General feedback, questions, and impressions belong on the Workshop page. Bug reports are only tracked here on GitHub, via the form, so they arrive with the evidence triage needs.
