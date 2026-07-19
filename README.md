@@ -24,12 +24,23 @@ This guide is for a technical user who wants to:
   live trainer status, and sets-per-day counter
 - Survival fail-safe: hunger, thirst, sleep, wounds, temperature; fight/flee
   only when zombies actually engage (chasing/visible/close)
+- Player control guarantees (V4.5): the mod only ever interrupts or clears
+  actions it queued itself; anything you start manually (like an exercise
+  from the fitness UI) is never touched, armed or disarmed. If you cancel a
+  set or exercise manually while armed, training backs off (default 10 game
+  minutes, "Training backoff after manual cancel" slider, 0 disables)
+  instead of instantly re-queuing. The fail-safe stays always-on while
+  armed, but it can only act on the mod's own actions; the one exception is
+  fight/flee, which still clears the queue when zombies actually engage.
 - Death learning: context snapshots on death + bounded threshold self-tuning
 - Configurable: sliders and rebindable keys under Options > Mods
 - Off by default; splitscreen not supported; MP-safe (client-side only)
 
 Control keys (rebindable in mod options):
-- F10: arm/disarm (home anchor is set where you stand when first armed)
+- F10: arm/disarm (home anchor is set where you stand when first armed).
+  V4.5: F10 is also a panic stop: if ANY exercise is running (yours or the
+  mod's), pressing it stops that exercise on the spot, in addition to
+  toggling. Use it if an exercise ever refuses to cancel.
 - F11: leveler panel
 
 ## Install and Run (Fast Path)

@@ -33,6 +33,11 @@
 --   [M]  ISTimedActionQueue.clear(character)
 --   [M]  ISTimedActionQueue.isPlayerDoingAction(character)
 --   [M]  ISTimedActionQueue.getTimedActionQueue(character)
+--          V4.5: the mod-action ownership registry (AutoPilot_Utils
+--          tagModAction/isModAction/queueModAction) rides these existing
+--          statics plus plain Lua table writes on action objects the mod
+--          itself constructs; NO new engine surface was added for it, and
+--          suites exercise the REAL AutoPilot_Utils against this mock.
 --
 -- Timed-action constructors:
 --   [MA] ISFitnessAction:new(character, exercise, timeToExe, exeData, exeDataType)

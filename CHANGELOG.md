@@ -2,6 +2,71 @@
 
 All notable changes to AutoPilot are documented here.
 
+## [V4.5] - 2026-07-19 - NEVER TOUCH PLAYER ACTIONS + F10 PANIC STOP
+
+Fixes the user-reported lockup "when manually initiating exercise, I can't
+cancel or do anything else even with autopilot toggled off". Root cause in
+the shipped code: while ARMED, the urgent-need interrupt and the
+queue-thrash guard cleared ANY running exercise with no identity check
+(manual ones included), and the trainer re-queued a new set ~0.75 s after
+any cancel, bulldozing player intent; a vanilla 42.19 fitness-UI
+input-capture quirk can compound the stuck feeling. Three guarantees ship
+(see docs/architecture.md, "Player-Intervention Guarantees"):
+
+### Fixed - the mod never touches player-initiated actions
+
+- New mod-action ownership registry in `AutoPilot_Utils` (weak-keyed:
+  entries self-clean via GC, and a Lua reload starts empty so pre-reload
+  actions read as foreign, the safe direction). EVERY mod queue site
+  (Needs, Inventory, Medical, Threat, Barricade) now tags its actions via
+  `queueModAction`/`tagModAction`.
+- The urgent-need exercise interrupt and the queue-thrash clear in Main now
+  verify `Utils.isModAction` first: a FOREIGN running action (player-
+  initiated, another mod, or a vanilla internal queue) is never cleared,
+  never interrupted, and never accumulates a thrash streak. Its busy
+  cycles log `busy`/`foreign_action` (new reason string only; no schema
+  change, no new action label, so the benchmark class map is untouched).
+- The fight-or-flee threat response is the one deliberate exception and
+  still clears the queue when zombies actually engage (fail-safe priority:
+  the character's life outranks any exercise set).
+
+### Added - armed training backs off after manual intervention
+
+- A mod-queued set that vanishes from the queue well short of a full set
+  without a mod-initiated clear is treated as a player cancel: training
+  yields for `EXERCISE_BACKOFF_MINUTES` game minutes (new constant,
+  default 10; Options slider "Training backoff after manual cancel", 0 to
+  60 in steps of 5, 0 disables) instead of re-queuing ~0.75 s later.
+- A FOREIGN exercise observed running refreshes the same hold every cycle,
+  so training stays away while, and one window after, the player exercises
+  manually. Mod-initiated clears (urgent need, threat, thrash) consume the
+  pending record via `Needs.noteModExerciseCleared` and never back off.
+- A cancelled set is no longer judged by the XP-fatigue detector (it never
+  ran to length), and a pending set from a dead character is discarded
+  (who-guard, same pattern as the XP snapshot guard).
+
+### Added - F10 panic stop
+
+- Pressing F10 while ANY exercise is running (mod-queued or manual, armed
+  or disarmed) clears that exercise on the keypress, in addition to the
+  normal arm/disarm toggle, and starts the backoff window. This is the
+  guaranteed escape hatch even when the lockup is vanilla fitness-UI input
+  capture rather than anything the mod did.
+
+### Tests
+
+- test_main_logic: 13 -> 37 assertions (foreign exercise + urgent need not
+  cleared; disarmed cycle untouchable; thrash guard ignores foreign and
+  still clears stuck mod actions; F10 panic stop mod/manual/armed/disarmed
+  plus plain-toggle regression; threat consumes the pending record).
+- test_priority_logic: 55 -> 83 assertions (backoff engage/hold/release;
+  mod-initiated clears do not back off; panic-stop and foreign-exercise
+  holds; tag lifecycle including untag-on-resolution, reload reset, and
+  the cross-character who-guard; backoff 0 disables).
+- Suites now load the real `AutoPilot_Utils` (square scans no-op'd) so the
+  ownership registry under test is the production one. Total Lua
+  assertions 397 -> 449; luacheck clean; no telemetry schema change.
+
 ## [V4.3] - 2026-07-19 - CONFIGURABLE TRAINING PROGRAMS
 
 Implements approved V4.0 expansion candidate C3

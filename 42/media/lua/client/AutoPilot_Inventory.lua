@@ -272,13 +272,13 @@ local function _queueTransfer(player, item, container, label)
                 luautils.walkAdj(player, contSq, true)
             end)
             if not walkOk then
-                ISTimedActionQueue.add(ISWalkToTimedAction:new(player, contSq))
+                AutoPilot_Utils.queueModAction(ISWalkToTimedAction:new(player, contSq))
             end
         end
     end
 
     local ok = pcall(function()
-        ISTimedActionQueue.add(ISInventoryTransferAction:new(
+        AutoPilot_Utils.queueModAction(ISInventoryTransferAction:new(
             player, item, container, player:getInventory()))
     end)
     if not ok then
@@ -476,12 +476,12 @@ function AutoPilot_Inventory.drinkFromSource(player, waterObj)
             luautils.walkAdj(player, sq, true)
         end)
         if not walkOk then
-            ISTimedActionQueue.add(ISWalkToTimedAction:new(player, sq))
+            AutoPilot_Utils.queueModAction(ISWalkToTimedAction:new(player, sq))
         end
     end
 
     local drinkOk, _ = pcall(function()
-        ISTimedActionQueue.add(ISTakeWaterAction:new(player, nil, waterObj, tainted))
+        AutoPilot_Utils.queueModAction(ISTakeWaterAction:new(player, nil, waterObj, tainted))
     end)
     if drinkOk then
         print("[Inventory] Drinking from water source.")
@@ -539,7 +539,7 @@ function AutoPilot_Inventory.refillWaterContainer(player, waterObj)
     end
 
     local fillOk, _ = pcall(function()
-        ISTimedActionQueue.add(ISTakeWaterAction:new(player, container, waterObj, tainted))
+        AutoPilot_Utils.queueModAction(ISTakeWaterAction:new(player, container, waterObj, tainted))
     end)
     if fillOk then
         print("[Inventory] Refilling " .. tostring(container:getName()) .. " from water source.")
@@ -704,12 +704,12 @@ function AutoPilot_Inventory.placeItem(player, keyword)
 
     -- Queue walk then transfer
     if bestDist > 4 then
-        ISTimedActionQueue.add(
+        AutoPilot_Utils.queueModAction(
             ISWalkToTimedAction:new(player, objSq))
     end
 
     local ok, err = pcall(function()
-        ISTimedActionQueue.add(ISInventoryTransferAction:new(
+        AutoPilot_Utils.queueModAction(ISInventoryTransferAction:new(
             player, target, inv, bestContainer))
     end)
     if not ok then
@@ -831,7 +831,7 @@ function AutoPilot_Inventory.bulkLoot(player, container, keywords)
             for _, kw in ipairs(keywords) do
                 if name:find(kw:lower(), 1, true) then
                     local ok = pcall(function()
-                        ISTimedActionQueue.add(ISInventoryTransferAction:new(
+                        AutoPilot_Utils.queueModAction(ISInventoryTransferAction:new(
                             player, item, container, inv))
                     end)
                     if ok then count = count + 1 end
@@ -898,7 +898,7 @@ function AutoPilot_Inventory.checkAndSwapWeapon(player)
         return false
     end
     local ok = pcall(function()
-        ISTimedActionQueue.add(ISEquipWeaponAction:new(player, replacement, 50, true))
+        AutoPilot_Utils.queueModAction(ISEquipWeaponAction:new(player, replacement, 50, true))
     end)
     if ok then
         print("[Inv] Queued equip of " .. replacement:getType())
@@ -950,7 +950,7 @@ function AutoPilot_Inventory.adjustClothing(player)
         print(("[Inv] Too hot (%.1f) — seeking cool clothing."):format(temp))
         local item = AutoPilot_Inventory.findClothing(player, false)
         if item then
-            ISTimedActionQueue.add(ISWearClothing:new(player, item, 50))
+            AutoPilot_Utils.queueModAction(ISWearClothing:new(player, item, 50))
             print("[Inv] Queued: wear " .. item:getType())
             return true
         end
@@ -958,7 +958,7 @@ function AutoPilot_Inventory.adjustClothing(player)
         print(("[Inv] Too cold (%.1f) — seeking warm clothing."):format(temp))
         local item = AutoPilot_Inventory.findClothing(player, true)
         if item then
-            ISTimedActionQueue.add(ISWearClothing:new(player, item, 50))
+            AutoPilot_Utils.queueModAction(ISWearClothing:new(player, item, 50))
             print("[Inv] Queued: wear " .. item:getType())
             return true
         end

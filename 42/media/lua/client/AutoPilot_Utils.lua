@@ -29,6 +29,50 @@ function AutoPilot_Utils.safeStat(player, charStat)
     return 0
 end
 
+-- ── Mod-action ownership registry (V4.5) ──────────────────────────────────────
+-- Identity tracking for every timed action THIS MOD queues, so the safety
+-- paths in Main (urgent-need interrupt, queue-thrash guard, F10 panic stop)
+-- can distinguish mod-queued actions from actions the PLAYER queued (e.g. a
+-- manual exercise from the vanilla fitness UI).  The registry is weak-keyed:
+-- when the engine drops an action from the queue (completion or cancel) and
+-- Lua collects it, its entry vanishes on its own, so the registry can never
+-- leak and never permanently mark the queue as mod-owned.  A Lua reload
+-- (e.g. MP server join) re-executes this file and starts an EMPTY registry;
+-- anything still queued from before the reload then reads as foreign, which
+-- fails safe: the mod refuses to touch actions it cannot prove are its own.
+local _modActions = setmetatable({}, { __mode = "k" })
+
+--- Mark an action table as queued by this mod.  Returns the action so call
+--- sites can decorate in place.  Non-table values are ignored (nil-safe).
+function AutoPilot_Utils.tagModAction(action)
+    if type(action) == "table" then
+        _modActions[action] = true
+    end
+    return action
+end
+
+--- True only for actions this mod queued (and has not untagged).
+function AutoPilot_Utils.isModAction(action)
+    return action ~= nil and _modActions[action] == true
+end
+
+--- Explicitly untag an action (used when the mod resolves a tracked
+--- exercise set as completed or cancelled; GC would get there eventually,
+--- the explicit clear just keeps the bookkeeping deterministic).
+function AutoPilot_Utils.clearModAction(action)
+    if action ~= nil then
+        _modActions[action] = nil
+    end
+end
+
+--- Tag + queue in one step: the standard path for every mod-queued action.
+--- (ISTimedActionQueue.add is an already-verified 42.19 static; this helper
+--- only decorates the action with ownership before the same call.)
+function AutoPilot_Utils.queueModAction(action)
+    AutoPilot_Utils.tagModAction(action)
+    ISTimedActionQueue.add(action)
+end
+
 -- ── Square iterators ──────────────────────────────────────────────────────────
 
 --- Iterate all squares within `radius` tiles of (cx, cy, cz) in a flat

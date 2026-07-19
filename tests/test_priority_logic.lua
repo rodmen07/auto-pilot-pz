@@ -54,17 +54,11 @@ AutoPilot_Inventory = {
     equipBestExerciseItem = function(_player) return "none" end,
 }
 
-AutoPilot_Utils = {
-    safeStat = function(player, charStat)
-        local ok, val = pcall(function()
-            return player:getStats():get(charStat)
-        end)
-        if ok and type(val) == "number" then return val end
-        return 0
-    end,
-    -- Square iteration is a no-op in tests (getCell() returns nil).
-    iterateNearbySquares = function(_cx, _cy, _cz, _radius, _callback) end,
-}
+-- Real Utils (V4.5: the intervention detector and the ownership registry
+-- under test live there); square iteration is a no-op in tests (getCell()
+-- returns a stub whose squares are all nil).
+dofile("42/media/lua/client/AutoPilot_Utils.lua")
+AutoPilot_Utils.iterateNearbySquares = function(_cx, _cy, _cz, _radius, _callback) end
 
 AutoPilot_Home = {
     isSet        = function(_player) return false end,
@@ -700,17 +694,38 @@ do
         AutoPilot_Needs.trainExercise(p, "strength"))
 end
 
-print("\n-- Test 27: an interrupted set is not judged as fatigue")
+print("\n-- Test 27: a player-cancelled set backs off and is not judged as fatigue")
 do
+    -- V4.5 semantics: a mod-queued set that vanishes from the queue well
+    -- short of a full set, without the mod clearing it itself, is a PLAYER
+    -- CANCEL.  Training must back off (never bulldoze the cancel), and the
+    -- aborted set must not be judged as XP-fatigue.
     ISTimedActionQueue_calls = {}
     MockTime.advance(24 * 60 * 60000)
+    AutoPilot_Needs.resetInterventionForTest()
     local p = exercisePlayer()
     assert_true("set queues", AutoPilot_Needs.trainExercise(p, "fitness"))
-    MockTime.advance(math.floor(FULL_SET_MS * 0.3))   -- interrupted early
-    -- no XP gained, but the set never ran to length -> not fatigue
-    assert_true("early-interrupted set requeues without penalty",
+    MockTime.advance(math.floor(FULL_SET_MS * 0.1))   -- cancelled early
+    local before = #ISTimedActionQueue_calls
+    assert_false("cancelled set does NOT requeue immediately (backoff)",
         AutoPilot_Needs.trainExercise(p, "fitness"))
-    assert_eq("still squats (not rotated)",
+    assert_eq("nothing queued during the backoff window",
+        #ISTimedActionQueue_calls, before)
+    assert_true("panel status reports the backoff",
+        AutoPilot_Needs.getExerciseStatus().outcome:find("backing off", 1, true)
+            ~= nil)
+    -- Backoff holds mid-window...
+    MockTime.advance(math.floor(
+        AutoPilot_Constants.EXERCISE_BACKOFF_MINUTES * 60000 / 2))
+    assert_false("backoff still holds halfway through the window",
+        AutoPilot_Needs.trainExercise(p, "fitness"))
+    -- ...then releases, and the cancelled set was NOT marked XP-fatigued:
+    -- squats queue again instead of rotating to sit-ups.
+    MockTime.advance(math.floor(
+        AutoPilot_Constants.EXERCISE_BACKOFF_MINUTES * 60000 / 2) + 60000)
+    assert_true("training resumes after the backoff window",
+        AutoPilot_Needs.trainExercise(p, "fitness"))
+    assert_eq("still squats (cancel was not judged as XP-fatigue)",
         ISTimedActionQueue_calls[#ISTimedActionQueue_calls].exType, "squats")
 end
 
@@ -745,6 +760,162 @@ do
         AutoPilot_Needs.trainExercise(p, "strength"))
     assert_eq("push-ups picked when no equipment is carried",
         ISTimedActionQueue_calls[#ISTimedActionQueue_calls].exType, "pushups")
+end
+
+-- ── V4.5: intervention backoff + mod-action ownership lifecycle ──────────────
+-- The mock's in-game day never rolls over, so _exerciseSetsToday accumulates
+-- across the whole suite; raise the cap so the daily-cap gate cannot shadow
+-- what these tests actually assert.
+AutoPilot_Constants.EXERCISE_DAILY_CAP = 100
+
+print("\n-- Test 30: mod-queued sets are tagged; consuming the record untags")
+do
+    ISTimedActionQueue_calls = {}
+    MockTime.advance(24 * 60 * 60000)
+    AutoPilot_Needs.resetInterventionForTest()
+    local p = exercisePlayer()
+    assert_true("set queues", AutoPilot_Needs.trainExercise(p, "fitness"))
+    local action = ISTimedActionQueue_calls[#ISTimedActionQueue_calls]
+    assert_true("queued exercise is tagged as mod-owned",
+        AutoPilot_Utils.isModAction(action))
+    assert_false("an arbitrary foreign action is NOT mod-owned",
+        AutoPilot_Utils.isModAction({ Type = "ISFitnessAction" }))
+    -- The set vanishes early (mock queue reads empty): the detector consumes
+    -- the record, untags the action, and engages the backoff.
+    MockTime.advance(math.floor(FULL_SET_MS * 0.1))
+    assert_false("early vanish backs training off",
+        AutoPilot_Needs.trainExercise(p, "fitness"))
+    assert_false("consumed set is untagged (no ownership leak)",
+        AutoPilot_Utils.isModAction(action))
+    AutoPilot_Needs.resetInterventionForTest()
+end
+
+print("\n-- Test 31: a mod-initiated clear is NOT misread as a player cancel")
+do
+    ISTimedActionQueue_calls = {}
+    MockTime.advance(24 * 60 * 60000)
+    AutoPilot_Needs.resetInterventionForTest()
+    local p = exercisePlayer()
+    assert_true("set queues", AutoPilot_Needs.trainExercise(p, "fitness"))
+    local action = ISTimedActionQueue_calls[#ISTimedActionQueue_calls]
+    -- Main clears the mod's own exercise (urgent need / threat / thrash)
+    -- and notifies; the early vanish must then NOT trigger the backoff.
+    AutoPilot_Needs.noteModExerciseCleared()
+    assert_false("notification untagged the cleared set",
+        AutoPilot_Utils.isModAction(action))
+    MockTime.advance(math.floor(FULL_SET_MS * 0.1))
+    local before = #ISTimedActionQueue_calls
+    assert_true("training re-queues immediately after a MOD-initiated clear",
+        AutoPilot_Needs.trainExercise(p, "fitness"))
+    assert_eq("a new set was queued", #ISTimedActionQueue_calls, before + 1)
+end
+
+print("\n-- Test 32: F10 panic stop engages the backoff immediately")
+do
+    ISTimedActionQueue_calls = {}
+    MockTime.advance(24 * 60 * 60000)
+    AutoPilot_Needs.resetInterventionForTest()
+    local p = exercisePlayer()
+    AutoPilot_Needs.notePanicStop()
+    assert_false("training declines right after the panic stop",
+        AutoPilot_Needs.trainExercise(p, "fitness"))
+    assert_true("panel status reports the backoff",
+        AutoPilot_Needs.getExerciseStatus().outcome:find("backing off", 1, true)
+            ~= nil)
+    MockTime.advance(AutoPilot_Constants.EXERCISE_BACKOFF_MINUTES * 60000
+        + 60000)
+    assert_true("training resumes after the panic-stop window",
+        AutoPilot_Needs.trainExercise(p, "fitness"))
+end
+
+print("\n-- Test 33: an observed FOREIGN exercise holds training off")
+do
+    ISTimedActionQueue_calls = {}
+    MockTime.advance(24 * 60 * 60000)
+    AutoPilot_Needs.resetInterventionForTest()
+    local p = exercisePlayer()
+    -- Main reports a manual exercise as the running action each busy cycle.
+    AutoPilot_Needs.noteForeignExercise(p)
+    local before = #ISTimedActionQueue_calls
+    assert_false("training yields while the manual exercise is observed",
+        AutoPilot_Needs.trainExercise(p, "fitness"))
+    assert_eq("nothing queued over the manual session",
+        #ISTimedActionQueue_calls, before)
+    MockTime.advance(AutoPilot_Constants.EXERCISE_BACKOFF_MINUTES * 60000
+        + 60000)
+    assert_true("training resumes one full window after the last observation",
+        AutoPilot_Needs.trainExercise(p, "fitness"))
+end
+
+print("\n-- Test 34: a set still in the queue is not judged at all")
+do
+    ISTimedActionQueue_calls = {}
+    MockTime.advance(24 * 60 * 60000)
+    AutoPilot_Needs.resetInterventionForTest()
+    local p = exercisePlayer()
+    assert_true("set queues", AutoPilot_Needs.trainExercise(p, "fitness"))
+    local action = ISTimedActionQueue_calls[#ISTimedActionQueue_calls]
+    -- Simulate the engine still running the set: the queue contains it.
+    local origGetQueue = ISTimedActionQueue.getTimedActionQueue
+    ISTimedActionQueue.getTimedActionQueue = function(_p)
+        return { queue = { action } }
+    end
+    MockTime.advance(math.floor(FULL_SET_MS * 0.1))
+    AutoPilot_Needs.trainExercise(p, "fitness")
+    assert_true("no backoff while the set is still queued (record intact)",
+        AutoPilot_Needs.getExerciseStatus().outcome:find("backing off", 1, true)
+            == nil)
+    assert_true("the running set stays tagged as mod-owned",
+        AutoPilot_Utils.isModAction(action))
+    ISTimedActionQueue.getTimedActionQueue = origGetQueue
+    AutoPilot_Needs.resetInterventionForTest()
+end
+
+print("\n-- Test 35: a Lua reload starts an empty ownership registry")
+do
+    local action = AutoPilot_Utils.tagModAction({ Type = "ISFitnessAction" })
+    assert_true("tagged before the reload", AutoPilot_Utils.isModAction(action))
+    -- An MP server join re-executes all mod Lua; re-dofile the real module
+    -- exactly as the engine would.
+    dofile("42/media/lua/client/AutoPilot_Utils.lua")
+    AutoPilot_Utils.iterateNearbySquares =
+        function(_cx, _cy, _cz, _radius, _callback) end
+    assert_false("pre-reload tag is gone: the action now reads FOREIGN",
+        AutoPilot_Utils.isModAction(action))
+end
+
+print("\n-- Test 36: a pending set from a dead character is discarded silently")
+do
+    ISTimedActionQueue_calls = {}
+    MockTime.advance(24 * 60 * 60000)
+    AutoPilot_Needs.resetInterventionForTest()
+    local pA = exercisePlayer()
+    assert_true("character A queues a set",
+        AutoPilot_Needs.trainExercise(pA, "fitness"))
+    MockTime.advance(math.floor(FULL_SET_MS * 0.1))
+    -- Character A dies; the respawned character B trains: A's early-vanished
+    -- set must NOT back B's training off (the who-guard).
+    local pB = exercisePlayer()
+    local before = #ISTimedActionQueue_calls
+    assert_true("character B trains immediately (no cross-character backoff)",
+        AutoPilot_Needs.trainExercise(pB, "fitness"))
+    assert_eq("a new set was queued for B", #ISTimedActionQueue_calls,
+        before + 1)
+end
+
+print("\n-- Test 37: backoff 0 disables the intervention hold entirely")
+do
+    ISTimedActionQueue_calls = {}
+    MockTime.advance(24 * 60 * 60000)
+    AutoPilot_Needs.resetInterventionForTest()
+    local savedBackoff = AutoPilot_Constants.EXERCISE_BACKOFF_MINUTES
+    AutoPilot_Constants.EXERCISE_BACKOFF_MINUTES = 0
+    local p = exercisePlayer()
+    AutoPilot_Needs.notePanicStop()
+    assert_true("with backoff 0 training never yields",
+        AutoPilot_Needs.trainExercise(p, "fitness"))
+    AutoPilot_Constants.EXERCISE_BACKOFF_MINUTES = savedBackoff
+    AutoPilot_Needs.resetInterventionForTest()
 end
 
 -- ── Summary ───────────────────────────────────────────────────────────────────

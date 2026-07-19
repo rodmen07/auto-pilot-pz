@@ -81,15 +81,15 @@ local function _doScan(player)
                     if isBarricaded(obj) then return end
                     -- Equip hammer (primary) + plank (secondary) once per scan.
                     if not equipsQueued then
-                        ISTimedActionQueue.add(
+                        AutoPilot_Utils.queueModAction(
                             ISEquipWeaponAction:new(player, hammer, 50, true))
-                        ISTimedActionQueue.add(
+                        AutoPilot_Utils.queueModAction(
                             ISEquipWeaponAction:new(player, plank, 50, false))
                         equipsQueued = true
                     end
                     -- Walk adjacent to the window without clearing queued equips.
                     luautils.walkAdjWindowOrDoor(player, sq, obj, true)
-                    ISTimedActionQueue.add(
+                    AutoPilot_Utils.queueModAction(
                         ISBarricadeAction:new(player, obj, false, false))
                     count = count + 1
                 end)

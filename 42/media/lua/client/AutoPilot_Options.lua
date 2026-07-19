@@ -28,6 +28,10 @@ local DEFS = {
     { id = "fatigueRec",   name = "Exercise XP-fatigue recovery (game hours)",
       min = 1,  max = 8,  step = 1, key = "EXERCISE_FATIGUE_RECOVERY_MS",
       scale = 3600000 },
+    -- V4.5: how long training holds off after the player intervenes in an
+    -- exercise (manual cancel, manual training, F10 panic stop).  0 = off.
+    { id = "backoffMin",   name = "Training backoff after manual cancel (game minutes)",
+      min = 0,  max = 60, step = 5, key = "EXERCISE_BACKOFF_MINUTES" },
     { id = "foodMin",      name = "Food stockpile minimum",
       min = 0,  max = 8,  step = 1, key = "SUPPLY_FOOD_MIN" },
     { id = "drinkMin",     name = "Drink stockpile minimum",
@@ -113,7 +117,8 @@ pcall(function()
     local o = PZAPI.ModOptions:create("AutoPilot", "AutoPilot Leveler")
 
     o:addTitle("Training")
-    for i = 1, 3 do
+    -- First 4 DEFS are the Training group (V4.5 added backoffMin as #4).
+    for i = 1, 4 do
         local d = DEFS[i]
         local cur = AutoPilot_Constants[d.key] or d.min
         if d.scale then cur = cur / d.scale end
@@ -152,7 +157,7 @@ pcall(function()
     end
 
     o:addTitle("Survival Fail-Safe")
-    for i = 4, #DEFS do
+    for i = 5, #DEFS do
         local d = DEFS[i]
         local cur = AutoPilot_Constants[d.key] or d.min
         if d.scale then cur = cur / d.scale end
