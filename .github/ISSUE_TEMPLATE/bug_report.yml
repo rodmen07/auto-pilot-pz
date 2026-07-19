@@ -1,0 +1,101 @@
+name: Bug report
+description: Report a problem with AutoPilot Leveler. Each field below is evidence the triage pass needs (see FEEDBACK.md).
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug. AutoPilot Leveler triage is
+        evidence-driven: `FEEDBACK.md` in this repo maps the common problem
+        shapes to the exact log lines that isolate them. A report with every
+        field below filled in can usually be reproduced and fixed in one pass.
+
+        File locations referenced below (Windows; on Linux replace
+        `%USERPROFILE%` with `~`):
+
+        - Game console log: `%USERPROFILE%/Zomboid/console.txt`
+        - Mod run log: `%USERPROFILE%/Zomboid/Lua/auto_pilot_run.log`
+        - Mod death log: `%USERPROFILE%/Zomboid/Lua/auto_pilot_deaths.log`
+  - type: dropdown
+    id: game-build
+    attributes:
+      label: Game build line
+      description: The mod currently targets Build 42.19.0 Unstable. 42.20 is not yet supported (see ROADMAP.md V3.8).
+      options:
+        - "42.19 (the mod's current target)"
+        - "42.20"
+        - "Other / not sure"
+    validations:
+      required: true
+  - type: input
+    id: pzversion
+    attributes:
+      label: Exact game version
+      description: As shown in the lower corner of the main menu (or at the top of console.txt).
+      placeholder: "42.19.0"
+    validations:
+      required: true
+  - type: dropdown
+    id: mode
+    attributes:
+      label: Singleplayer or multiplayer
+      description: If multiplayer, pick the server type. The mod is client-side only; each client automates its own character.
+      options:
+        - "Singleplayer"
+        - "Multiplayer: dedicated server"
+        - "Multiplayer: in-game hosted (co-op)"
+        - "Multiplayer: other / not sure"
+    validations:
+      required: true
+  - type: input
+    id: mp-details
+    attributes:
+      label: Multiplayer details (MP only)
+      description: Server branch/version, rough player count, and whether the server's ini lists the mod (Mods=AutoPilot, WorkshopItems=3767254910). Leave blank for singleplayer.
+      placeholder: "42.19.0 dedicated, 4 players, Mods=AutoPilot present"
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What was the mod doing?
+      description: Include whether it was armed (F10), the focus (Auto / Strength / Fitness), the F11 status line if you saw it (for example "resting (endurance recovering)"), and what you observed go wrong.
+      placeholder: "Armed with F10, Strength focus. F11 said 'training: push-ups' but the character just stood still and no exercise animation ever played."
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect instead?
+      placeholder: "Expected push-up sets to run, with XP rising in the F11 panel."
+    validations:
+      required: true
+  - type: textarea
+    id: console-excerpt
+    attributes:
+      label: console.txt excerpt
+      description: "From `%USERPROFILE%/Zomboid/console.txt`. Paste the FIRST error in the file (Project Zomboid stops loading a Lua file at its first error, so later errors are usually fallout), plus any lines containing [AutoPilot]. If the mod seems to do nothing at all, also include the mod list lines near the top of the file so load order is visible."
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: run-log
+    attributes:
+      label: auto_pilot_run.log excerpt or triage_run_log.py output
+      description: "From `%USERPROFILE%/Zomboid/Lua/auto_pilot_run.log`. Best: clone this repo and paste the full output of `python triage_run_log.py`. Otherwise paste the last 30 or so log lines from around the problem. If the file does not exist, say so; that is evidence too (telemetry is only written while the mod is armed)."
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: death-log
+    attributes:
+      label: auto_pilot_deaths.log lines (only if a death is involved)
+      description: "From `%USERPROFILE%/Zomboid/Lua/auto_pilot_deaths.log`. Paste the snapshot line(s) for the death(s) you are reporting; each death is one line with a cause= field and the mod's recent decisions. Leave blank if no death is involved."
+      render: text
+  - type: textarea
+    id: options-changed
+    attributes:
+      label: Mod options changed from defaults
+      description: "Options > Mods > AutoPilot Leveler. List every slider you moved (daily set cap, endurance minimum, XP-fatigue recovery, food/drink minimums, loot radius, detection radius, close-danger radius) and any rebound key (arm or panel). Write \"None\" if you are on defaults."
+      placeholder: "None"
+    validations:
+      required: true
