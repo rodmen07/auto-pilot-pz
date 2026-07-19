@@ -202,7 +202,7 @@ local function doFlee(player, zombies, escDx, escDy)
     end
 
     if destSq then
-        ISTimedActionQueue.add(ISWalkToTimedAction:new(player, destSq))
+        AutoPilot_Utils.queueModAction(ISWalkToTimedAction:new(player, destSq))
         AutoPilot_Threat._fleeActive   = true
         AutoPilot_Threat._fleeCooldown = FLEE_COOLDOWN_CYCLES
         print("[Threat] FLEE -> " .. #zombies .. " zombie(s), " ..
@@ -253,12 +253,12 @@ local function doFight(player, zombies, escDx, escDy)
     end
 
     if shouldEquip then
-        ISTimedActionQueue.add(ISEquipWeaponAction:new(player, weapon, 50, true))
+        AutoPilot_Utils.queueModAction(ISEquipWeaponAction:new(player, weapon, 50, true))
     end
 
     local targetSq = target:getSquare()
     if targetSq then
-        ISTimedActionQueue.add(ISWalkToTimedAction:new(player, targetSq))
+        AutoPilot_Utils.queueModAction(ISWalkToTimedAction:new(player, targetSq))
     end
 
     print("[Threat] FIGHT -- " .. #zombies .. " zombie(s) nearby.")

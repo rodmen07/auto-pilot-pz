@@ -1,4 +1,4 @@
-# AutoPilot Leveler Architecture (V4.3)
+# AutoPilot Leveler Architecture (V4.5)
 
 ## Overview
 
@@ -6,7 +6,11 @@ AutoPilot Leveler is an in-process Lua mod for Project Zomboid Build 42
 (target: 42.19.0 Unstable). It is an auto-exercise leveler: the player arms
 it with F10 and the character grinds Strength/Fitness while an always-on
 survival fail-safe (eat, drink, sleep, medical, fight-or-flee) keeps them
-alive. A death-learning layer records every death and applies bounded
+alive. "Always-on" means the fail-safe has no separate toggle while the
+mod is armed; the whole evaluation cycle only runs at all after F10 arms
+the mod, and (V4.5) the fail-safe's queue interventions only ever apply to
+actions the mod itself queued, never to actions the player started.
+A death-learning layer records every death and applies bounded
 threshold tuning at the next session start.
 
 All decision logic runs natively inside the game engine (Kahlua/Lua 5.1).
@@ -32,17 +36,17 @@ both `AutoPilot_Options` (player sliders) and `AutoPilot_Adaptive`
 
 | Module | Responsibility | Key interactions |
 |---|---|---|
-| `AutoPilot_Main` | Orchestrator for the local player: OnTick evaluation loop, F10 arm/disarm, HUD status line, queue-thrash guard, session-end telemetry hooks. Owns the mode (off/autopilot), post-action cooldown, and action-streak counters. | Registers `Events.OnTick` / `OnKeyPressed` (plus guarded session-end events). Calls `Threat.beginCycle`/`check`, `Needs.check`/`shouldInterrupt`, `Telemetry.logTick`/`onDeath`/`onShutdown`, `Home.set`, `Barricade.doBarricade`, `Options.applyOnce`, `Adaptive.init`, `UI.toggle`. Exposes `AutoPilot.isActive()` / `AutoPilot.toggle()` for the panel. |
+| `AutoPilot_Main` | Orchestrator for the local player: OnTick evaluation loop, F10 arm/disarm plus the V4.5 F10 panic stop (stops any RUNNING exercise on the keypress, mod-queued or manual, in addition to toggling), HUD status line, queue-thrash guard, session-end telemetry hooks. Owns the mode (off/autopilot), post-action cooldown, and action-streak counters. V4.5: every queue intervention (urgent-need interrupt, thrash clear) first verifies via `Utils.isModAction` that the running action is mod-queued; foreign actions are never touched. | Registers `Events.OnTick` / `OnKeyPressed` (plus guarded session-end events). Calls `Threat.beginCycle`/`check`, `Needs.check`/`shouldInterrupt`, the V4.5 intervention notifications (`Needs.noteForeignExercise`/`noteModExerciseCleared`/`notePanicStop`), `Telemetry.logTick`/`onDeath`/`onShutdown`, `Home.set`, `Barricade.doBarricade`, `Options.applyOnce`, `Adaptive.init`, `UI.toggle`. Exposes `AutoPilot.isActive()` / `AutoPilot.toggle()` for the panel. |
 | `AutoPilot_Leveler` | Training focus selection per character: Auto (balance the lower of STR/FIT), Strength, or Fitness. Focus persists in player ModData (MP-safe via `transmitModData`). V4.3: also owns the weekly training-program scheduler, a pure table plus day-resolution logic mapping the in-game weekday to that day's focus (auto/strength/fitness/rest); the selected program id is read live from `AutoPilot_Constants.TRAINING_PROGRAM`. | Called by `Needs.check`'s exercise slot (`Leveler.check`). Samples both exercise perks via `AutoPilot_XP.sample` every call, resolves today's program day (rest days yield the slot; a program day focus overrides the selection for that day), then delegates the actual set to `Needs.trainExercise(player, focus)`. `getMetricsFor` and `getProgramStatus` serve the UI. |
 | `AutoPilot_XP` | XP metrics engine: per-perk session baseline plus a rolling real-time sample window that yields session gain, XP/hour, and ETA to next level. | Leaf module (no calls into other AutoPilot modules). `sample`/`getMetrics` are called by `Leveler` (STR/FIT every exercise cycle) and, since V4.1, by `Barricade`/`Medical` when real barricade or treatment actions queue (Woodwork/Doctor visibility, read-only); the UI reads metrics through `Leveler.getMetricsFor`. |
 | `AutoPilot_UI` | F11 leveler panel (`ISCollapsableWindow`): focus buttons, arm/disarm button, live trainer status, sets/day, exercise regularity, both perks' metrics, death count, and the applied adaptive tweaks. Panel position is remembered per character in ModData. | Opened from `Main`'s key handler (panel errors are printed to the real console and flashed on the HUD, never swallowed). Reads `Leveler` (focus + metrics), `Needs.getExerciseStatus`, `DeathLog.getDeathCount`, `Adaptive.getApplied`; the arm button calls `AutoPilot.toggle`. |
-| `AutoPilot_Options` | In-game configurability via 42.19's `PZAPI.ModOptions`: sliders for training and fail-safe tunables, rebindable arm/panel keys, and (V4.3) the weekly training-program selector. | Registers at load. `applyOnce` (called from `Main`'s tick, before `Adaptive.init`) copies slider values into `AutoPilot_Constants` (V4.3: including the program pick, mapped to a program id in `TRAINING_PROGRAM`); saving the options screen re-applies live. `Main` reads `getKey` for the rebindable F10/F11 bindings. |
+| `AutoPilot_Options` | In-game configurability via 42.19's `PZAPI.ModOptions`: sliders for training and fail-safe tunables (V4.5: including "Training backoff after manual cancel", 0 to 60 game minutes, default 10, 0 = off), rebindable arm/panel keys, and (V4.3) the weekly training-program selector. | Registers at load. `applyOnce` (called from `Main`'s tick, before `Adaptive.init`) copies slider values into `AutoPilot_Constants` (V4.3: including the program pick, mapped to a program id in `TRAINING_PROGRAM`); saving the options screen re-applies live. `Main` reads `getKey` for the rebindable F10/F11 bindings. |
 
 ### Survival fail-safe
 
 | Module | Responsibility | Key interactions |
 |---|---|---|
-| `AutoPilot_Needs` | Priority state machine for survival needs plus the exercise slot: eat/drink/sleep/rest, shelter, clothing, wound treatment dispatch, boredom relief, proactive scavenging, base maintenance, and `doExercise` (endurance gates, daily set cap, equipment preference, XP-fatigue rotation). | Called by `Main` (`check`, `shouldInterrupt`). Calls `Medical.check`/`hasCriticalWound`, many `Inventory` helpers, `Home` bounds checks, `Barricade.checkMaintenance`, `Leveler.check`, and `Telemetry.setDecision` for every decision. Exposes `trainExercise` (the Leveler's seam) and `getExerciseStatus` (the panel's status line). |
+| `AutoPilot_Needs` | Priority state machine for survival needs plus the exercise slot: eat/drink/sleep/rest, shelter, clothing, wound treatment dispatch, boredom relief, proactive scavenging, base maintenance, and `doExercise` (endurance gates, daily set cap, equipment preference, XP-fatigue rotation, and the V4.5 player-intervention backoff: a mod-queued set that vanishes uncompleted without a mod-initiated clear, an observed manual exercise, or an F10 panic stop holds training off for `EXERCISE_BACKOFF_MINUTES` game minutes instead of re-queuing over the player). | Called by `Main` (`check`, `shouldInterrupt`, and the V4.5 notifications `noteForeignExercise`/`noteModExerciseCleared`/`notePanicStop`). Calls `Medical.check`/`hasCriticalWound`, many `Inventory` helpers, `Home` bounds checks, `Barricade.checkMaintenance`, `Leveler.check`, and `Telemetry.setDecision` for every decision. Exposes `trainExercise` (the Leveler's seam) and `getExerciseStatus` (the panel's status line). |
 | `AutoPilot_Threat` | Zombie detection (same z-level, cached per cycle) and the fight/flee decision, including the V3.2 engagement gate, directional spread analysis, encirclement handling, and flee stutter prevention. | Called by `Main` (`beginCycle`, `check`). `getNearbyZombies` is also read by `Main`'s HUD, `Telemetry`, and `DeathLog`. Calls `Medical.hasCriticalWound` (bleeding forces flee), `Inventory.checkAndSwapWeapon`/`getBestWeapon` (pre-equip before the engage decision), and `Home` (flee redirects toward home when set). |
 | `AutoPilot_Inventory` | Item selection and looting: safe-food/drink choice, weapon selection and swap, bandage-loot support, supply counts, supply runs, water sourcing and refill, clothing adjustment, and exercise-equipment checks plus the daily gear fetch. | Called by `Needs` and `Threat`. Reads `Home` bounds to keep loot trips inside the containment circle and reads/writes `Map` depletion so empty containers are not revisited. |
 | `AutoPilot_Medical` | Wound detection and treatment: bleeding first, then deep wounds, bites, scratches, burns; bandage selection by quality with a rip-sheets fallback. | `check(player, bleedingOnly)` is called from `Needs`; `hasCriticalWound` from `Needs` and `Threat`; `getWoundSnapshot` from `Telemetry` and `DeathLog`. V4.1: a queued treatment samples the Doctor perk via `AutoPilot_XP.sample` (visibility only). |
@@ -59,7 +63,7 @@ both `AutoPilot_Options` (player sliders) and `AutoPilot_Adaptive`
 | `AutoPilot_SessionHistory` | Session history data layer (V4.2): one compact key=value summary line per session (ticks, STR/FIT/Woodwork/Doctor start/end levels, end reason) appended to `auto_pilot_sessions.log`, written at session end and refreshed by periodic "open" checkpoints; a versioned header line, a tolerant parser, once-per-session collapse rotation (newest `SESSION_HISTORY_KEEP` sessions survive), and pre-formatted panel strings (rows + trend sparkline). Registers NO events. | `observe` is fed by `Telemetry.logTick` each cycle; `finalize` by `Telemetry.onDeath` ("dead") and `Telemetry.onShutdown` ("timeout"), all existence-guarded. `getPanelLines` serves the F11 history block (the UI renders the returned strings verbatim). |
 | `AutoPilot_Telemetry` | Per-tick run-log writer: one key=value CSV line per evaluation cycle to `auto_pilot_run.log`, a JSON end marker (`dead` or `timeout`) to `auto_pilot_run_end.json`, and once-per-session log rotation. | `logTick` is called by `Main` every evaluation; `setDecision` by `Needs` at each decision point; `onDeath`/`onShutdown` by `Main`. Collects stats via `Utils.safeStat`, `Threat.getNearbyZombies` (cached scan), and `Medical.getWoundSnapshot`; feeds `DeathLog.recordDecision` and `SessionHistory.observe`/`finalize` (V4.2) and triggers `DeathLog.writeSnapshot`. |
 | `AutoPilot_Constants` | Central registry of tunable thresholds and constants, with documented units and rationale. The shared tuning surface: `Options` writes player settings into it, then `Adaptive` applies its deltas on top; consuming modules read tunables live at their use sites (the V3.3 fix). | Read by every module. Written only by `Options` and `Adaptive`. |
-| `AutoPilot_Utils` | Safe shared helpers: `safeStat` (pcall-wrapped B42 `getStats():get(CharacterStat.X)` access) and the square-scan primitives `iterateNearbySquares` (flat radius scan) and `findNearestSquare` (outward spiral). | Leaf module; called from nearly everywhere. Sorts last alphabetically, which is safe because its globals are only resolved when functions are called, never at load. |
+| `AutoPilot_Utils` | Safe shared helpers: `safeStat` (pcall-wrapped B42 `getStats():get(CharacterStat.X)` access), the square-scan primitives `iterateNearbySquares` (flat radius scan) and `findNearestSquare` (outward spiral), and (V4.5) the mod-action ownership registry: a weak-keyed table of every timed action the mod queues (`tagModAction`/`isModAction`/`clearModAction`/`queueModAction`), so the safety paths can prove an action is the mod's own before touching it. Weak keys mean dropped actions untag themselves via GC (no leak); a Lua reload starts an empty registry, so anything pre-reload reads as foreign, which fails safe. | Leaf module; called from nearly everywhere. All mod queue sites route through `queueModAction`; `Main` reads `isModAction`; `Needs` tags its exercise sets and untags on resolution. Sorts last alphabetically, which is safe because its globals are only resolved when functions are called, never at load. |
 
 ## Main Loop: OnTick Cadence and Cycle Priority
 
@@ -86,13 +90,54 @@ first stage that claims the cycle ends it:
    post-action cooldown.
 6. Post-action cooldown: count down (`ACTION_COOLDOWN_CYCLES` = 4 cycles,
    about 3 s after any queued action).
-7. Busy (`ISTimedActionQueue.isPlayerDoingAction`): a running exercise may
-   be interrupted when `Needs.shouldInterrupt` reports an urgent need
-   (bleeding, thirst/hunger threshold, exhaustion); otherwise the
-   queue-thrash guard counts consecutive busy cycles and clears the queue
-   past `MAX_ACTION_STREAK` (15).
+7. Busy (`ISTimedActionQueue.isPlayerDoingAction`): V4.5 first checks the
+   running action's identity via `Utils.isModAction`. A FOREIGN action
+   (player-initiated, another mod, or a vanilla internal queue) is never
+   cleared, never interrupted, and never counted toward the thrash guard;
+   the cycle logs `busy`/`foreign_action` and, when the foreign action is
+   an exercise, notifies `Needs.noteForeignExercise` so training backs
+   off. Only the mod's OWN running exercise may be interrupted when
+   `Needs.shouldInterrupt` reports an urgent need (bleeding, thirst/hunger
+   threshold, exhaustion); otherwise the queue-thrash guard counts
+   consecutive busy cycles and clears the queue past `MAX_ACTION_STREAK`
+   (15), again only for mod-queued actions. Both mod-initiated clears
+   consume the pending-set record (`noteModExerciseCleared`) so they are
+   never misread as a player cancel.
 8. `Needs.check`: the survival-and-training priority chain below.
 9. Nothing claimed the cycle: log `idle`.
+
+## Player-Intervention Guarantees (V4.5)
+
+Shipped for the user report "when manually initiating exercise, I can't
+cancel or do anything else even with autopilot toggled off". Three
+guarantees, each covered by unit tests (test_main_logic,
+test_priority_logic):
+
+1. **The mod never touches player-initiated actions, armed or not.**
+   Every action the mod queues is tagged at queue time in the
+   `AutoPilot_Utils` ownership registry; the urgent-need interrupt and the
+   queue-thrash clear verify `isModAction` first and apply only to the
+   mod's own actions. Disarmed, the evaluation cycle does not run at all
+   (unchanged since V3.2), so a manual exercise is untouchable in every
+   mode. The survival fail-safe itself remains always-on while armed; it
+   simply can no longer clear anything it did not queue. One deliberate
+   exception stays: the fight-or-flee response still clears the queue when
+   zombies actually engage, because losing the character to a zombie while
+   AFK is worse than losing an exercise set.
+2. **Armed training backs off after the player intervenes.** A mod-queued
+   set that vanishes from the queue well short of a full set without a
+   mod-initiated clear is a player cancel; an observed foreign exercise
+   refreshes the same hold every cycle. Training then yields for
+   `EXERCISE_BACKOFF_MINUTES` game minutes (Options slider, default 10,
+   0 disables) instead of re-queuing ~0.75 s later. Movement input has no
+   verified read surface in this mod; since movement cancels the queued
+   action in PZ, it lands in the vanished-uncompleted path and is covered
+   the same way.
+3. **F10 is a panic stop.** Pressing F10 while ANY exercise is running
+   (mod-queued or manual, armed or disarmed) clears it on the keypress, in
+   addition to the normal arm/disarm toggle, and starts the same backoff
+   window. This is the guaranteed escape hatch even when the lockup is
+   vanilla fitness-UI input capture rather than anything the mod did.
 
 ## Priority Chain (Needs.check)
 

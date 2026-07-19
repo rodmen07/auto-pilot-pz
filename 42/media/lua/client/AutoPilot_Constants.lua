@@ -260,6 +260,15 @@ AutoPilot_Constants.MAX_ACTION_STREAK = 15
 -- 600 000 ms = 10 minutes of real time; the in-game day duration is ~28 minutes.
 AutoPilot_Constants.EXERCISE_REAL_TIME_CAP_MS = 600000
 
+-- Training backoff after manual intervention (V4.5), in GAME minutes.
+-- When the player intervenes in training (cancels a mod-queued set before
+-- it ran to length, exercises manually while armed, or hits the F10 panic
+-- stop), the trainer holds off re-queuing for this long instead of
+-- bulldozing the cancel ~0.75 s later (the user-reported "can't cancel"
+-- lockup).  Converted to game-ms at the use site (x 60000, same clock as
+-- EXERCISE_FATIGUE_RECOVERY_MS).  0 disables the backoff.
+AutoPilot_Constants.EXERCISE_BACKOFF_MINUTES = 10
+
 -- Session history (V4.2, expansion candidate C5) -----------------------------
 -- AutoPilot_SessionHistory keeps one compact summary line per session in
 -- auto_pilot_sessions.log: written at session end (death or shutdown) and

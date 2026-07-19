@@ -23,18 +23,12 @@ ISEquipWeaponAction = {
 }
 
 -- ── Stub dependency modules ───────────────────────────────────────────────────
-AutoPilot_Utils = {
-    EPSILON = 0.001,
-    safeStat = function(player, charStat)
-        local ok, val = pcall(function()
-            return player:getStats():get(charStat)
-        end)
-        if ok and type(val) == "number" then return val end
-        return 0
-    end,
-    findNearestSquare    = function(_cx, _cy, _cz, _r, _pred) return nil end,
-    iterateNearbySquares = function(...) end,
-}
+-- Real Utils (V4.5: provides the mod-action ownership registry that the
+-- production queue sites now route through); square scans are no-op'd for
+-- the suite, same behavior as the old hand-rolled stub.
+dofile("42/media/lua/client/AutoPilot_Utils.lua")
+AutoPilot_Utils.findNearestSquare    = function(_cx, _cy, _cz, _r, _pred) return nil end
+AutoPilot_Utils.iterateNearbySquares = function(...) end
 
 AutoPilot_Home = {
     _homeSet = false,

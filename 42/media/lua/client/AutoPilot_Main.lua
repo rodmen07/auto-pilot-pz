@@ -132,6 +132,12 @@ local function _tickForPlayer(player)
         -- Threat clears streak (context changed)
         _lastActionLabel = "combat"
         _actionStreak    = 1
+        -- V4.5: the threat response may clear the mod's own queued exercise;
+        -- consume the pending record so that clear is never misread as a
+        -- player cancel (training may resume right after combat).
+        if AutoPilot_Needs.noteModExerciseCleared then
+            pcall(AutoPilot_Needs.noteModExerciseCleared)
+        end
         AutoPilot_Telemetry.logTick(player, "combat", "threat")
         return
     end
@@ -146,11 +152,39 @@ local function _tickForPlayer(player)
         local actionQueue   = ISTimedActionQueue.getTimedActionQueue(player)
         local currentAction = actionQueue and actionQueue.queue and actionQueue.queue[1]
         local isExercise    = currentAction and currentAction.Type == "ISFitnessAction"
+        -- V4.5: identity check.  Only actions the mod itself queued (tagged
+        -- at queue time in AutoPilot_Utils) may ever be interrupted or
+        -- thrash-cleared.  Missing tracker degrades to FOREIGN, i.e. to
+        -- never touching the queue, which is the safe direction.
+        local isModAction = false
+        if AutoPilot_Utils and AutoPilot_Utils.isModAction then
+            isModAction = AutoPilot_Utils.isModAction(currentAction)
+        end
+        if not isModAction then
+            -- FOREIGN action (player-initiated, another mod, or a vanilla
+            -- internal queue): never cleared, never interrupted, never
+            -- counted toward the thrash guard.  A foreign EXERCISE also
+            -- notifies the trainer so armed training backs off instead of
+            -- re-queuing the moment the player cancels it.
+            if isExercise and AutoPilot_Needs.noteForeignExercise then
+                pcall(AutoPilot_Needs.noteForeignExercise, player)
+            end
+            _lastActionLabel = "foreign"
+            _actionStreak    = 0
+            AutoPilot_Telemetry.logTick(player, "busy", "foreign_action")
+            return
+        end
         if isExercise and AutoPilot_Needs.shouldInterrupt(player) then
             apLog("Interrupting exercise for urgent need.")
+            -- Mod-initiated clear of the mod's own set: consume the pending
+            -- record so it is not misread as a player cancel (no backoff).
+            if AutoPilot_Needs.noteModExerciseCleared then
+                pcall(AutoPilot_Needs.noteModExerciseCleared)
+            end
             ISTimedActionQueue.clear(player)
         else
-            -- Queue-thrash guard: track consecutive "busy" ticks; clear if stuck.
+            -- Queue-thrash guard: track consecutive "busy" ticks; clear if
+            -- stuck.  Reachable only for MOD-QUEUED actions (see above).
             local busyStreak = _actionStreak
             if (_lastActionLabel or "") == "busy" then
                 busyStreak = busyStreak + 1
@@ -162,6 +196,9 @@ local function _tickForPlayer(player)
             if busyStreak > MAX_ACTION_STREAK then
                 apLog("Queue-thrash detected (busy streak " .. busyStreak
                     .. ") — clearing action queue.")
+                if AutoPilot_Needs.noteModExerciseCleared then
+                    pcall(AutoPilot_Needs.noteModExerciseCleared)
+                end
                 ISTimedActionQueue.clear(player)
                 _actionStreak = 0
             else
@@ -294,7 +331,31 @@ local function onKeyPressed(key)
         return
     end
     if key ~= armKey then return end
-    _togglePlayer(_getLocalPlayer())
+    local player = _getLocalPlayer()
+    -- V4.5 PANIC STOP: F10 always stops a RUNNING exercise first, mod-queued
+    -- or manual, armed or disarmed, IN ADDITION to the normal arm/disarm
+    -- toggle below.  This is the guaranteed escape hatch for the reported
+    -- "cannot cancel a manually started exercise" lockup (which can also be
+    -- vanilla fitness-UI input capture, so the mod must offer a reliable
+    -- way out regardless of who queued the set).
+    pcall(function()
+        if not player then return end
+        if not ISTimedActionQueue.isPlayerDoingAction(player) then return end
+        local q   = ISTimedActionQueue.getTimedActionQueue(player)
+        local cur = q and q.queue and q.queue[1]
+        if cur and cur.Type == "ISFitnessAction" then
+            -- Player-initiated stop: consume the pending set record and
+            -- start the training backoff so a (still or newly) armed
+            -- trainer cannot re-queue an exercise right away.
+            if AutoPilot_Needs and AutoPilot_Needs.notePanicStop then
+                pcall(AutoPilot_Needs.notePanicStop)
+            end
+            ISTimedActionQueue.clear(player)
+            apLog("F10 panic stop: cleared running exercise.")
+            hudAddGood(player, "AutoPilot: exercise stopped")
+        end
+    end)
+    _togglePlayer(player)
 end
 
 Events.OnTick.Add(onTick)

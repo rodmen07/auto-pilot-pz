@@ -133,7 +133,7 @@ local function doEat(player)
     print("[Needs] Best food: " .. tostring(food:getName())
         .. " (cal=" .. tostring(food:getCalories()) .. ")")
     print("[Needs] Eating: " .. tostring(food:getName()))
-    ISTimedActionQueue.add(ISEatFoodAction:new(player, food, 1))
+    AutoPilot_Utils.queueModAction(ISEatFoodAction:new(player, food, 1))
     return true
 end
 
@@ -163,7 +163,7 @@ local function doDrink(player)
     if drink then
         _emptyLootCycles = 0
         print("[Needs] Drinking: " .. tostring(drink:getName()))
-        ISTimedActionQueue.add(ISEatFoodAction:new(player, drink, 1))
+        AutoPilot_Utils.queueModAction(ISEatFoodAction:new(player, drink, 1))
         drinkCooldownMs = ms + 5000
         return true
     end
@@ -263,7 +263,7 @@ local function doRest(player)
         end)
         if okSit and sitAction then
             print("[Needs] Exhausted — no furniture found; sitting on ground to recover.")
-            ISTimedActionQueue.add(sitAction)
+            AutoPilot_Utils.queueModAction(sitAction)
             return true
         end
         return false
@@ -309,7 +309,7 @@ local function doRest(player)
             if adjacent then
                 local walkAction = ISWalkToTimedAction:new(player, adjacent)
                 walkAction:setOnComplete(ISWorldObjectContextMenu.onSleepWalkToComplete, pnum, target)
-                ISTimedActionQueue.add(walkAction)
+                AutoPilot_Utils.queueModAction(walkAction)
                 queued = true
             end
         end
@@ -321,7 +321,7 @@ local function doRest(player)
                 return ISPathFindAction:pathToSitOnFurniture(player, target, nil)
             end)
             if okPath and pathAction then
-                ISTimedActionQueue.add(pathAction)
+                AutoPilot_Utils.queueModAction(pathAction)
                 queued = true
             end
         end
@@ -333,7 +333,7 @@ local function doRest(player)
                 return ISRestAction:new(player, target, nil)
             end)
             if okRest and restAction then
-                ISTimedActionQueue.add(restAction)
+                AutoPilot_Utils.queueModAction(restAction)
                 queued = true
             end
         end
@@ -444,9 +444,9 @@ local function doSleep(player)
                         local takePill = rawget(_G, "ISTakePillAction")
                         local okUse = pcall(function()
                             if takePill and takePill.new then
-                                ISTimedActionQueue.add(takePill:new(player, item))
+                                AutoPilot_Utils.queueModAction(takePill:new(player, item))
                             else
-                                ISTimedActionQueue.add(ISEatFoodAction:new(player, item, 1))
+                                AutoPilot_Utils.queueModAction(ISEatFoodAction:new(player, item, 1))
                             end
                         end)
                         if okUse then
@@ -512,7 +512,7 @@ local function doSleep(player)
         if adjacent then
             local walkAction = ISWalkToTimedAction:new(player, adjacent)
             walkAction:setOnComplete(ISWorldObjectContextMenu.onSleepWalkToComplete, pnum, bedObj)
-            ISTimedActionQueue.add(walkAction)
+            AutoPilot_Utils.queueModAction(walkAction)
             print("[Needs] Walking to bed, then sleeping.")
         else
             print("[Needs] Bed unreachable — no adjacent free tile found.")
@@ -544,7 +544,7 @@ local function doGoOutside(player)
             return sq:isOutside() and sq:isFree(false)
         end)
         if outsideSq then
-            ISTimedActionQueue.add(ISWalkToTimedAction:new(player, outsideSq))
+            AutoPilot_Utils.queueModAction(ISWalkToTimedAction:new(player, outsideSq))
             return true
         end
         print("[Needs] No outdoor square found inside home bounds — skipping.")
@@ -584,7 +584,7 @@ local function doSeekShelter(player)
         end)
         if inside then
             print("[Needs] Seeking shelter inside home.")
-            ISTimedActionQueue.add(ISWalkToTimedAction:new(player, inside))
+            AutoPilot_Utils.queueModAction(ISWalkToTimedAction:new(player, inside))
             return true
         end
     end
@@ -634,7 +634,7 @@ local function doRead(player)
 
     print("[Needs] Reading: " .. tostring(book:getName()))
     local readOk, _ = pcall(function()
-        ISTimedActionQueue.add(ISReadABook:new(player, book))
+        AutoPilot_Utils.queueModAction(ISReadABook:new(player, book))
     end)
     return readOk
 end
@@ -802,6 +802,82 @@ local _exFatiguedUntil = {}
 -- Human-readable state of the trainer, shown in the F11 panel.
 local _exerciseOutcome = "idle"
 
+-- ── Player-intervention backoff (V4.5) ──────────────────────────────────────
+-- The user-reported lockup: cancel an exercise and the armed trainer
+-- re-queues a new set ~0.75 s later, bulldozing the cancel.  Fix: track the
+-- one exercise action the mod itself queues; when it vanishes from the
+-- queue before running ~a full set AND the mod did not clear it itself
+-- (urgent-need interrupt, threat response, thrash guard), the player
+-- intervened, and training backs off for EXERCISE_BACKOFF_MINUTES (game
+-- minutes, live-read so the Options slider applies immediately).  A
+-- FOREIGN exercise observed running (Main's busy cycle) refreshes the same
+-- window every cycle, so training also stays away while, and shortly
+-- after, the player exercises manually.  Movement input has no verified
+-- read surface in this mod; in PZ movement cancels the queued action, so
+-- it lands in the vanished-uncompleted path and is covered the same way.
+--
+-- All state is module-local: a Lua reload (MP join) starts clean, and the
+-- `who` field guards against judging a dead character's set against the
+-- respawned character (same pattern as _exSetStart.who).
+local _pendingSet    = nil   -- { action, exType, ms, who } last mod-queued set
+local _backoffUntilMs = 0    -- game-ms; training yields while now < this
+
+local function _backoffWindowMs()
+    local mins = tonumber(AutoPilot_Constants.EXERCISE_BACKOFF_MINUTES) or 0
+    if mins <= 0 then return 0 end
+    return mins * 60000
+end
+
+local function _setBackoff(nowMs, why)
+    local windowMs = _backoffWindowMs()
+    if windowMs <= 0 then return end
+    _backoffUntilMs = nowMs + windowMs
+    _exerciseOutcome = "backing off (" .. why .. ")"
+    print("[Needs] Training backoff (" .. why .. ") for "
+        .. tostring(AutoPilot_Constants.EXERCISE_BACKOFF_MINUTES)
+        .. " game minutes.")
+end
+
+-- Resolve the tracked mod-queued set: still running, completed normally, or
+-- vanished uncompleted (= player intervention -> backoff).  Called at the
+-- top of doExercise, before any gate, so the record can never go stale.
+local function _updateInterventionState(player, nowMs)
+    local ps = _pendingSet
+    if not ps then return end
+    -- Never judge a snapshot from a different character (death/respawn).
+    if ps.who ~= player then
+        _pendingSet = nil
+        AutoPilot_Utils.clearModAction(ps.action)
+        return
+    end
+    local stillQueued = false
+    pcall(function()
+        local q   = ISTimedActionQueue.getTimedActionQueue(player)
+        local arr = q and q.queue
+        if type(arr) == "table" then
+            for i = 1, #arr do
+                if arr[i] == ps.action then
+                    stillQueued = true
+                    break
+                end
+            end
+        end
+    end)
+    if stillQueued then return end
+    -- The set left the queue: resolve the record either way.
+    _pendingSet = nil
+    AutoPilot_Utils.clearModAction(ps.action)
+    local fullSetMs = AutoPilot_Constants.EXERCISE_MINUTES * 60000
+    if (nowMs - ps.ms) < fullSetMs * 0.8 then
+        -- Vanished well short of a full set and the mod did not clear it
+        -- itself (those paths consume the record via noteModExerciseCleared):
+        -- the player cancelled it.  Do not judge the aborted set as
+        -- XP-fatigue, and back off instead of re-queuing over player intent.
+        _exSetStart[ps.exType] = nil
+        _setBackoff(nowMs, "manual cancel")
+    end
+end
+
 local function _perkXp(player, perk)
     local ok, xp = pcall(function() return player:getXp():getXP(perk) end)
     return (ok and type(xp) == "number") and xp or 0
@@ -853,6 +929,22 @@ local function doExercise(player, focus)
         _exerciseSetsToday = 0
         _lastTrackedDay    = _today
     end
+
+    local okMs, nowMs = pcall(function()
+        return getGameTime():getCalender():getTimeInMillis()
+    end)
+    nowMs = okMs and nowMs or 0
+
+    -- V4.5: resolve the last mod-queued set (completed vs player-cancelled)
+    -- BEFORE any gate, then honor the intervention backoff window.
+    _updateInterventionState(player, nowMs)
+    if nowMs < _backoffUntilMs then
+        local minsLeft = math.ceil((_backoffUntilMs - nowMs) / 60000)
+        _exerciseOutcome = "backing off (player intervened; "
+            .. minsLeft .. "m left)"
+        return false
+    end
+
     -- Phase 2: daily cap gate
     if _exerciseSetsToday >= AutoPilot_Constants.EXERCISE_DAILY_CAP then
         print(("[Needs] Daily exercise cap %d reached — resting."):format(
@@ -886,11 +978,6 @@ local function doExercise(player, focus)
         _exerciseOutcome = "resting (endurance recovering)"
         return false  -- no action queued; endurance recovers passively while idle
     end
-
-    local okMs, nowMs = pcall(function()
-        return getGameTime():getCalender():getTimeInMillis()
-    end)
-    nowMs = okMs and nowMs or 0
 
     -- Once per day (strength/auto focus): fetch a dumbbell/barbell from home
     -- storage so the higher-XP equipment exercises unlock.  The fetch trip is
@@ -956,7 +1043,12 @@ local function doExercise(player, focus)
         end
         -- addGetUpAndThen (real 42.19 static, ISTimedActionQueue.lua:219):
         -- stands the character up from any furniture before exercising.
+        -- V4.5: tag ownership BEFORE queueing, and remember the action so
+        -- the intervention detector can tell a completed set from a
+        -- player-cancelled one.
+        AutoPilot_Utils.tagModAction(action)
         ISTimedActionQueue.addGetUpAndThen(player, action)
+        _pendingSet = { action = action, exType = exType, ms = nowMs, who = player }
         -- Snapshot XP at set start so the NEXT attempt can judge whether this
         -- set actually produced XP (diminishing-returns detection).
         _exSetStart[exType] = {
@@ -988,6 +1080,63 @@ function AutoPilot_Needs.getExerciseStatus()
         setsToday = _exerciseSetsToday,
         cap       = AutoPilot_Constants.EXERCISE_DAILY_CAP,
     }
+end
+
+-- ── Player-intervention notifications (V4.5) ────────────────────────────────
+-- Called by Main; all three are argument-light so no player object is ever
+-- closed over across a Lua reload (the MP stale-closure lesson).
+
+--- Main observed a FOREIGN exercise as the running action (player-initiated
+--- or vanilla-queued; identity says it is not ours).  Refreshing the
+--- backoff window every observed cycle keeps training away while the
+--- manual exercise runs and for one full window after it ends, so the
+--- trainer never re-queues over the player's own session.
+function AutoPilot_Needs.noteForeignExercise(_player)
+    local ok, nowMs = pcall(function()
+        return getGameTime():getCalender():getTimeInMillis()
+    end)
+    if not ok or type(nowMs) ~= "number" then return end
+    local windowMs = _backoffWindowMs()
+    if windowMs <= 0 then return end
+    _backoffUntilMs = nowMs + windowMs
+    _exerciseOutcome = "waiting (manual exercise in progress)"
+end
+
+--- The MOD itself cleared its own queued exercise (urgent-need interrupt,
+--- threat response, or thrash guard).  Consume the pending record so the
+--- vanish is NOT misread as a player cancel (no backoff: training may
+--- resume as soon as the interrupting condition is handled).
+function AutoPilot_Needs.noteModExerciseCleared()
+    local ps = _pendingSet
+    if not ps then return end
+    _pendingSet = nil
+    AutoPilot_Utils.clearModAction(ps.action)
+end
+
+--- F10 panic stop: the player explicitly stopped a running exercise.
+--- Consume the pending record (if the set was ours) and start the backoff
+--- window immediately, so even a just-armed trainer cannot re-queue an
+--- exercise right after the player asked for it to stop.
+function AutoPilot_Needs.notePanicStop()
+    local ps = _pendingSet
+    if ps then
+        _pendingSet = nil
+        AutoPilot_Utils.clearModAction(ps.action)
+    end
+    local ok, nowMs = pcall(function()
+        return getGameTime():getCalender():getTimeInMillis()
+    end)
+    if not ok or type(nowMs) ~= "number" then return end
+    _setBackoff(nowMs, "F10 panic stop")
+end
+
+--- Reset intervention state (tests only; mirrors Leveler.resetForTest).
+function AutoPilot_Needs.resetInterventionForTest()
+    if _pendingSet then
+        AutoPilot_Utils.clearModAction(_pendingSet.action)
+    end
+    _pendingSet     = nil
+    _backoffUntilMs = 0
 end
 
 --- Returns true if an urgent need should interrupt the current action (e.g. exercise).
@@ -1115,7 +1264,7 @@ function AutoPilot_Needs.check(player)
                 AutoPilot_Telemetry.setDecision("eat", "unhappy")
                 print("[Needs] Unhappy — eating tasty food: "
                     .. tostring(tastyFood:getName()))
-                ISTimedActionQueue.add(ISEatFoodAction:new(player, tastyFood, 1))
+                AutoPilot_Utils.queueModAction(ISEatFoodAction:new(player, tastyFood, 1))
                 return true
             end
         end

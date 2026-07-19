@@ -87,7 +87,7 @@ local function lootNearbyBandage(player)
                                 print("[Medical] Looting bandage: " ..
                                     tostring(item:getName()))
                                 local xferOk = pcall(function()
-                                    ISTimedActionQueue.add(
+                                    AutoPilot_Utils.queueModAction(
                                         ISInventoryTransferAction:new(
                                             player, item, container,
                                             player:getInventory()))
@@ -133,7 +133,7 @@ local function doTreatWound(player, bodyPart)
         " with " .. tostring(bandage:getName()))
 
     local ok, _ = pcall(function()
-        ISTimedActionQueue.add(ISApplyBandage:new(player, player, bandage, bodyPart, true))
+        AutoPilot_Utils.queueModAction(ISApplyBandage:new(player, player, bandage, bodyPart, true))
     end)
     return ok
 end
