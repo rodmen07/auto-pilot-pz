@@ -1,8 +1,10 @@
 -- AutoPilot_UI.lua
 -- F11 leveler panel: pick the exercise focus — Auto / Strength / Fitness —
--- watch live XP metrics for both exercise perks, see exactly what the trainer
--- is doing right now (current exercise, resting reasons, sets today), arm or
--- disarm the mod, and review the death-learning adjustments.
+-- watch live XP metrics for both exercise perks plus the V4.1 action perks
+-- (Woodwork from the barricade pass, Doctor from wound treatment), see
+-- exactly what the trainer is doing right now (current exercise, resting
+-- reasons, sets today), arm or disarm the mod, and review the death-learning
+-- adjustments.
 --
 -- Built on vanilla ISUI widgets (ISCollapsableWindow + ISButton), standard
 -- :new -> :initialise -> :addToUIManager pattern.  Configures the LOCAL
@@ -52,7 +54,8 @@ function AutoPilot_UI:createChildren()
 
     self.metricsY = y
     -- Metrics + status + adaptive list drawn in render().
-    self:setHeight(self.metricsY + ROW_H * 13 + PAD)
+    -- V4.1: +4 rows for the Woodwork/Doctor visibility blocks.
+    self:setHeight(self.metricsY + ROW_H * 17 + PAD)
 end
 
 -- ── Button handlers ──────────────────────────────────────────────────────────
@@ -157,6 +160,16 @@ function AutoPilot_UI:render()
     y = self:_drawPerkBlock("Strength", mStr, y, target == "strength")
     y = y + 4
     y = self:_drawPerkBlock("Fitness", mFit, y, target == "fitness")
+    y = y + 4
+
+    -- V4.1 action-perk visibility (C2/C6): XP the game grants for the real
+    -- actions the mod already queues (barricade maintenance / wound
+    -- treatment), shown in the same block style.  Never a focus target.
+    local mWood = AutoPilot_Leveler.getMetricsFor(player, "woodwork")
+    local mDoc  = AutoPilot_Leveler.getMetricsFor(player, "doctor")
+    y = self:_drawPerkBlock("Woodwork", mWood, y, false)
+    y = y + 4
+    y = self:_drawPerkBlock("Doctor", mDoc, y, false)
     y = y + ROW_H
 
     -- Death-learning summary + applied adjustments.

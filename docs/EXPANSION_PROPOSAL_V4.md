@@ -354,11 +354,11 @@ marked; approved rows become V4.x milestones per the ordering above (adjusted to
 | # | Candidate | Proposal verdict | Your decision |
 |---|-----------|------------------|---------------|
 | C1 | Skill-book reading sessions | Recommend (gated) | [ ] Approve  [ ] Reject |
-| C2 | Woodwork XP visibility (barricade pass) | Recommend | [ ] Approve  [ ] Reject |
+| C2 | Woodwork XP visibility (barricade pass) | Recommend | [x] Approve (2026-07-19; shipped as V4.1)  [ ] Reject |
 | C3 | Configurable training programs | Recommend | [ ] Approve  [ ] Reject |
 | C4 | Adaptive strategy packs | Defer | [ ] Approve  [ ] Reject  [ ] Confirm defer |
 | C5 | F11 session history and trends | Recommend | [ ] Approve  [ ] Reject |
-| C6 | Doctor passive XP visibility | Recommend | [ ] Approve  [ ] Reject |
+| C6 | Doctor passive XP visibility | Recommend | [x] Approve (2026-07-19; shipped as V4.1)  [ ] Reject |
 
 Notes for the decision:
 

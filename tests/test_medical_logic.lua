@@ -194,6 +194,44 @@ do
     assert_true("check() returns true for burnt wound", result)
 end
 
+-- 13. V4.1 (C6): a queued treatment action samples the Doctor perk (read-only
+-- XP visibility; Medical resolves AutoPilot_XP at call time, so a suite-local
+-- recording stub is enough).
+print("\n-- Test 13 (V4.1 C6): queued treatment samples the Doctor perk")
+do
+    reset()
+    AutoPilot_XP = {
+        _samples = {},
+        sample = function(_player, perk)
+            table.insert(AutoPilot_XP._samples, perk)
+        end,
+    }
+    local player = addBandageToInventory(MockPlayer.new({ bleeding = true }))
+    local result = AutoPilot_Medical.check(player, false)
+    assert_true("check() queues treatment", result)
+    assert_eq("exactly one Doctor sample recorded", #AutoPilot_XP._samples, 1)
+    assert_eq("sample uses the verified 42.19 perk name",
+        AutoPilot_XP._samples[1], Perks.Doctor)
+end
+
+-- 14. V4.1 (C6): no treatment queued -> no Doctor sample (event-driven, not
+-- per-cycle; also covers the no-bandage failure path).
+print("\n-- Test 14 (V4.1 C6): no queued treatment, no Doctor sample")
+do
+    reset()
+    AutoPilot_XP._samples = {}
+    local healthy = MockPlayer.new({})
+    assert_false("no wounds queues nothing",
+        AutoPilot_Medical.check(healthy, false))
+    assert_eq("healthy check records no sample", #AutoPilot_XP._samples, 0)
+
+    -- Wounded but no bandage anywhere: doTreatWound fails, still no sample.
+    local unbandaged = MockPlayer.new({ bleeding = true })
+    assert_false("bleeding without bandage queues nothing",
+        AutoPilot_Medical.check(unbandaged, false))
+    assert_eq("failed treatment records no sample", #AutoPilot_XP._samples, 0)
+end
+
 -- ── Summary ───────────────────────────────────────────────────────────────────
 print(("\n=== Results: %d passed, %d failed ==="):format(PASS, FAIL))
 if FAIL > 0 then os.exit(1) end

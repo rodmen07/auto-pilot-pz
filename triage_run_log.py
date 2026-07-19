@@ -1,7 +1,8 @@
 """triage_run_log.py - Telemetry triage summarizer for AutoPilot run logs.
 
 Reads the structured key=value telemetry log written by AutoPilot_Telemetry.lua
-(schema_version=2, one line per evaluation cycle) and prints a human-readable
+(schema_version=3; one line per evaluation cycle, older v2 lines parse the
+same because the schema is additive-only) and prints a human-readable
 triage report:
 
   * Action mix        - per-action tick counts and percentages
@@ -171,6 +172,9 @@ _INT_FIELDS = {
     "schema_version", "player", "run_tick", "retry_count",
     "hunger", "thirst", "fatigue", "endurance",
     "zombies", "bleeding", "str", "fit",
+    # Schema v3 (V4.1): Woodwork / Doctor perk levels.  Absent from v2 and
+    # older lines, which must keep parsing (additive-only schema).
+    "wood", "doc",
 }
 
 
@@ -189,10 +193,11 @@ def parse_run_log(log_path: str | os.PathLike[str]) -> tuple[list[dict[str, Any]
     """Parse *auto_pilot_run.log* and return ``(entries, skipped_line_count)``.
 
     Each entry mirrors the key=value fields written by AutoPilot_Telemetry.lua
-    (schema v2 field order):
+    (schema v3 field order; v2 lines simply lack the trailing wood/doc pair):
       schema_version, player, mode, ff, run_tick,
       action, reason, class, stage, fail_reason, retry_count,
-      hunger, thirst, fatigue, endurance, zombies, bleeding, str, fit
+      hunger, thirst, fatigue, endurance, zombies, bleeding, str, fit,
+      wood, doc
 
     Integer fields are coerced; empty string values (stage=, fail_reason=)
     are kept as empty strings.  A non-empty line is counted as skipped when it

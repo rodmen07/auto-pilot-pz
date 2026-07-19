@@ -189,7 +189,15 @@ function AutoPilot_Medical.check(player, bleedingOnly)
         or burntParts[1]
 
     if target then
-        return doTreatWound(player, target)
+        local queued = doTreatWound(player, target)
+        -- V4.1 (C6): read-only Doctor XP visibility.  When a real treatment
+        -- action queues, sample the Doctor perk so the XP metrics window /
+        -- F11 panel can show the First Aid XP the game itself grants for the
+        -- bandaging.  Observational only: no XP granted, no behavior change.
+        if queued and AutoPilot_XP and AutoPilot_XP.sample then
+            pcall(function() AutoPilot_XP.sample(player, Perks.Doctor) end)
+        end
+        return queued
     end
     return false
 end

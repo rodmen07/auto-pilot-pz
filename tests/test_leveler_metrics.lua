@@ -151,6 +151,48 @@ do
     assert_eq("no-gain rate is 0", AutoPilot_XP.ratePerHour(p, "Cooking"), 0)
 end
 
+-- V4.1 (C2): the engine is perk-generic, so Woodwork rides the same paths
+-- the STR/FIT tests above exercise; these are the near-copies the proposal
+-- calls for, keyed by the verified 42.19 perk name (Perks.Woodwork).
+print("\n=== XP Test 5 (V4.1 C2): Woodwork metrics and session gain ===")
+do
+    AutoPilot_XP.resetAll()
+    MockRealTime.set(0)
+    local p = MockPlayer.new({ perks = { Woodwork = 2 } })
+    p._xp.Woodwork = 210
+
+    AutoPilot_XP.sample(p, Perks.Woodwork)        -- baseline at 210
+    MockRealTime.advance(60000)                   -- +1 min
+    p._xp.Woodwork = 270                          -- +60 xp (game-granted)
+    AutoPilot_XP.sample(p, Perks.Woodwork)
+
+    local m = AutoPilot_XP.getMetrics(p, Perks.Woodwork)
+    assert_eq("Woodwork level read from perk level", m.level, 2)
+    assert_eq("Woodwork xp read from Xp store", m.xp, 270)
+    -- Mock PerkFactory: level 3 threshold = 300 total XP.
+    assert_eq("Woodwork xpToNext = 300 - 270", m.xpToNext, 30)
+    assert_eq("Woodwork session gain since baseline", m.sessionGain, 60)
+end
+
+print("\n=== XP Test 6 (V4.1 C6): Doctor rate and ETA ===")
+do
+    AutoPilot_XP.resetAll()
+    MockRealTime.set(0)
+    local p = MockPlayer.new({})
+    p._xp.Doctor = 0
+    AutoPilot_XP.sample(p, Perks.Doctor)
+    MockRealTime.advance(6 * 60 * 1000)           -- 6 real minutes (inside window)
+    p._xp.Doctor = 10                             -- +10 xp in 6 min
+    AutoPilot_XP.sample(p, Perks.Doctor)
+
+    assert_near("Doctor rate = 100 XP/hour",
+        AutoPilot_XP.ratePerHour(p, Perks.Doctor), 100, 0.01)
+
+    local m = AutoPilot_XP.getMetrics(p, Perks.Doctor)
+    -- level 0 -> next threshold 100 total; 90 remaining at 100/hr = 0.9 h
+    assert_near("Doctor etaHours = 0.9", m.etaHours, 0.9, 0.01)
+end
+
 -- ══ AutoPilot_DeathLog ═══════════════════════════════════════════════════════
 print("\n=== DeathLog Test 1: decision ring collapses duplicates and caps ===")
 do
@@ -353,6 +395,33 @@ do
         mStr and mStr.xpToNext, 50)
     assert_eq("fitness xpToNext from cumulative table",
         mFit and mFit.xpToNext, 50)
+end
+
+print("\n=== Leveler Test 4 (V4.1): getMetricsFor serves woodwork/doctor ids ===")
+do
+    AutoPilot_Leveler.resetForTest()
+    AutoPilot_XP.resetAll()
+    local p = MockPlayer.new({ perks = { Woodwork = 1, Doctor = 2 } })
+    p._xp.Woodwork = 150
+    p._xp.Doctor   = 250
+
+    local mWood = AutoPilot_Leveler.getMetricsFor(p, "woodwork")
+    local mDoc  = AutoPilot_Leveler.getMetricsFor(p, "doctor")
+    assert_eq("woodwork metrics available", mWood and mWood.xp, 150)
+    assert_eq("doctor metrics available", mDoc and mDoc.xp, 250)
+    assert_eq("woodwork level surfaces", mWood and mWood.level, 1)
+    assert_eq("doctor level surfaces", mDoc and mDoc.level, 2)
+    -- Mock PerkFactory: level 2 threshold = 200; level 3 = 300.
+    assert_eq("woodwork xpToNext from cumulative table",
+        mWood and mWood.xpToNext, 50)
+    assert_eq("doctor xpToNext from cumulative table",
+        mDoc and mDoc.xpToNext, 50)
+
+    -- Unknown ids keep the pre-V4.1 fallback (Strength).
+    p._xp.Strength = 42
+    local mUnknown = AutoPilot_Leveler.getMetricsFor(p, "carpentry")
+    assert_eq("unknown id falls back to Strength metrics",
+        mUnknown and mUnknown.xp, 42)
 end
 
 -- ── Summary ──────────────────────────────────────────────────────────────────
