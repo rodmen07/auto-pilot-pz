@@ -105,18 +105,17 @@ for candidate in lua lua5.1 lua5.4; do
     fi
 done
 
-# All Lua test files to run (add new files here as coverage expands).
-LUA_TEST_FILES=(
-    "tests/test_priority_logic.lua"
-    "tests/test_threat_logic.lua"
-    "tests/test_medical_logic.lua"
-    "tests/test_home_map_barricade.lua"
-    "tests/test_main_logic.lua"
-    "tests/test_combat_policy.lua"
-    "tests/test_resource_economy.lua"
-    "tests/test_telemetry_schema.lua"
-    "tests/test_leveler_metrics.lua"
-)
+# Discover all Lua test files via glob so local and CI runs cannot diverge.
+# New tests/test_*.lua files are picked up automatically; zero matches is fatal.
+shopt -s nullglob
+LUA_TEST_FILES=(tests/test_*.lua)
+shopt -u nullglob
+
+if [[ ${#LUA_TEST_FILES[@]} -eq 0 ]]; then
+    echo "FAIL  No Lua test files found matching tests/test_*.lua"
+    echo "      Test discovery is glob-driven; zero matches means the suite is missing."
+    exit 1
+fi
 
 if [[ -n "$LUA_BIN" ]]; then
     LUA_PASS=0
@@ -157,15 +156,7 @@ for candidate in python3 python; do
 done
 
 if [[ -n "$PYTHON_BIN" ]]; then
-    if "$PYTHON_BIN" -m pytest tests/ -v \
-        --ignore=tests/test_priority_logic.lua \
-        --ignore=tests/test_threat_logic.lua \
-        --ignore=tests/test_medical_logic.lua \
-        --ignore=tests/test_home_map_barricade.lua \
-        --ignore=tests/lua_mock_pz.lua \
-        --ignore=tests/test_combat_policy.lua \
-        --ignore=tests/test_resource_economy.lua \
-        --ignore=tests/test_telemetry_schema.lua; then
+    if "$PYTHON_BIN" -m pytest tests/ -v; then
         PASS=$((PASS + 1))
     else
         FAIL=$((FAIL + 1))
