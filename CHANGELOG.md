@@ -2,6 +2,74 @@
 
 All notable changes to AutoPilot are documented here.
 
+## [V4.3] - 2026-07-19 - CONFIGURABLE TRAINING PROGRAMS
+
+Implements approved V4.0 expansion candidate C3
+(docs/EXPANSION_PROPOSAL_V4.md): weekly training programs with rest days.
+A pure scheduler on top of the existing focus plumbing; zero new action
+types and zero new engine APIs (the weekday derives from the verified
+getGameTime():getCalender():getTimeInMillis() surface, and no day-of-week
+calendar API is called because none is in the verified record).
+
+### Added - weekly training programs (Leveler scheduler)
+
+- `AutoPilot_Leveler.PROGRAMS`: five presets mapping the in-game weekday
+  (Sun..Sat) to a day focus. Balanced (default: auto every day, identical
+  to pre-V4.3 behavior), Strength emphasis (5 STR / 2 FIT days), Fitness
+  emphasis (5 FIT / 2 STR), Alternating days, and Rest-day split
+  (alternating STR/FIT with Sunday off).
+- Day semantics: an "auto" day defers to the F11 focus selection (the
+  existing behavior), a "strength"/"fitness" day overrides the selection
+  for that day, and a "rest" day makes the exercise slot yield so the
+  survival chores own the cycle (no training that day).
+- V3.2 starvation guard by construction: the scheduler only refines the
+  exercise slot's own focus-or-rest decision. It never reorders the
+  priority chain, survival needs still win every cycle, rest days fall
+  through to the chores exactly like the endurance gates do, and only the
+  opt-in Rest-day split contains any rest day at all (the compiled-in
+  default can never idle the trainer).
+- Weekday resolution is pcall-guarded: when the calendar is unavailable it
+  falls back to "auto", i.e. the always-on focus behavior, so the
+  scheduler can only ever narrow the slot's decision, never break it.
+- F11 panel: a program day line pre-formatted by
+  `Leveler.getProgramStatus` ("today: STR day (program: Strength
+  emphasis)"); rest days read "today: rest day (program: Rest-day split),
+  survival chores only".
+
+### Added - Options selector
+
+- Options > Mods > AutoPilot Leveler gains a "Training program" selector.
+  The pick is mapped to a program id and written to the new live-read
+  `AutoPilot_Constants.TRAINING_PROGRAM` (the V3.3 pattern: the Leveler
+  reads it at every exercise slot, so options-save applies on the next
+  cycle; unknown values validate to "balanced").
+- Placement per the proposal: the program table and ALL day-resolution
+  logic live in `AutoPilot_Leveler` (pure, unit-tested), NOT in Options,
+  preserving the mock's documented no-suite-loads-Options gap. Options
+  only registers the control: addComboBox is not in the verified 42.19
+  record, so it is existence-checked inside its own pcall with a slider
+  over the 1-based program indices (verified surface) as the fallback;
+  the widget itself stays playtest-only like every control on the page.
+
+### Testing
+
+- Suite: 10 Lua files, 397 assertions (was 320), all green: eight new
+  V4.3 sections in `tests/test_leveler_metrics.lua` (+77 assertions)
+  cover program-table completeness (7-day coverage, valid day values,
+  stable Options index order, rest days confined to the opt-in preset,
+  the 5/2 emphasis ratios), weekday derivation from the mock calendar,
+  a 14-day resolution sweep per preset, rest-day yield (trainExercise
+  never called, metrics still sampled, same-day balanced control case),
+  program-over-selection focus mapping with auto-day deferral,
+  calendar-absent fallback to the always-on behavior, live-read program
+  selection (mid-session constant writes change the next cycle; unknown
+  and missing ids validate to balanced), and the panel status lines.
+  No new mock surface: the scheduler rides the already-mocked
+  getTimeInMillis clock (MockTime), and the mock header records the V4.3
+  weekday derivation plus the ModOptions-gap extension. luacheck stays
+  0 warnings / 0 errors across 18 modules; run-log schema and
+  triage_run_log.py untouched.
+
 ## [V4.2] - 2026-07-19 - F11 SESSION HISTORY AND TRENDS
 
 Implements approved V4.0 expansion candidate C5

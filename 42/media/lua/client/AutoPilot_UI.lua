@@ -7,7 +7,9 @@
 -- adjustments, and (V4.2) scan the session-history block: the last few
 -- sessions' ticks, per-perk level deltas, end reason, and a trend
 -- sparkline, all pre-formatted by AutoPilot_SessionHistory (the UI renders
--- strings only; the data layer owns the logic and the tests).
+-- strings only; the data layer owns the logic and the tests).  V4.3 adds
+-- the training-program day line ("today: STR day (program: ...)"), also
+-- pre-formatted, by AutoPilot_Leveler.getProgramStatus.
 --
 -- Built on vanilla ISUI widgets (ISCollapsableWindow + ISButton), standard
 -- :new -> :initialise -> :addToUIManager pattern.  Configures the LOCAL
@@ -60,7 +62,8 @@ function AutoPilot_UI:createChildren()
     -- V4.1: +4 rows for the Woodwork/Doctor visibility blocks.
     -- V4.2: +7 rows for the session-history block (title + up to
     -- SESSION_HISTORY_PANEL_ROWS sessions + trend sparkline).
-    self:setHeight(self.metricsY + ROW_H * 24 + PAD)
+    -- V4.3: +1 row for the training-program day line.
+    self:setHeight(self.metricsY + ROW_H * 25 + PAD)
 end
 
 -- ── Button handlers ──────────────────────────────────────────────────────────
@@ -157,6 +160,20 @@ function AutoPilot_UI:render()
                 y = y + ROW_H
             end
         end
+    end
+
+    -- V4.3 training program (C3): today's program day, pre-formatted by
+    -- the Leveler (the scheduler and this string live in the unit-tested
+    -- data layer; the panel renders it verbatim).  Rest days say so here,
+    -- since on a rest day the trainer status above never updates.
+    local progLine = nil
+    pcall(function()
+        local ps = AutoPilot_Leveler.getProgramStatus()
+        progLine = ps and ps.line or nil
+    end)
+    if progLine then
+        self:drawText(tostring(progLine), PAD, y, 0.6, 0.9, 0.9, 1, UIFont.Small)
+        y = y + ROW_H
     end
     y = y + 4
 

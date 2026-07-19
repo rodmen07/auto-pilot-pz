@@ -96,7 +96,14 @@
 --   [M]  getCell()   stub cell whose getGridSquare() returns nil
 --          (getZombieList is suite-local: test_threat_logic overrides getCell)
 --   [M]  getGameTime():getCalender():getTimeInMillis() / :getDay()
---          "getCalender" is the real PZ Java API spelling (not "Calendar")
+--          "getCalender" is the real PZ Java API spelling (not "Calendar").
+--          V4.3 (C3): AutoPilot_Leveler.getWeekday derives the weekly
+--          training-program day from getTimeInMillis ONLY (epoch millis;
+--          epoch day zero, 1970-01-01, was a Thursday).  No day-of-week
+--          calendar API is in the verified record, so none is called and
+--          none is mocked; the pcall-guarded absence path falls back to
+--          the always-on focus behavior.  No new mock surface: the suites
+--          drive the weekday through MockTime.set on this same clock.
 --   [M]  GameTime.getInstance()
 --   [M]  getTimestampMs()   real-time wall clock, driven by MockRealTime
 --   [M]  PerkFactory.getPerk(perk):getTotalXpForLevel(n)   cumulative XP
@@ -123,6 +130,15 @@
 --          client/PZAPI/ModOptions.lua).  NO suite loads AutoPilot_Options;
 --          its registration is pcall plus existence guarded and falls back
 --          to compiled-in defaults.  DOCUMENTED GAP.
+--          V4.3 (C3): the training-program selector rides this same gap.
+--          addComboBox is NOT in the verified record: the registration
+--          existence-checks it inside its own pcall and falls back to an
+--          addSlider over the 1-based program indices (verified surface);
+--          the picked value is copied into the live-read
+--          AutoPilot_Constants.TRAINING_PROGRAM, and the Leveler side of
+--          that seam (validation, day resolution, rest-day yield) is what
+--          test_leveler_metrics covers.  The widget itself stays
+--          playtest-only, like every control on the page.
 --   [G]  ISCollapsableWindow / ISButton / UIFont / require("ISUI/...")
 --          NO suite loads AutoPilot_UI (vanilla-widget F11 panel).
 --          DOCUMENTED GAP.
