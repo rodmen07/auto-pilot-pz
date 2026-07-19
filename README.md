@@ -191,6 +191,10 @@ and empty-loot scavenge spirals, each with a one-line hint; a clean log prints
 diagnosis). Read-only, stdlib-only; thresholds are constants at the top of
 the script.
 
+Full guide: [docs/triage.md](docs/triage.md) (schema reference, report
+walkthrough, the suspicious-pattern catalog including signatures the tool
+does not auto-detect, and the fixture workflow for adding new detectors).
+
 ## Contributing
 
 1. Create a branch
