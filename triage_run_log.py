@@ -9,6 +9,10 @@ triage report:
   * Time split        - training / resting / survival / idle categories
   * Threat events     - threat ticks, episodes, max horde size, deaths
   * Sessions          - per-session STR/FIT level deltas and end status
+  * Suspicious patterns - conservative session-scoped heuristics: long
+                        single-action streaks, zero-XP training loops,
+                        repeated flee/combat cycles, and empty-loot
+                        spirals ("none detected" when clean)
 
 A "session" is detected by a run_tick reset: AutoPilot_Telemetry increments
 run_tick monotonically per player, so a line whose run_tick is not greater
@@ -90,6 +94,16 @@ CATEGORY_ORDER = ("training", "resting", "survival", "idle")
 # Action labels that indicate an active threat response.
 COMBAT_ACTIONS = {"combat", "fight", "flee"}
 
+# ── Suspicious-pattern thresholds ─────────────────────────────────────────────
+# Deliberately conservative: this is triage, not diagnosis.  Each detector
+# needs a pattern strong enough to be worth a human look before it fires.
+STREAK_MIN_TICKS = 40            # consecutive identical actions to flag a streak
+ZERO_XP_MIN_TRAINING_TICKS = 30  # training ticks in a session with no level gain
+COMBAT_CYCLE_MAX_GAP = 3         # max non-combat ticks between fights in a cycle
+COMBAT_CYCLE_MIN_CYCLES = 4      # combat re-entries needed to flag oscillation
+LOOT_SPIRAL_MIN_SCAVENGE = 15    # scavenge ticks needed to consider a spiral
+LOOT_SPIRAL_NEED_RISE = 15       # hunger or thirst rise across the session
+
 
 def categorize_action(action: str) -> str:
     """Map an action label to a triage category; unknown labels count as idle."""
@@ -110,6 +124,15 @@ class SessionSummary:
     fit_start: int | None = None    # first FIT level seen
     fit_end:   int | None = None
     ended: str = "open"             # "dead" if the last line is a death marker
+
+
+@dataclass
+class SuspiciousFinding:
+    """One suspicious-pattern hit: what was seen, plus a plain-language hint."""
+
+    pattern: str    # short label, e.g. "action streak"
+    detail: str     # what the detector saw (session, counts, thresholds)
+    hint: str       # one plain-language pointer for the human doing triage
 
 
 @dataclass
@@ -137,6 +160,9 @@ class TriageSummary:
     deaths: int = 0             # action=dead end-of-session markers
 
     sessions: list[SessionSummary] = field(default_factory=list)
+
+    # Conservative suspicious-pattern findings (empty list means clean)
+    suspicious: list[SuspiciousFinding] = field(default_factory=list)
 
 
 # ── Parsing ───────────────────────────────────────────────────────────────────
@@ -229,6 +255,162 @@ def split_sessions(entries: list[dict[str, Any]]) -> list[list[dict[str, Any]]]:
     return sessions
 
 
+# ── Suspicious patterns ───────────────────────────────────────────────────────
+# Each detector is session-scoped (one odd session cannot smear across a whole
+# log file) and only fires past the conservative thresholds above.  A finding
+# is a flag for a human to look, never a verdict.
+
+def _first_last_int(session: list[dict[str, Any]],
+                    key: str) -> tuple[int | None, int | None]:
+    """First and last integer values of *key* in a session (None when absent)."""
+    first: int | None = None
+    last: int | None = None
+    for entry in session:
+        value = entry.get(key)
+        if isinstance(value, int):
+            if first is None:
+                first = value
+            last = value
+    return first, last
+
+
+def detect_action_streaks(
+        sessions: list[list[dict[str, Any]]]) -> list[SuspiciousFinding]:
+    """Flag runs of STREAK_MIN_TICKS+ consecutive identical actions."""
+    findings: list[SuspiciousFinding] = []
+    hint = ("One action dominating for this long usually means the rotation "
+            "is stuck; check the reason/fail_reason fields around that "
+            "stretch of the log.")
+    for index, session in enumerate(sessions, start=1):
+        actions = [entry.get("action", "idle") for entry in session]
+        prev: str | None = None
+        length = 0
+        for action in actions + [None]:     # None sentinel flushes the last run
+            if action == prev:
+                length += 1
+                continue
+            if prev is not None and length >= STREAK_MIN_TICKS:
+                findings.append(SuspiciousFinding(
+                    pattern="action streak",
+                    detail=(f"session {index}: action '{prev}' repeated "
+                            f"{length} ticks in a row "
+                            f"(threshold {STREAK_MIN_TICKS})"),
+                    hint=hint,
+                ))
+            prev = action
+            length = 1
+    return findings
+
+
+def detect_zero_xp_training(
+        sessions: list[list[dict[str, Any]]]) -> list[SuspiciousFinding]:
+    """Flag heavy-training sessions where neither STR nor FIT moved a level."""
+    findings: list[SuspiciousFinding] = []
+    hint = ("Levels are coarse (XP can grow inside a level), but this much "
+            "training with no level movement is worth a look at the F11 XP "
+            "panel.")
+    for index, session in enumerate(sessions, start=1):
+        training = sum(
+            1 for entry in session
+            if categorize_action(entry.get("action", "idle")) == "training")
+        if training < ZERO_XP_MIN_TRAINING_TICKS:
+            continue
+        str_first, str_last = _first_last_int(session, "str")
+        fit_first, fit_last = _first_last_int(session, "fit")
+        if None in (str_first, str_last, fit_first, fit_last):
+            continue    # old-schema lines: not enough evidence to flag
+        if str_last == str_first and fit_last == fit_first:
+            findings.append(SuspiciousFinding(
+                pattern="zero-XP training",
+                detail=(f"session {index}: {training} training tick(s) with "
+                        f"STR {str_first} -> {str_last} and "
+                        f"FIT {fit_first} -> {fit_last} "
+                        f"(threshold {ZERO_XP_MIN_TRAINING_TICKS})"),
+                hint=hint,
+            ))
+    return findings
+
+
+def detect_combat_cycles(
+        sessions: list[list[dict[str, Any]]]) -> list[SuspiciousFinding]:
+    """Flag combat-bandage-combat oscillation: fights re-entered right away."""
+    findings: list[SuspiciousFinding] = []
+    hint = ("The survivor keeps getting pulled back into a fight right after "
+            "patching up; the area may be too hot for the current flee "
+            "threshold, so consider relocating home.")
+    for index, session in enumerate(sessions, start=1):
+        episodes = 0            # consecutive runs of combat/fight/flee ticks
+        cycles = 0              # re-entries within COMBAT_CYCLE_MAX_GAP ticks
+        gap: int | None = None  # ticks since the last combat episode ended
+        in_combat = False
+        for entry in session:
+            if entry.get("action") in COMBAT_ACTIONS:
+                if not in_combat:
+                    episodes += 1
+                    if gap is not None and gap <= COMBAT_CYCLE_MAX_GAP:
+                        cycles += 1
+                in_combat = True
+            else:
+                if in_combat:
+                    gap = 1
+                elif gap is not None:
+                    gap += 1
+                in_combat = False
+        if cycles >= COMBAT_CYCLE_MIN_CYCLES:
+            findings.append(SuspiciousFinding(
+                pattern="flee/combat cycle",
+                detail=(f"session {index}: combat re-entered {cycles} time(s) "
+                        f"within {COMBAT_CYCLE_MAX_GAP} tick(s) of the "
+                        f"previous fight ({episodes} combat episode(s); "
+                        f"threshold {COMBAT_CYCLE_MIN_CYCLES})"),
+                hint=hint,
+            ))
+    return findings
+
+
+def detect_loot_spirals(
+        sessions: list[list[dict[str, Any]]]) -> list[SuspiciousFinding]:
+    """Flag scavenge-heavy sessions where hunger or thirst still climbed."""
+    findings: list[SuspiciousFinding] = []
+    hint = ("Heavy scavenging while hunger/thirst keep climbing suggests "
+            "loot trips are coming back empty; nearby containers may be "
+            "depleted, so a new home area may help.")
+    for index, session in enumerate(sessions, start=1):
+        scavenge = sum(
+            1 for entry in session if entry.get("action") == "scavenge")
+        if scavenge < LOOT_SPIRAL_MIN_SCAVENGE:
+            continue
+        hunger_first, hunger_last = _first_last_int(session, "hunger")
+        thirst_first, thirst_last = _first_last_int(session, "thirst")
+        if None in (hunger_first, hunger_last, thirst_first, thirst_last):
+            continue    # not enough need data to call it a spiral
+        hunger_delta = hunger_last - hunger_first
+        thirst_delta = thirst_last - thirst_first
+        if hunger_delta >= LOOT_SPIRAL_NEED_RISE \
+                or thirst_delta >= LOOT_SPIRAL_NEED_RISE:
+            findings.append(SuspiciousFinding(
+                pattern="empty-loot spiral",
+                detail=(f"session {index}: {scavenge} scavenge tick(s) while "
+                        f"hunger moved {hunger_delta:+d} and thirst "
+                        f"{thirst_delta:+d} (threshold "
+                        f"{LOOT_SPIRAL_MIN_SCAVENGE} ticks, "
+                        f"+{LOOT_SPIRAL_NEED_RISE} need rise)"),
+                hint=hint,
+            ))
+    return findings
+
+
+def detect_suspicious(
+        sessions: list[list[dict[str, Any]]]) -> list[SuspiciousFinding]:
+    """Run every suspicious-pattern detector and concatenate the findings."""
+    findings: list[SuspiciousFinding] = []
+    findings.extend(detect_action_streaks(sessions))
+    findings.extend(detect_zero_xp_training(sessions))
+    findings.extend(detect_combat_cycles(sessions))
+    findings.extend(detect_loot_spirals(sessions))
+    return findings
+
+
 # ── Summarizing ───────────────────────────────────────────────────────────────
 
 def _session_summary(index: int, session: list[dict[str, Any]]) -> SessionSummary:
@@ -262,7 +444,8 @@ def summarize(entries: list[dict[str, Any]], skipped: int = 0) -> TriageSummary:
     category_counts: Counter[str] = Counter()
     transitions: Counter[tuple[str, str]] = Counter()
 
-    for index, session in enumerate(split_sessions(entries), start=1):
+    sessions = split_sessions(entries)
+    for index, session in enumerate(sessions, start=1):
         summary.sessions.append(_session_summary(index, session))
 
         prev_action: str | None = None
@@ -299,6 +482,7 @@ def summarize(entries: list[dict[str, Any]], skipped: int = 0) -> TriageSummary:
     summary.action_counts = dict(action_counts)
     summary.category_counts = dict(category_counts)
     summary.transition_counts = dict(transitions)
+    summary.suspicious = detect_suspicious(sessions)
     return summary
 
 
@@ -382,6 +566,15 @@ def format_report(summary: TriageSummary,
             )
     else:
         lines.append("  (none)")
+
+    lines.append("")
+    lines.append("-- Suspicious patterns --")
+    if summary.suspicious:
+        for finding in summary.suspicious:
+            lines.append(f"  [{finding.pattern}] {finding.detail}")
+            lines.append(f"      hint: {finding.hint}")
+    else:
+        lines.append("  none detected")
 
     return "\n".join(lines)
 
