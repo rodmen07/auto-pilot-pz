@@ -26,11 +26,11 @@ crashes, and save breakage between game updates.
    client version exactly (42.19.0 as of this writing; MP rejects mismatches).
 2. **RAM**: plan 8-9 GB minimum for a B42 server; keep population under ~20
    (current TIS guidance).
-3. **Publish the mod to the Steam Workshop** (see WORKSHOP.md), then add to
-   the server's `servertest.ini`:
+3. **Add the published Workshop mod** (id 3767254910; description source in
+   WORKSHOP.md) to the server's `servertest.ini`:
    ```ini
    Mods=AutoPilot
-   WorkshopItems=<your-workshop-id>
+   WorkshopItems=3767254910
    ```
    Joining players auto-download it from the Workshop.
 4. **Server options that matter to the mod**:

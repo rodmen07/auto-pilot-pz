@@ -89,17 +89,28 @@ python -m pytest tests/test_game_logs.py -v
 - `deploy.sh` — copy `42/` into live PZ mod folder
 - `sync_after_merge.bat` — fetch/ff and optional deploy on Windows
 
-## Core Runtime Modules
+## Core Runtime Modules (17 under 42/media/lua/client/)
 
-- AutoPilot_Main.lua: OnTick loop, mode toggle, HUD/status
-- AutoPilot_Needs.lua: priority state machine for actions
+Leveler:
+- AutoPilot_Main.lua: orchestrator for the local player (eval loop, F10 arm/disarm, HUD/status)
+- AutoPilot_Leveler.lua: training focus selection (Auto/Strength/Fitness) with ModData persistence
+- AutoPilot_XP.lua: XP metrics engine (session gain, XP/hour, ETA to next level)
+- AutoPilot_UI.lua: F11 leveler panel (focus, live metrics, trainer status, arm/disarm button)
+- AutoPilot_Options.lua: PZAPI.ModOptions sliders and rebindable keys
+
+Survival fail-safe:
+- AutoPilot_Needs.lua: priority state machine for survival needs and exercise
 - AutoPilot_Threat.lua: zombie detection and fight/flee
 - AutoPilot_Inventory.lua: food/drink/loot/equipment helpers
 - AutoPilot_Medical.lua: wound detection and treatment
 - AutoPilot_Home.lua: home anchor persistence and bounds logic
-- AutoPilot_Barricade.lua: one-time barricade queue
+- AutoPilot_Barricade.lua: periodic barricade maintenance
 - AutoPilot_Map.lua: depleted-square tracking
-- AutoPilot_Actions.lua: timed-action wrappers
+
+Learning and infrastructure:
+- AutoPilot_DeathLog.lua: death context snapshots plus a recent-decision ring buffer
+- AutoPilot_Adaptive.lua: bounded threshold self-tuning from the death log
+- AutoPilot_Telemetry.lua: per-tick run log writer with session-start rotation
 - AutoPilot_Constants.lua: tunable thresholds and constants
 - AutoPilot_Utils.lua: safe wrappers and search helpers
 
@@ -125,17 +136,17 @@ So AutoPilot is fully local and rule-based by design.
 
 ## Versioning and Release Notes
 
-- Current modversion: 1.1 (root mod.info and 42/mod.info)
-- Major release label style: V1.1
+- Current modversion: 3.3 (root mod.info and 42/mod.info)
+- Major release label style: V3.3
 - Workshop publish assets/checklist live in WORKSHOP.md and TESTING.md
 
 ## Telemetry
 
 AutoPilot writes structured telemetry to `~/Zomboid/Lua/` while running:
 
-- `auto_pilot_run.log` — per-tick CSV (player 0)
-- `auto_pilot_run_p1.log`, `_p2.log`, `_p3.log` — splitscreen players
-- `auto_pilot_run_end.json` — run-end marker (status: dead or timeout)
+- `auto_pilot_run.log`: per-tick CSV for the local player
+- `auto_pilot_run_end.json`: run-end marker (status: dead or timeout)
+- `auto_pilot_deaths.log`: one context snapshot line per death (death learning)
 
 Each log line records: player, action, reason, stat levels (hunger/thirst/fatigue/
 endurance), zombie count, bleeding count, and Strength/Fitness levels.
@@ -147,7 +158,9 @@ python benchmark.py
 ```
 
 Delete the log files between benchmark sessions to get clean per-run data.
-Log files grow unbounded over long sessions — manual deletion is required.
+Since V3.3 the run log rotates automatically: once per session, if it exceeds
+20,000 lines the oldest lines are dropped and only the newest 5,000 are kept
+(TELEMETRY_MAX_LINES / TELEMETRY_KEEP_LINES in AutoPilot_Constants.lua).
 
 ## Contributing
 

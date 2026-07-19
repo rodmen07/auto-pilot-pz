@@ -37,6 +37,7 @@ AutoPilot Leveler is a client-side mod for Project Zomboid Build 42 (unstable). 
 [list]
 [*][b]F10[/b] — arm / disarm (starts OFF; home anchors where you stand when first armed)
 [*][b]F11[/b] — leveler panel: focus selection + live XP metrics
+[*]Options > Mods > AutoPilot Leveler: sliders for training and survival tunables (daily set cap, endurance minimum, stockpile minimums, loot/detection radii) plus rebindable F10/F11 keys
 [/list]
 
 [h2]Compatibility[/h2]
@@ -52,7 +53,7 @@ AutoPilot Leveler is a client-side mod for Project Zomboid Build 42 (unstable). 
 [list]
 [*]Exercise-focused by design: it will not explore, clear buildings, or manage a base beyond barricade upkeep
 [*]The survival layer is a fail-safe, not a caretaker — arm it from a stable position
-[*]Telemetry log ([i]~/Zomboid/Lua/auto_pilot_run.log[/i]) grows over long sessions; safe to delete anytime
+[*]Telemetry log ([i]~/Zomboid/Lua/auto_pilot_run.log[/i]) rotates automatically since V3.3 (trimmed to the newest 5,000 lines at session start once it passes 20,000); safe to delete anytime
 [*]B42 multiplayer is itself unstable; expect the usual unstable-branch rough edges
 [/list]
 

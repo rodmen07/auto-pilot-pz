@@ -1,3 +1,6 @@
+> **SUPERSEDED (V3.1, 2026-07-18):** the four Phase 1 modules celebrated below (Foraging, Combat, Skills, Vehicles) were deleted when the mod pivoted to the auto-exercise leveler identity.
+> Current direction lives in [ROADMAP.md](ROADMAP.md); this file is kept unchanged as a historical record.
+
 # AutoPilot Phase 1 Expansion Summary
 
 ## ✅ Completed: Session 2026-06-01
