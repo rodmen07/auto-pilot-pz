@@ -102,6 +102,7 @@ Build 42.20 was announced as the stable candidate on 2026-07-09, and 42.19 saves
 
 The V3.1 trim was about shedding the broad-survival identity, not about the mod staying small. This milestone restarts deliberate expansion under the leveler identity, grounded in verified 42.19 APIs.
 
+- **Proposal drafted 2026-07-19:** see [docs/EXPANSION_PROPOSAL_V4.md](docs/EXPANSION_PROPOSAL_V4.md) (six costed candidates with verdicts and a per-candidate decision section; awaiting user accept/reject).
 - Draft `docs/EXPANSION_PROPOSAL_V4.md`: candidate features with effort, risk, and the exact API surface each needs. Starting candidates: skill-book reading (SkillBook table + ISReadABook, with the Carpentry=Woodwork / FirstAid=Doctor / Foraging=PlantScavenging perk-name mapping), carpentry XP via the existing barricade pass, configurable training programs and schedules, richer Adaptive strategies from accumulated death-log data, and F11 panel upgrades (session history, per-perk ETAs).
 - Every candidate must respect the standing non-goals (no direct addXp, no LLM sidecar, no splitscreen) and cite runtime-verified API facts, never phantom reads.
 - USER-ONLY: choosing which proposals proceed; each approved feature becomes its own V4.x milestone with one-or-two-PR slices.
