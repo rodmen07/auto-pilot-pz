@@ -123,6 +123,30 @@ local function _inTrainingRun(player)
     return _runActive and _runOwner == player
 end
 
+-- ── V5.8: ONE activity string for the whole needs layer ─────────────────────
+--
+-- User report (with a screenshot of the running v5.7 build): the F11 panel
+-- read "Status: training: burpees" at the same moment the V4.4 on-screen HUD
+-- read "Action: Resting".  Both were drawn from the same module and they
+-- disagreed, because this string was written ONLY by doExercise.  When the
+-- chain stopped training and started resting, nothing overwrote it, so the
+-- panel kept displaying the last training outcome indefinitely.
+--
+-- The fix is not "add a second field for resting": two fields that can
+-- disagree IS the bug.  This one string is now the single answer to "what is
+-- the needs layer doing", written by every path that claims the cycle -- the
+-- trainer below AND doRest above -- and read by getExerciseStatus, which is
+-- what both the panel and the HUD already call.
+--
+-- It is declared HERE, above doRest, rather than next to the trainer state,
+-- purely because Lua locals are only visible below their declaration and
+-- doRest is defined first.
+local _activityOutcome = "idle"
+
+local function _setActivity(text)
+    _activityOutcome = text
+end
+
 -- ── Helpers ─────────────────────────────────────────────────────────────────
 
 -- Safe moodle level getter — returns 0 if the moodle type doesn't exist or isn't active.
@@ -416,7 +440,14 @@ local function doRest(player, sitOnly)
     end)
     local ms = ok and now or 0
 
-    if ms < restCooldownMs then return true end  -- still resting, skip silently
+    if ms < restCooldownMs then
+        -- Still inside the hold from an earlier rest: nothing new is queued,
+        -- but the cycle IS a rest, so the reported activity has to say so.
+        -- Without this write the panel could still be showing whatever the
+        -- trainer last set before the rest began (the V5.8 report).
+        _setActivity("resting (recovering endurance)")
+        return true  -- still resting, skip silently
+    end
 
     local function queueGroundRest()
         if not ISSitOnGround or not ISSitOnGround.new then
@@ -429,6 +460,7 @@ local function doRest(player, sitOnly)
         if okSit and sitAction then
             print("[Needs] Exhausted — no furniture found; sitting on ground to recover.")
             AutoPilot_Utils.queueModAction(sitAction)
+            _setActivity("resting (sitting on the ground)")
             return true
         end
         return false
@@ -482,9 +514,45 @@ local function doRest(player, sitOnly)
                 queued = true
             end
         end
+        if queued then _setActivity("resting (using a bed)") end
     else
         print("[Needs] Exhausted — resting using nearby furniture.")
 
+        -- ── V5.8: queue ONE action, and let it be the one that SEATS ────────
+        --
+        -- User report, with a screenshot: "Text says resting, but character is
+        -- not sitting in the chair as expected" -- standing in the middle of
+        -- the room, an empty chair right beside her, HUD reading "Resting".
+        --
+        -- Through V5.7 this branch queued BOTH of the calls below, back to
+        -- back, and that is self-defeating:
+        --
+        --   * ISPathFindAction:pathToSitOnFurniture(character, furniture, cb)
+        --     is the only one of the two whose recorded semantics include
+        --     both halves of what this branch wants: it WALKS the character
+        --     to the furniture and SEATS them on it.  It is the same call
+        --     shape the mock has recorded since the V3.2 API audit.
+        --
+        --   * ISRestAction:new(character, bed, useAnimations) does no
+        --     pathing at all.  Queued behind the seat action it is at best
+        --     redundant, and a second timed action behind a sit is exactly
+        --     the situation the mod's own exercise path uses
+        --     ISTimedActionQueue.addGetUpAndThen for ("stands the character
+        --     up from any furniture before..."), i.e. the engine's own way
+        --     of running a follow-up action is to STAND UP first.  A
+        --     standing character reading "Resting" is precisely what was
+        --     reported.
+        --
+        -- The `useAnimations` argument compounded it: the mod passed nil,
+        -- which is falsy, so even the rest action itself ran with its
+        -- animations suppressed.  It is only reachable now as the fallback
+        -- below, and it passes `true` there.
+        --
+        -- The ground fallback settles the design question: it queues
+        -- ISSitOnGround ALONE, with no rest action chaser, and that is the
+        -- path V5.4 shipped as the guaranteed recovery floor.  The mod's
+        -- model of resting is "be seated"; the furniture branch now matches
+        -- it instead of contradicting it.
         if ISPathFindAction and ISPathFindAction.pathToSitOnFurniture then
             local okPath, pathAction = pcall(function()
                 return ISPathFindAction:pathToSitOnFurniture(player, target, nil)
@@ -495,17 +563,23 @@ local function doRest(player, sitOnly)
             end
         end
 
-        if ISRestAction and ISRestAction.new then
-            -- Real 42.19 signature (shared/TimedActions/ISRestAction.lua:245):
-            -- ISRestAction:new(character, bed, useAnimations).
+        if not queued and ISRestAction and ISRestAction.new then
+            -- Fallback only: reached when the seat action is unavailable or
+            -- refused the furniture.  Real 42.19 signature
+            -- (shared/TimedActions/ISRestAction.lua:245):
+            -- ISRestAction:new(character, bed, useAnimations).  The 3rd
+            -- argument is passed `true` now: nil is falsy, and a rest with
+            -- its animations disabled is a rest performed standing up.
             local okRest, restAction = pcall(function()
-                return ISRestAction:new(player, target, nil)
+                return ISRestAction:new(player, target, true)
             end)
             if okRest and restAction then
                 AutoPilot_Utils.queueModAction(restAction)
                 queued = true
             end
         end
+
+        if queued then _setActivity("resting (seated on furniture)") end
     end
 
     if not queued then
@@ -989,8 +1063,11 @@ end
 local _exSetStart     = {}
 -- [exType] -> game-ms until which the exercise is considered fatigued.
 local _exFatiguedUntil = {}
--- Human-readable state of the trainer, shown in the F11 panel.
-local _exerciseOutcome = "idle"
+-- Human-readable state of the trainer: written through _setActivity, the
+-- single activity string declared near the top of this file (V5.8).  The
+-- trainer is no longer its only writer -- doRest writes it too -- which is
+-- what stops the F11 panel reporting "training: burpees" at a character who
+-- is sitting down.
 
 -- ── Player-intervention backoff (V4.5) ──────────────────────────────────────
 -- The user-reported lockup: cancel an exercise and the armed trainer
@@ -1022,7 +1099,7 @@ local function _setBackoff(nowMs, why)
     local windowMs = _backoffWindowMs()
     if windowMs <= 0 then return end
     _backoffUntilMs = nowMs + windowMs
-    _exerciseOutcome = "backing off (" .. why .. ")"
+    _setActivity("backing off (" .. why .. ")")
     print("[Needs] Training backoff (" .. why .. ") for "
         .. tostring(AutoPilot_Constants.EXERCISE_BACKOFF_MINUTES)
         .. " game minutes.")
@@ -1168,8 +1245,8 @@ local function doExercise(player, focus)
     _updateInterventionState(player, nowMs)
     if nowMs < _backoffUntilMs then
         local minsLeft = math.ceil((_backoffUntilMs - nowMs) / 60000)
-        _exerciseOutcome = "backing off (player intervened; "
-            .. minsLeft .. "m left)"
+        _setActivity("backing off (player intervened; "
+            .. minsLeft .. "m left)")
         -- V5.7: the run is over.  Whatever resumes after the backoff window
         -- is a NEW run and must clear the resume gate on its own merits.
         AutoPilot_Needs.endTrainingRun()
@@ -1185,7 +1262,7 @@ local function doExercise(player, focus)
     if dailyCap > 0 and _exerciseSetsToday >= dailyCap then
         print(("[Needs] Daily exercise cap %d reached; resting."):format(
             dailyCap))
-        _exerciseOutcome = "resting (daily set cap reached)"
+        _setActivity("resting (daily set cap reached)")
         AutoPilot_Needs.endTrainingRun()
         return false
     end
@@ -1228,7 +1305,7 @@ local function doExercise(player, focus)
         -- Whether the run just ended on the floor or never started, the next
         -- attempt has to clear the RESUME gate: that is the hysteresis.
         AutoPilot_Needs.endTrainingRun()
-        _exerciseOutcome = "resting (endurance recovering)"
+        _setActivity("resting (endurance recovering)")
         return false  -- no action queued; the sit branch in check() recovers
     end
 
@@ -1241,7 +1318,7 @@ local function doExercise(player, focus)
         _equipFetchDay = _today
         local okF, fetching = pcall(AutoPilot_Inventory.fetchExerciseEquipment, player)
         if okF and fetching then
-            _exerciseOutcome = "fetching exercise equipment"
+            _setActivity("fetching exercise equipment")
             return true
         end
     end
@@ -1261,7 +1338,7 @@ local function doExercise(player, focus)
     if not exeData then
         print("[Needs] All exercises for focus '" .. tostring(focus or "auto")
             .. "' are XP-fatigued — pausing training while they recover.")
-        _exerciseOutcome = "resting (exercises fatigued)"
+        _setActivity("resting (exercises fatigued)")
         -- V5.7: XP fatigue ends the run too.  Without this the character
         -- would keep "being mid-run" while queueing nothing, and would then
         -- resume off the low floor instead of recovering to the resume gate.
@@ -1322,7 +1399,7 @@ local function doExercise(player, focus)
         -- The counter keeps running even when uncapped: the F11 panel and
         -- the logs report it, it just no longer halts training on its own.
         _exerciseSetsToday = _exerciseSetsToday + 1
-        _exerciseOutcome = "training: " .. exType
+        _setActivity("training: " .. exType)
         if dailyCap > 0 then
             print(("[Needs] Exercise set %d/%d queued."):format(
                 _exerciseSetsToday, dailyCap))
@@ -1333,7 +1410,7 @@ local function doExercise(player, focus)
         return true
     else
         print("[Needs] ISFitnessAction failed for: " .. exType .. " — " .. tostring(action))
-        _exerciseOutcome = "error: could not start " .. tostring(exType)
+        _setActivity("error: could not start " .. tostring(exType))
         AutoPilot_Needs.endTrainingRun()
         return false
     end
@@ -1349,6 +1426,10 @@ end
 --- pre-formatted, honest rendering of the count and is what the UI draws
 --- verbatim (same data-layer-formats-it convention as the program line);
 --- `setsToday` and `cap` stay for callers that want the raw numbers.
+--- V5.8: `outcome` is the module's SINGLE activity string (_activityOutcome),
+--- so it now also reports the rest paths.  It can no longer say "training: x"
+--- while the character is sitting down; the F11 panel and the V4.4 on-screen
+--- action HUD read this same field through this same function.
 function AutoPilot_Needs.getExerciseStatus()
     local cap = tonumber(AutoPilot_Constants.EXERCISE_DAILY_CAP) or 0
     local setsLine
@@ -1358,7 +1439,7 @@ function AutoPilot_Needs.getExerciseStatus()
         setsLine = ("Sets today: %d (no cap)"):format(_exerciseSetsToday)
     end
     return {
-        outcome   = _exerciseOutcome,
+        outcome   = _activityOutcome,
         setsToday = _exerciseSetsToday,
         cap       = cap,
         setsLine  = setsLine,
@@ -1382,7 +1463,7 @@ function AutoPilot_Needs.noteForeignExercise(_player)
     local windowMs = _backoffWindowMs()
     if windowMs <= 0 then return end
     _backoffUntilMs = nowMs + windowMs
-    _exerciseOutcome = "waiting (manual exercise in progress)"
+    _setActivity("waiting (manual exercise in progress)")
     -- V5.7: the player is training by hand; our run is over.
     AutoPilot_Needs.endTrainingRun()
 end
@@ -1549,6 +1630,10 @@ function AutoPilot_Needs.check(player)
         local restTarget = tonumber(AutoPilot_Constants.ENDURANCE_REST_TARGET) or 0
         if endurance < restTarget then
             AutoPilot_Telemetry.setDecision("rest", "rest_cooldown")
+            -- V5.8: the cycle is a rest, so the reported activity says rest.
+            -- This branch queues nothing, which is exactly why it used to
+            -- leave the panel showing the last training outcome.
+            _setActivity("resting (recovering endurance)")
             return true  -- still resting; keep recovering
         end
         -- Recovered ahead of the maximum hold: stand up and resume the chain.

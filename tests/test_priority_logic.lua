@@ -1646,8 +1646,10 @@ do
     placeFurniture({ { sprite = "location_park_bench_01", dx = 5, dy = 0 } })
     local player = windedPlayer(0.40)
     assert_true("check() claims the cycle", AutoPilot_Needs.check(player))
+    -- V5.8: the furniture path queues the SEAT action (pathToSitOnFurniture),
+    -- so the recorded type is "sit_furniture" rather than "rest_furniture".
     assert_eq("the outdoor bench is used, not the ground",
-        last_action_type(), "rest_furniture")
+        last_action_type(), "sit_furniture")
     noFurniture()
 end
 
@@ -1674,7 +1676,7 @@ do
     })
     local player = windedPlayer(0.40)
     AutoPilot_Needs.check(player)
-    assert_eq("furniture was used", last_action_type(), "rest_furniture")
+    assert_eq("furniture was used", last_action_type(), "sit_furniture")
     local chosen = ISTimedActionQueue_calls[#ISTimedActionQueue_calls]
     assert_eq("the far INSIDE sofa beat the near OUTSIDE bench",
         chosen.target:getSprite():getName(), "furniture_seating_indoor_sofa_01")
@@ -2220,7 +2222,8 @@ do
         assert_true(
             ("endurance %.0f%% either rests or trains, nothing else")
                 :format(e * 100),
-            act == "rest" or act == "rest_furniture" or act == "exercise")
+            act == "rest" or act == "sit_furniture"
+                or act == "rest_furniture" or act == "exercise")
     end
 end
 
@@ -2261,6 +2264,156 @@ do
     assert_eq("a sit slider dragged under the gate still sits, not idles",
         last_action_type(), "rest")
     AutoPilot_Constants.ENDURANCE_SIT_MIN = savedSit
+    resetRest()
+    AutoPilot_Needs.endTrainingRun()
+end
+
+-- ── V5.8: actually sit down, and report one honest status ────────────────────
+-- User report, with a screenshot of the running v5.7 build: "Text says
+-- resting, but character is not sitting in the chair as expected".  The panel
+-- read "Status: training: burpees", the on-screen HUD read "Action: Resting",
+-- and the character was standing beside an empty chair.
+
+print("\n-- Test V5.8-1 (HEADLINE): resting on furniture queues the SEAT action")
+do
+    resetRest()
+    placeFurniture({ { sprite = "furniture_seating_indoor_chair_04", dx = 1, dy = 0 } })
+    local player = windedPlayer(0.40)
+    assert_true("check() claims the cycle", AutoPilot_Needs.check(player))
+
+    local queued = ISTimedActionQueue_calls
+    assert_eq("exactly ONE action is queued for a furniture rest", #queued, 1)
+    assert_eq("and it is the seat action, which walks there AND sits down",
+        queued[1].type, "sit_furniture")
+    assert_eq("the seat action was handed the chair that was found",
+        queued[1].target:getSprite():getName(),
+        "furniture_seating_indoor_chair_04")
+
+    -- The pre-V5.8 shape: a second, non-pathing rest action stacked behind
+    -- the sit, itself constructed with useAnimations = nil.
+    for _, act in ipairs(queued) do
+        assert_false("no rest action is stacked behind the sit",
+            act.type == "rest_furniture")
+    end
+    noFurniture()
+end
+
+print("\n-- Test V5.8-2: the ISRestAction fallback never disables its animations")
+do
+    resetRest()
+    placeFurniture({ { sprite = "furniture_seating_indoor_sofa_01", dx = 1, dy = 0 } })
+    -- Take the seat action away: the fallback is the only thing left.
+    local savedPath = ISPathFindAction.pathToSitOnFurniture
+    ISPathFindAction.pathToSitOnFurniture = nil
+    local player = windedPlayer(0.40)
+    assert_true("check() still claims the cycle", AutoPilot_Needs.check(player))
+    local last = ISTimedActionQueue_calls[#ISTimedActionQueue_calls]
+    assert_eq("the fallback rest action is used", last.type, "rest_furniture")
+    assert_eq("useAnimations is TRUE, not the falsy nil that rested standing up",
+        last.useAnimations, true)
+    ISPathFindAction.pathToSitOnFurniture = savedPath
+    noFurniture()
+end
+
+print("\n-- Test V5.8-3 (HEADLINE): the panel status agrees with the action HUD")
+do
+    resetRest()
+    AutoPilot_Needs.resetInterventionForTest()
+    AutoPilot_Needs.endTrainingRun()
+    -- Reproduce the screenshot exactly: train first, so the trainer's own
+    -- outcome string is "training: <something>", THEN drop into the rest.
+    local p = drivenPlayer(0.95)
+    assert_true("(a set is queued first)",
+        AutoPilot_Needs.trainExercise(p, "fitness"))
+    assert_eq("the trainer status reads as training",
+        AutoPilot_Needs.getExerciseStatus().outcome:sub(1, 9), "training:")
+
+    resetRest()
+    placeFurniture({ { sprite = "furniture_seating_indoor_chair_04", dx = 1, dy = 0 } })
+    AutoPilot_Needs.endTrainingRun()
+    local winded = windedPlayer(0.40)
+    assert_true("the winded cycle rests", AutoPilot_Needs.check(winded))
+    assert_eq("the cycle queued the seat action", last_action_type(), "sit_furniture")
+
+    local outcome = AutoPilot_Needs.getExerciseStatus().outcome
+    -- The V4.4 HUD renders ACTION_LABELS["rest"] = "Resting" for this cycle.
+    -- The panel must not be saying "training: burpees" underneath it.
+    assert_eq("the panel status now says resting too", outcome:sub(1, 7), "resting")
+    assert_eq("and it is NOT the stale training line", outcome:find("training", 1, true), nil)
+    noFurniture()
+end
+
+print("\n-- Test V5.8-4: a training cycle still reports the exercise by name")
+do
+    resetRest()
+    AutoPilot_Needs.resetInterventionForTest()
+    AutoPilot_Needs.endTrainingRun()
+    local p = drivenPlayer(1.00)
+    assert_true("(a set is queued)", AutoPilot_Needs.trainExercise(p, "fitness"))
+    local outcome = AutoPilot_Needs.getExerciseStatus().outcome
+    assert_eq("the status still names the exercise being trained",
+        outcome:sub(1, 10), "training: ")
+    -- The panel's regularity row keys off exactly this shape.
+    assert_true("the exercise name is still parseable from the status",
+        outcome:match("^training: (%S+)") ~= nil)
+end
+
+print("\n-- Test V5.8-5: the ground fallback still fires, and reports honestly")
+do
+    resetRest()
+    AutoPilot_Needs.endTrainingRun()
+    -- No furniture anywhere: the V5.4 guaranteed floor is untouched.
+    local player = windedPlayer(0.40)
+    assert_true("check() claims the cycle", AutoPilot_Needs.check(player))
+    assert_eq("ISSitOnGround is still what gets queued", last_action_type(), "rest")
+    assert_eq("exactly one action is queued", #ISTimedActionQueue_calls, 1)
+    local outcome = AutoPilot_Needs.getExerciseStatus().outcome
+    assert_eq("and the status says resting, not training",
+        outcome:sub(1, 7), "resting")
+end
+
+print("\n-- Test V5.8-6: the rest HOLD cycle reports resting even though it queues nothing")
+do
+    resetRest()
+    AutoPilot_Needs.endTrainingRun()
+    local player = windedPlayer(0.40)
+    assert_true("the first cycle sits down", AutoPilot_Needs.check(player))
+    local queuedAfterSit = #ISTimedActionQueue_calls
+    -- Second cycle, still inside REST_HOLD_MS: doRest short-circuits and the
+    -- hold branch in check() claims the cycle without queueing anything.
+    -- That is the branch that used to leave the panel on the training line.
+    assert_true("the hold keeps claiming the cycle", AutoPilot_Needs.check(player))
+    assert_eq("nothing new was queued during the hold",
+        #ISTimedActionQueue_calls, queuedAfterSit)
+    assert_eq("the held cycle still reports resting",
+        AutoPilot_Needs.getExerciseStatus().outcome:sub(1, 7), "resting")
+end
+
+print("\n-- Test V5.8-7: V5.7's endurance hysteresis is untouched")
+do
+    -- A run started at 95% must still continue at 80%, which is below the
+    -- 0.90 resume gate and above the 0.30 floor: the exact property V5.7
+    -- exists to provide.
+    resetRest()
+    AutoPilot_Needs.resetInterventionForTest()
+    AutoPilot_Needs.endTrainingRun()
+    local p = drivenPlayer(0.95)
+    assert_true("a run starts at 95%", AutoPilot_Needs.trainExercise(p, "fitness"))
+    assert_true("and it continues at 80%, below the resume gate", repAt(p, 0.80))
+    assert_eq("the resume gate is unchanged",
+        AutoPilot_Constants.EXERCISE_ENDURANCE_RESUME, 0.90)
+    assert_eq("the floor is unchanged",
+        AutoPilot_Constants.EXERCISE_ENDURANCE_MIN, 0.30)
+    assert_eq("the sit threshold is unchanged",
+        AutoPilot_Constants.ENDURANCE_SIT_MIN, 0.35)
+    assert_eq("the stand-up target is unchanged",
+        AutoPilot_Constants.ENDURANCE_REST_TARGET, 0.95)
+    -- A fresh character with no run open still has to clear the resume gate.
+    AutoPilot_Needs.endTrainingRun()
+    resetRest()
+    AutoPilot_Needs.resetInterventionForTest()
+    assert_false("with no run open, 80% does NOT start one",
+        AutoPilot_Needs.trainExercise(drivenPlayer(0.80), "fitness"))
     resetRest()
     AutoPilot_Needs.endTrainingRun()
 end

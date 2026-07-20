@@ -2,6 +2,93 @@
 
 All notable changes to AutoPilot are documented here.
 
+## [V5.8] - 2026-07-20 - SIT DOWN, AND SAY ONE TRUE THING
+
+User report, with a screenshot of the running v5.7 build:
+
+> "Text says resting, but character is not sitting in the chair as expected"
+
+The screenshot showed all of it at once: the panel title `AutoPilot Leveler
+v5.7`, the panel line `Status: training: burpees   Sets today: 8 (no cap)`,
+the on-screen HUD reading `Action: Resting`, and the character standing in the
+middle of a room with an unoccupied chair right beside her. Two defects, one
+picture.
+
+### 1. The rest never sat anybody down
+
+The furniture rest branch queued TWO actions back to back:
+
+```lua
+ISPathFindAction:pathToSitOnFurniture(player, target, nil)  -- walk there AND sit
+ISRestAction:new(player, target, nil)                       -- rest, no pathing
+```
+
+Only the first of those seats the character. The second does no pathing at
+all, and queueing it behind a sit is the situation the mod's own trainer uses
+`ISTimedActionQueue.addGetUpAndThen` for: the engine's way of running a
+follow-up action is to STAND THE CHARACTER UP first. A standing character
+reading "Resting" is exactly what was reported.
+
+The third argument compounded it. The verified 42.19 signature is
+`ISRestAction:new(character, bed, useAnimations)`; the mod passed **nil**,
+which is falsy, so even the rest action ran with its animations suppressed.
+
+The branch now queues **one** action, the one whose recorded semantics include
+both halves of the job: `pathToSitOnFurniture`. `ISRestAction` survives only
+as the fallback for when the seat action is unavailable, and it passes
+`useAnimations = true` there. The ground fallback settled the design question:
+it has always queued `ISSitOnGround` alone, with no rest-action chaser, and
+V5.4 shipped it as the guaranteed recovery floor. The mod's model of resting
+is "be seated"; the furniture branch now matches it instead of contradicting
+it.
+
+No new engine surface: both calls were already in the mod and in the verified
+mock record.
+
+### 2. The panel and the HUD were two opinions, not two views
+
+`_exerciseOutcome` was written only inside `doExercise`. Nothing in the rest
+path touched it, so when the chain stopped training and started resting the
+F11 panel kept displaying the last training outcome forever, while the V4.4
+action HUD (which reads the decision label) correctly said "Resting".
+
+Two fields that can disagree IS the bug, so the fix is one source, applied at
+both layers:
+
+- The needs layer now has ONE activity string (`_activityOutcome`, written
+  through `_setActivity`). Every path that claims the cycle writes it: the
+  trainer as before, and now the bed rest, the furniture rest, the ground sit,
+  and the rest HOLD branch that queues nothing at all (which is precisely the
+  cycle that used to leave the training line on screen).
+- The F11 panel's status row is now composed from
+  `AutoPilot.getActionIntention` - the same call the on-screen HUD renders -
+  through the new pure helpers `AutoPilot_UI.statusText`,
+  `AutoPilot_UI.statusLine` and `AutoPilot_UI.trainedExerciseFrom`. The panel
+  is a second rendering of one string, not a second opinion. The regularity
+  row is derived from that same text, so a resting character no longer has a
+  "burpees regularity" line under a rest status.
+
+The V4.4 HUD is unchanged: it still enriches exercise and busy cycles with the
+trainer status and still capitalizes it, and its tests are untouched and green.
+If Main is unavailable (the MP Lua-reload case), the panel degrades to exactly
+the pre-V5.8 line.
+
+### Verification
+
+- Lua suites: 1059 to 1106 assertions across 14 files, 0 failures.
+- Negative controls, both run against pre-fix production Lua with the new
+  tests: the sit case failed with `exactly ONE action is queued for a
+  furniture rest (got=2, expected=1)`, `no rest action is stacked behind the
+  sit`, and `useAnimations is TRUE (got=nil)`; the status case failed with
+  `the panel status now says resting too (got=trainin, expected=resting)` on
+  three separate rest paths. Ten assertions failed in total pre-fix; the panel
+  suite could not even load, because the pre-fix panel had no shared status
+  seam to call.
+- No threshold, slider, default or version value changed. V5.7's hysteresis is
+  asserted intact (a run started at 95% still continues at 80%).
+- Not verified in game. **Needs an in-game smoke test before the Workshop
+  update.**
+
 ## [V5.7] - 2026-07-20 - THE USER'S OWN SETTINGS, AND TWO BUGS THEY EXPOSED
 
 Four items, all from live play on the options page that V5.5 finally made

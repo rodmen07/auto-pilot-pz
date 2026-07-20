@@ -129,6 +129,61 @@ function AutoPilot_UI.optionsWarningLine(registered)
     return "mod options unavailable (using defaults)"
 end
 
+--- V5.8: what the panel's "Status:" line says, taken from the SAME source the
+--- V4.4 on-screen action HUD draws.
+---
+--- The reported defect was the two of them disagreeing: the HUD said
+--- "Action: Resting" over a character who was resting, while this panel said
+--- "Status: training: burpees", because the panel read a trainer-only field
+--- that the rest path never wrote.  AutoPilot_Needs no longer leaves that
+--- field stale, and this function closes the hole structurally: the panel is
+--- now a second rendering of AutoPilot.getActionIntention, not a second
+--- opinion.  Two views of one string cannot contradict each other.
+---
+--- `intention` is already the enriched, capitalized label (the HUD folds the
+--- trainer status in for exercise and busy cycles, so "Training: squats"
+--- still reaches the panel).  The trainer status is kept as the fallback for
+--- the case where Main is unavailable, which is the pre-V5.8 behavior.
+--- @param intention string|nil  AutoPilot.getActionIntention(player)
+--- @param status    table|nil   AutoPilot_Needs.getExerciseStatus()
+--- @return string
+function AutoPilot_UI.statusText(intention, status)
+    if type(intention) == "string" and intention ~= "" then
+        return intention
+    end
+    if type(status) == "table" and type(status.outcome) == "string"
+        and status.outcome ~= "" then
+        return status.outcome
+    end
+    return "idle"
+end
+
+--- The full "Status: <what>   <sets>" row.  The sets fragment stays
+--- pre-formatted by AutoPilot_Needs (V4.6), with the raw-number fallback for
+--- an older or partial status table.
+--- @return string
+function AutoPilot_UI.statusLine(intention, status)
+    local sets = (type(status) == "table" and status.setsLine)
+        or string.format("Sets today: %d",
+            (type(status) == "table" and status.setsToday) or 0)
+    return string.format("Status: %s   %s",
+        AutoPilot_UI.statusText(intention, status), sets)
+end
+
+--- The exercise whose long-term regularity the panel should show, or nil.
+---
+--- Read off the SAME status text that is drawn above it, so the regularity row
+--- cannot outlive the training state that justified it: a resting character
+--- no longer has "burpees regularity: 41" sitting under a rest line.  Matches
+--- both the raw data-layer form ("training: squats") and the capitalized HUD
+--- form ("Training: squats").
+--- @param statusText string|nil
+--- @return string|nil
+function AutoPilot_UI.trainedExerciseFrom(statusText)
+    if type(statusText) ~= "string" then return nil end
+    return statusText:match("^[Tt]raining: (%S+)")
+end
+
 --- Resolve the registration state defensively: a missing AutoPilot_Options
 --- (its file failed to load) is itself a "no settings page" state, and must
 --- report as such rather than erroring inside render().
@@ -205,18 +260,21 @@ function AutoPilot_UI:render()
     local status = nil
     pcall(function() status = AutoPilot_Needs.getExerciseStatus() end)
     if status then
-        -- V4.6: the sets fragment is pre-formatted by AutoPilot_Needs (it
-        -- knows whether a daily cap is set at all), so an uncapped session
-        -- reads "Sets today: 12 (no cap)" instead of a misleading "12/0".
-        -- The raw-number fallback covers an older/partial status table.
-        local sets = status.setsLine
-            or string.format("Sets today: %d", status.setsToday or 0)
-        local line = string.format("Status: %s   %s",
-            status.outcome or "idle", sets)
-        self:drawText(line, PAD, y, 1, 0.9, 0.5, 1, UIFont.Small)
+        -- V5.8: one source of truth.  The status text comes from the same
+        -- call the on-screen action HUD renders, so the panel and the HUD
+        -- cannot disagree the way the user's screenshot caught them doing.
+        local intention = nil
+        pcall(function()
+            if AutoPilot and AutoPilot.getActionIntention then
+                intention = AutoPilot.getActionIntention(player)
+            end
+        end)
+        local what = AutoPilot_UI.statusText(intention, status)
+        self:drawText(AutoPilot_UI.statusLine(intention, status),
+            PAD, y, 1, 0.9, 0.5, 1, UIFont.Small)
         y = y + ROW_H
         -- Long-term regularity of the exercise currently being trained.
-        local exType = tostring(status.outcome or ""):match("^training: (%S+)")
+        local exType = AutoPilot_UI.trainedExerciseFrom(what)
         if exType then
             local reg = nil
             pcall(function()
