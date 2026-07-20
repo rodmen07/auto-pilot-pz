@@ -2,6 +2,94 @@
 
 All notable changes to AutoPilot are documented here.
 
+## [V5.6] - 2026-07-20 - COMBAT SPUN WITHOUT EVER ACTING
+
+User report: "The fight/flee mechanic is not working as expected."
+
+It was not fighting badly or fleeing badly. It was doing **nothing**, and the
+character died of it.
+
+### Evidence, from the reporting machine's run log
+
+- A combat streak of **175 consecutive ticks** (and another of 52), every one
+  logged `action=combat,reason=threat`.
+- Across that entire streak the sampled fields are **frozen**: `zombies=7` and
+  `endurance=52` never change. A real fight drains endurance; a real escape
+  changes the zombie count. Neither moved.
+- `bleeding` climbs `0 -> 5 -> 7` through the streak, and the tick immediately
+  after it is `action=dead,reason=player_died`. The character stood still and
+  was eaten.
+- 1889 combat ticks in the file, every single one `reason=threat`: the log
+  could not distinguish a fight from a flee from a decision that queued
+  nothing at all.
+
+### Three defects, all in AutoPilot_Threat
+
+1. **The fallback fight was a no-op.** `AutoPilot_Main._initPlayer` anchors home
+   on the first armed cycle, so `AutoPilot_Home.isSet` is true in every real
+   run. `doFight` then unconditionally redirected to `doFlee`, which means the
+   horde and wounded fallbacks (`if not doFlee(...) then doFight(...) end`)
+   called the same failing `doFlee` a second time and queued **nothing**. With
+   home set, the mod could not fight at all, ever.
+2. **The flee destination was unreachable.** The escape-arc branch clamped
+   ABSOLUTE world coordinates against `cell:getWidth()/getHeight()`, which are
+   the loaded-cell dimensions (a few hundred tiles), not world bounds. A real
+   map position (Muldraugh is around x=10600) was squashed to a coordinate no
+   square exists at, so `getGridSquare` returned nil and the flee failed. Every
+   other `getGridSquare` call in this mod passes unclamped world coordinates;
+   this one site was the outlier. There was also no snap-to-free-square retry,
+   so a single blocked tile killed the whole decision, and the safehouse branch
+   happily returned the tile the player was already standing on (a walk to your
+   own square completes instantly and escapes nothing).
+3. **The queue was cleared every tick.** `check()` called
+   `ISTimedActionQueue.clear(player)` on every engage tick, so anything queued
+   0.75 s earlier was destroyed before it could run. Only the flee path set a
+   guard against this; the fight path had none. Clearing blindly also broke the
+   V4.5 ownership rule: an action the mod did not queue must never be cleared.
+
+### The fix
+
+- **Decide first, mutate the queue second.** The priority ladder is now a pure
+  decision function; nothing touches the queue until the intent is known.
+- **A shared engage guard.** `_engageActive` is set by BOTH `doFlee` and
+  `doFight` whenever they actually queue something, and is checked with the
+  real B42 helper `ISTimedActionQueue.isPlayerDoingAction`. A queued fight now
+  survives long enough to run, exactly like a queued flee always did.
+- **Never clear a foreign action.** The clear is now conditional: it fires only
+  when the queue head is a MOD-queued, non-engage action (an exercise set, a
+  loot walk). A foreign action is left strictly alone and the engage action is
+  queued behind it (appending is not clearing). `forceFight` / `forceFlee` route
+  through the same ownership-checked path.
+- **A flee destination ladder.** Safehouse anchor first (unchanged preference),
+  then the escape arc at 100%, 60% and 30% of `FLEE_DISTANCE`, each snapped to
+  the nearest free square within `WALK_SNAP_RADIUS`, and never the player's own
+  tile. The bogus cell clamp is gone.
+- **A failed retreat now fights.** When no escape square exists anywhere in
+  reach, the character fights instead of standing still. Priority 4 (encircled)
+  is likewise no longer redirected into a safehouse retreat: that branch exists
+  precisely because fleeing is unsafe when surrounded.
+
+Priorities are otherwise unchanged: bleeding always flees, a horde
+(`FLEE_HORDE_SIZE`, still 6) flees, no-usable-weapon-and-outnumbered flees,
+encircled fights through the gap, the moodle limit flees, otherwise fight.
+No threshold was retuned and no option default was changed.
+
+### Telemetry can now see this class of failure
+
+The combat action label is still `combat` (the `REASON_CLASS` /
+`benchmark._ACTION_CLASS_MAP` sync guard is over ACTION keys, so neither table
+changes), but the reason field is no longer a single flat `threat`:
+
+`flee_wounded`, `flee_horde`, `flee_unarmed`, `flee_moodles`, `flee_safehouse`,
+`fight_encircled`, `fight_default`, `fight_no_escape` (the flee-failed
+fallback), `engage_running` (an earlier engage is still executing),
+`engage_cooldown`, `engage_blocked` (nothing could be queued at all), plus
+`fight_forced` / `flee_forced` for the force commands. A repeat of this bug
+would now read as `fight_no_escape` or `engage_blocked` on every tick instead
+of hiding inside an undifferentiated `threat`.
+
+**Needs an in-game smoke test before the next Workshop update.**
+
 ## [V5.5] - 2026-07-20 - THE OPTIONS PAGE NEVER EXISTED
 
 User report: "Also, I don't see where the settings are configurable in-game"

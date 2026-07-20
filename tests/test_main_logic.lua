@@ -814,6 +814,46 @@ do
     disarm()
 end
 
+-- 24 (V5.6). The combat tick logs the engage reason reported by Threat, not
+-- the single undifferentiated "threat" label.  Across the reported run log all
+-- 1889 combat ticks read reason=threat, which is exactly why a fight could not
+-- be told apart from a flee (or from a decision that queued nothing at all).
+print("\n-- Test 24: V5.6 combat telemetry carries the engage reason")
+do
+    reset()
+    local player = makePlayer(0)
+    _mockPlayers[0] = player
+    arm()
+    tickN(AutoPilot_Constants.ACTION_COOLDOWN_CYCLES)
+
+    AutoPilot_Threat.check = function(_player) return true end
+    AutoPilot_Threat.getEngageReason = function() return "flee_horde" end
+    _telemLog = {}
+    tickN(1)
+    local last = _telemLog[#_telemLog]
+    assert_eq("combat action still logged as 'combat'", last and last.action, "combat")
+    assert_eq("the engage reason reaches telemetry", last and last.reason, "flee_horde")
+
+    AutoPilot_Threat.getEngageReason = function() return "fight_encircled" end
+    _telemLog = {}
+    tickN(1)
+    last = _telemLog[#_telemLog]
+    assert_eq("a different branch logs a different reason",
+        last and last.reason, "fight_encircled")
+
+    -- Degraded surface: an older/absent accessor falls back to "threat"
+    -- instead of erroring out of the survival cycle.
+    AutoPilot_Threat.getEngageReason = nil
+    _telemLog = {}
+    tickN(1)
+    last = _telemLog[#_telemLog]
+    assert_eq("missing accessor falls back to the legacy reason",
+        last and last.reason, "threat")
+
+    AutoPilot_Threat.check = function(_player) return false end
+    disarm()
+end
+
 -- ── Summary ───────────────────────────────────────────────────────────────────
 print(("\n=== Results: %d passed, %d failed ==="):format(PASS, FAIL))
 if FAIL > 0 then

@@ -153,7 +153,21 @@ local function _tickForPlayer(player)
         if AutoPilot_Needs.noteModExerciseCleared then
             pcall(AutoPilot_Needs.noteModExerciseCleared)
         end
-        AutoPilot_Telemetry.logTick(player, "combat", "threat")
+        -- V5.6: log WHICH engage branch ran.  Every combat tick used to log
+        -- the single reason "threat", so a run log could not tell a fight
+        -- from a flee from a decision that queued nothing at all — which is
+        -- why the reported spin (1889 combat ticks, frozen stats) was
+        -- invisible in telemetry.  The action label stays "combat" (the
+        -- REASON_CLASS / benchmark._ACTION_CLASS_MAP sync guard is over
+        -- ACTION keys); only the free-form reason field gains detail.
+        local threatReason = "threat"
+        if AutoPilot_Threat.getEngageReason then
+            local okReason, engageReason = pcall(AutoPilot_Threat.getEngageReason)
+            if okReason and type(engageReason) == "string" and engageReason ~= "" then
+                threatReason = engageReason
+            end
+        end
+        AutoPilot_Telemetry.logTick(player, "combat", threatReason)
         return
     end
 
