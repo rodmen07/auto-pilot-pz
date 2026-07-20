@@ -788,9 +788,13 @@ end
 -- XP-fatigued is used.  Later entries are fallbacks for when the primary
 -- exercise stops yielding XP (PZ diminishing returns).
 --
--- Equipment exercises lead the Strength pool: their xpMod (dumbbell 1.8x,
--- barbell 1.2x) belongs to the EXERCISE TYPE, so doing dumbbellpress beats
--- push-ups whenever a dumbbell is carried.  No fitness equipment exists.
+-- Equipment exercises lead every pool that can use them: their xpMod
+-- (dumbbell 1.8x, barbell 1.2x) belongs to the EXERCISE TYPE, so doing
+-- dumbbellpress beats push-ups whenever a dumbbell is carried.  An
+-- equipment entry whose item is NOT carried fails the _hasExerciseItem
+-- gate and falls through silently to the next candidate, so a barehanded
+-- character still trains normally.  No fitness equipment exists, so the
+-- fitness pool stays bodyweight-only.
 local function _exerciseCandidates(player, focus)
     if focus == "strength" then
         return { "dumbbellpress", "bicepscurl", "barbellcurl", "pushups" }
@@ -801,9 +805,17 @@ local function _exerciseCandidates(player, focus)
         end
         return { "squats", "situp" }
     end
-    -- auto: burpees train both stats at once; on fatigue, alternate strength
-    -- (equipment first) and fitness work to keep both moving.
-    return { "burpees", "dumbbellpress", "squats", "pushups", "situp" }
+    -- auto (V5.2): equipment first, then burpees (the one exercise that
+    -- trains BOTH stats), then the bodyweight fallbacks.  Burpees used to
+    -- lead here, so an auto day never touched the dumbbell the mod itself
+    -- walks out to fetch (fetchExerciseEquipment, below): the 1.8x/1.2x
+    -- equipment xpMod was fetched and then ignored.  With equipment
+    -- leading, the XP-fatigue rotation still falls through to burpees and
+    -- the bodyweight pool as each option stops paying, so Fitness keeps
+    -- progressing across the day; since V4.6 dropped the daily set cap,
+    -- that rotation runs long enough for every tier to get used.
+    return { "dumbbellpress", "bicepscurl", "barbellcurl", "burpees",
+             "squats", "pushups", "situp" }
 end
 
 -- ── Per-exercise XP-productivity tracking ───────────────────────────────────

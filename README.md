@@ -17,9 +17,10 @@ This guide is for a technical user who wants to:
 
 ## What AutoPilot Leveler Does
 
-- Training: focus-based exercise (Auto=burpees, Strength=push-ups +
-  equipment lifts when a dumbbell/barbell is carried, Fitness=squats with
-  sit-up fallback), XP-fatigue detection with rotation and rest
+- Training: focus-based exercise (Auto and Strength=equipment lifts when a
+  dumbbell/barbell is carried, else burpees (Auto) or push-ups (Strength),
+  Fitness=squats with sit-up fallback), XP-fatigue detection with rotation
+  and rest
 - Metrics: F11 panel with level, XP-to-next, session gain, XP/hour, ETA,
   live trainer status, and sets-per-day counter
 - Survival fail-safe: hunger, thirst, sleep, wounds, temperature; fight/flee

@@ -21,7 +21,9 @@ verified. A fresh character starts with no skills and no home base.
       when none is carried (strength/auto focus)
 - [ ] Fitness focus: squats; switches to sit-ups once leg stiffness builds,
       back to squats after recovery
-- [ ] Auto focus: burpees first (levels Strength AND Fitness together)
+- [ ] Auto focus with a dumbbell carried: dumbbell press / bicep curls run,
+      NOT burpees (V5.2); with nothing carried: burpees first (levels
+      Strength AND Fitness together)
 - [ ] Long grind: when an exercise's XP flatlines (PZ diminishing returns),
       the bot rotates to the next exercise; with everything spent it PAUSES
       ("resting") instead of exercising for zero XP, and resumes ~3 game

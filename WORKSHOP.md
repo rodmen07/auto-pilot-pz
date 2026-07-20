@@ -8,9 +8,9 @@ AutoPilot Leveler is a client-side mod for Project Zomboid Build 42 (unstable). 
 [h2]Leveling[/h2]
 [list]
 [*]Pick a focus in the [b]F11[/b] panel:
-[*]— [b]Strength[/b]: push-ups
+[*]— [b]Strength[/b]: dumbbell/barbell lifts while gear is carried, otherwise push-ups
 [*]— [b]Fitness[/b]: squats, switching to sit-ups while the legs are stiff
-[*]— [b]Auto[/b]: burpees (trains both stats together)
+[*]— [b]Auto[/b]: dumbbell/barbell lifts while gear is carried, otherwise burpees (which train both stats together)
 [*]Live metrics per stat: level, XP to next, session gain, XP/hour, ETA to next level
 [*]Detects the game's per-exercise diminishing returns: when a set stops yielding XP, it rotates exercises — and rests instead of grinding for zero
 [*]Equips dumbbells/barbells from your inventory or home area when available

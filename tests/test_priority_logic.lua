@@ -1325,6 +1325,118 @@ do
     assert_false("an idle calm cycle returns false from check()", result)
 end
 
+-- ── V5.2: auto days prefer carried equipment over burpees ────────────────────
+-- User report (in game): the character walked out, picked up dumbbells, added
+-- them to inventory, "but then continued doing burpees instead of dumbell
+-- presses or bicep curls".  Burpees led the auto pool, so the equipment the
+-- mod itself fetches (fetchExerciseEquipment) was never used on an auto day,
+-- and bicepscurl/barbellcurl were not in the auto pool at all.  The auto pool
+-- now leads with equipment, then burpees, then bodyweight work.
+
+--- A calm player who may or may not be carrying exercise gear.
+local function autoExercisePlayer(gear)
+    return MockPlayer.new({
+        stats    = { HUNGER = 0.05, THIRST = 0.05, FATIGUE = 0.05,
+                     ENDURANCE = 0.90 },
+        moodles  = { ENDURANCE = 0, Unhappy = 0 },
+        hasItems = gear and true or false,
+    })
+end
+
+--- Burn one full-length set that produced NO XP, so the exercise just queued
+--- is judged fatigued on the next call, and return the next queued exType.
+local function fatigueAndAdvance(p, focus)
+    MockTime.advance(FULL_SET_MS)
+    local queued = AutoPilot_Needs.trainExercise(p, focus)
+    if not queued then return nil end
+    return ISTimedActionQueue_calls[#ISTimedActionQueue_calls].exType
+end
+
+print("\n-- Test 44 (V5.2): an auto day uses a CARRIED dumbbell, not burpees")
+do
+    ISTimedActionQueue_calls = {}
+    MockTime.advance(24 * 60 * 60000)
+    AutoPilot_Needs.resetInterventionForTest()
+    AutoPilot_Constants.EXERCISE_DAILY_CAP = 0
+    local p = autoExercisePlayer(true)
+    assert_true("auto-focus set queues with gear carried",
+        AutoPilot_Needs.trainExercise(p, nil))
+    -- The exact user scenario: dumbbells in inventory on an auto day.
+    assert_eq("dumbbell press picked over burpees (1.8x exercise)",
+        ISTimedActionQueue_calls[#ISTimedActionQueue_calls].exType,
+        "dumbbellpress")
+end
+
+print("\n-- Test 45 (V5.2): a barehanded auto day still starts on burpees")
+do
+    ISTimedActionQueue_calls = {}
+    MockTime.advance(24 * 60 * 60000)
+    AutoPilot_Needs.resetInterventionForTest()
+    local p = autoExercisePlayer(false)
+    assert_true("auto-focus set queues without gear",
+        AutoPilot_Needs.trainExercise(p, nil))
+    -- Equipment entries fail _hasExerciseItem and fall through silently, so
+    -- the both-stats exercise still leads for a character carrying nothing.
+    assert_eq("burpees picked when no equipment is carried",
+        ISTimedActionQueue_calls[#ISTimedActionQueue_calls].exType, "burpees")
+end
+
+print("\n-- Test 46 (V5.2): the auto rotation reaches bicepscurl, then burpees")
+do
+    ISTimedActionQueue_calls = {}
+    MockTime.advance(24 * 60 * 60000)
+    AutoPilot_Needs.resetInterventionForTest()
+    local p = autoExercisePlayer(true)
+    assert_true("auto set queues", AutoPilot_Needs.trainExercise(p, nil))
+    assert_eq("starts on the dumbbell press",
+        ISTimedActionQueue_calls[#ISTimedActionQueue_calls].exType,
+        "dumbbellpress")
+    -- Fatigued equipment work must ROTATE, never stall.  Before V5.2
+    -- bicepscurl was unreachable on an auto day at any point.
+    assert_eq("XP-fatigued dumbbell press falls through to bicep curls",
+        fatigueAndAdvance(p, nil), "bicepscurl")
+    assert_eq("fatigued bicep curls fall through to barbell curls",
+        fatigueAndAdvance(p, nil), "barbellcurl")
+    -- ...and the both-stats exercise is still in the rotation behind them,
+    -- so Fitness keeps progressing on an auto day.
+    assert_eq("fatigued equipment work falls through to burpees",
+        fatigueAndAdvance(p, nil), "burpees")
+end
+
+print("\n-- Test 47 (V5.2): the strength and fitness pools are untouched")
+do
+    -- Collateral guard: V5.2 reordered the AUTO pool only.
+    ISTimedActionQueue_calls = {}
+    MockTime.advance(24 * 60 * 60000)
+    AutoPilot_Needs.resetInterventionForTest()
+    local p = autoExercisePlayer(true)
+    assert_true("strength set queues", AutoPilot_Needs.trainExercise(p, "strength"))
+    assert_eq("strength still starts on the dumbbell press",
+        ISTimedActionQueue_calls[#ISTimedActionQueue_calls].exType,
+        "dumbbellpress")
+    assert_eq("strength order 2: bicepscurl",
+        fatigueAndAdvance(p, "strength"), "bicepscurl")
+    assert_eq("strength order 3: barbellcurl",
+        fatigueAndAdvance(p, "strength"), "barbellcurl")
+    assert_eq("strength order 4: pushups",
+        fatigueAndAdvance(p, "strength"), "pushups")
+    assert_eq("the strength pool ends after push-ups (no burpees in it)",
+        fatigueAndAdvance(p, "strength"), nil)
+
+    ISTimedActionQueue_calls = {}
+    MockTime.advance(24 * 60 * 60000)
+    AutoPilot_Needs.resetInterventionForTest()
+    local q = autoExercisePlayer(true)
+    assert_true("fitness set queues", AutoPilot_Needs.trainExercise(q, "fitness"))
+    assert_eq("fitness still starts on squats",
+        ISTimedActionQueue_calls[#ISTimedActionQueue_calls].exType, "squats")
+    assert_eq("fitness order 2: situp", fatigueAndAdvance(q, "fitness"), "situp")
+    -- Gear is carried here, so this also proves no equipment leaked into the
+    -- bodyweight-only fitness pool.
+    assert_eq("the fitness pool ends after sit-ups",
+        fatigueAndAdvance(q, "fitness"), nil)
+end
+
 -- ── Summary ───────────────────────────────────────────────────────────────────
 print(("\n=== Results: %d passed, %d failed ==="):format(PASS, FAIL))
 if FAIL > 0 then
