@@ -49,10 +49,18 @@ AutoPilot_Constants.MEDICAL_LOOT_RADIUS = 30
 -- Radius for placing an inventory item into the nearest container.
 AutoPilot_Constants.PLACE_SEARCH_DIST = 50
 
--- Radius for rest-furniture search (beds > sofas > chairs).
+-- Radius for rest-furniture search (beds > sofas > chairs/benches).
 -- Capped at 80: iterateNearbySquares visits (2r+1)^2 squares per scan and its
 -- own docs warn r > 80 risks frame hitches on the ~0.75 s eval cycle.
 AutoPilot_Constants.REST_SEARCH_DIST = 80
+
+-- V5.4: rest furniture OUTSIDE the home circle is eligible, but only this
+-- close.  The full REST_SEARCH_DIST applies inside home (known-safe ground the
+-- mod already walks freely); outside it the character would be crossing
+-- unsecured tiles to sit down, so the reach is cut to a single street's width.
+-- Benches, picnic tables and porch chairs sit just outside most safehouses,
+-- which is exactly the seating the old inside-only filter made invisible.
+AutoPilot_Constants.REST_OUTSIDE_SEARCH_DIST = 20
 
 -- General container-loot radius used for food, drink, and readable items.
 -- Capped at 80 (see REST_SEARCH_DIST rationale).
@@ -143,12 +151,41 @@ AutoPilot_Constants.FATIGUE_THRESHOLD = 0.70
 AutoPilot_Constants.BOREDOM_THRESHOLD = 30
 AutoPilot_Constants.SADNESS_THRESHOLD = 20
 
--- Begin rest when endurance drops to 30%.  This threshold avoids the
--- sit-stand loop that fires at mild exertion (moodle level 1-2).
+-- Begin rest when endurance drops to 30%.  This is the CRITICAL floor: it may
+-- walk to a bed and hand off to sleep.  Unchanged since V1.
 AutoPilot_Constants.ENDURANCE_REST_MIN = 0.30
 
 -- Do not start a new exercise set below 50% endurance; let it recover passively.
 AutoPilot_Constants.ENDURANCE_EXERCISE_MIN = 0.50
+
+-- V5.4: sit down to recover when endurance is below this.  Defaults to the
+-- exercise minimum (0.50), which CLOSES THE DEAD ZONE: before V5.4 training
+-- was gated at 50% and resting at 30%, so a character between the two could
+-- neither train nor rest and simply idled.  A live run log proved it: zero
+-- rest actions across ~16,000 ticks, idle streaks up to 403 ticks with
+-- reason=no_action, and endurance never dipping below 40% so the 30% rest
+-- gate never fired at all.  Sitting is a SEPARATE constant rather than a
+-- hardcoded alias of ENDURANCE_EXERCISE_MIN so a player can decouple the two.
+-- V5.4: player-tunable ("Sit to recover when endurance falls below (%)").
+-- Live-read: AutoPilot_Needs.check re-reads it every decision (V3.3 pattern).
+AutoPilot_Constants.ENDURANCE_SIT_MIN = 0.50
+
+-- V5.4: stay seated until endurance climbs back to this.  Set ABOVE
+-- ENDURANCE_SIT_MIN on purpose: equal values would sit and stand at the same
+-- number and reintroduce the sit-stand loop the 30% floor was built to avoid.
+-- 0.70 matches EXERCISE_ENDURANCE_RESUME, so the character stands up exactly
+-- when it has enough endurance to train again.
+-- V5.4: player-tunable ("Stay seated until endurance reaches (%)"); live-read.
+AutoPilot_Constants.ENDURANCE_REST_TARGET = 0.70
+
+-- V5.4: maximum time held in a single rest, in GAME milliseconds.  This is a
+-- wedge guard, not the intended duration: the rest normally ends when
+-- ENDURANCE_REST_TARGET is reached.  It replaces the flat 60000 (sixty IN-GAME
+-- seconds, roughly one game minute) that made every rest end almost as soon as
+-- it began.  30 game minutes is long enough for endurance to move meaningfully
+-- while still releasing the cycle if the stat never recovers.
+-- V5.4: player-tunable ("Max time seated per rest (game minutes)").
+AutoPilot_Constants.REST_HOLD_MS = 30 * 60 * 1000
 
 -- Timing -------------------------------------------------------------------
 -- PZ runs at ~20 game ticks per real second.

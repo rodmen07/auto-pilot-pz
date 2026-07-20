@@ -15,6 +15,10 @@
 -- in AutoPilot_Constants.HUD_SHOW_ACTION (read live by AutoPilot_Main's
 -- status-HUD line; default on).
 --
+-- V5.4: three endurance-recovery sliders join the Survival Fail-Safe group
+-- (sit threshold, stand-up target, maximum time seated).  Same live-read seam
+-- as the V4.7 pair below; defaults reproduce the shipped behaviour.
+--
 -- V4.7: the hunger and thirst trigger points join the Survival Fail-Safe
 -- group as percentage sliders (same scale = 0.01 style as the endurance
 -- minimum).  Both write constants AutoPilot_Needs.check re-reads at every
@@ -64,6 +68,18 @@ local DEFS = {
       min = 10, max = 40, step = 2, key = "DETECTION_RADIUS" },
     { id = "dangerRadius", name = "Close-danger radius (tiles)",
       min = 3,  max = 12, step = 1, key = "CLOSE_DANGER_RADIUS" },
+    -- V5.4: endurance recovery.  Same live-read seam as the V4.7 pair above:
+    -- AutoPilot_Needs.check re-reads all three at every decision, so a save
+    -- retunes resting mid-session with no reload.  sitPct is what closes the
+    -- old dead zone (training gated at 50%, resting at 30%, nothing in
+    -- between); restTargetPct must stay ABOVE it or the character sits and
+    -- stands at the same number.
+    { id = "sitPct",       name = "Sit to recover when endurance falls below (%)",
+      min = 10, max = 90, step = 5, key = "ENDURANCE_SIT_MIN", scale = 0.01 },
+    { id = "restTargetPct", name = "Stay seated until endurance reaches (%)",
+      min = 20, max = 100, step = 5, key = "ENDURANCE_REST_TARGET", scale = 0.01 },
+    { id = "restHoldMin",  name = "Max time seated per rest (game minutes)",
+      min = 5,  max = 120, step = 5, key = "REST_HOLD_MS", scale = 60000 },
 }
 
 -- V4.3 (C3): map the training-program option value to a program id.  The

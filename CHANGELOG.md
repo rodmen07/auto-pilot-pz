@@ -2,6 +2,105 @@
 
 All notable changes to AutoPilot are documented here.
 
+## [V5.4] - 2026-07-20 - ENDURANCE RECOVERY
+
+User report: "the PC does not rest for long enough or utilize things like
+chairs or benches to recover endurance. They should at least sit on the
+ground to improve the efficiency of recovering."
+
+Every clause of that turned out to name a separate defect, and the user's own
+run log proved all of them at once. Across roughly 16,000 evaluation ticks the
+action histogram contained **no `action=rest` entries whatsoever**, the idle
+streaks ran to 403, 118, 116 and 115 ticks tagged `reason=no_action`, and the
+observed endurance floor was 40%, which never reached the 30% gate that was
+the only thing that could have started a rest.
+
+### The dead zone
+
+Training was gated at `ENDURANCE_EXERCISE_MIN` (50%) and resting at
+`ENDURANCE_REST_MIN` (30%). Between the two the character could do neither.
+`doExercise` returned false with the comment "no action queued; endurance
+recovers passively while idle", the chain fell through to scavenging or to
+nothing, and endurance crawled back at the standing-still rate. That band is
+where a training bot spends most of its day, so most of the day was spent
+doing nothing.
+
+Resting is now driven by a distinct threshold, `ENDURANCE_SIT_MIN`, which
+defaults to the exercise threshold. Below it, and above the untouched 30%
+critical floor, the character sits down instead of idling. The 30% path is
+unchanged: it still prefers a bed and can still hand off to sleep. The new sit
+path explicitly refuses beds, because a merely winded character should not be
+put to sleep in the middle of the afternoon.
+
+### Rest length
+
+`restCooldownMs = ms + 60000` appeared three times, with a comment reading
+"60s: give endurance time to recover". The clock behind it is
+`getGameTime():getCalender():getTimeInMillis()`, so that was sixty **in-game**
+seconds: about one game minute, after which the cycle resumed and could stand
+the character straight back up. A rest now holds until endurance reaches
+`ENDURANCE_REST_TARGET` (70%, matching `EXERCISE_ENDURANCE_RESUME`, so the
+character stands up exactly when it can train again), bounded by
+`REST_HOLD_MS` (30 game minutes) purely as a wedge guard.
+
+The gate that suppresses routine needs during a rest **moved down the priority
+chain**. At one game minute it was harmless above thirst and hunger; at thirty
+it is not, so it now sits below bleeding, sleep, thirst, shelter, hunger,
+wounds and clothing. Real survival needs preempt resting, exactly as before.
+
+### Furniture
+
+`findRestFurniture` opened with `if not AutoPilot_Home.isInside(sq) then
+return false end`, so every seat outside the home circle was invisible, which
+is precisely the benches the user was describing. Outside-home seating is now
+eligible within `REST_OUTSIDE_SEARCH_DIST` (20 tiles) while inside-home
+seating keeps the full `REST_SEARCH_DIST` (80). The tighter outside radius is
+the point: the full 80 would send the character across town to a park bench.
+Ranking is home-zone first, then furniture quality, then distance, so a seat
+on known-safe ground always wins.
+
+The sprite match covered only `sofa`, `couch` and `chair`. A bench was never
+seating at all. It now also matches `loveseat`, `armchair`, `bench`, `stool`,
+`pew` and B42's own `seating` tilesheet category (park and picnic seating
+ships as `furniture_seating_outdoor_*` and never spells out "bench").
+`workbench`, carpentry benches and bench saws are rejected explicitly; `seat`
+is deliberately not matched because it is a substring of too much.
+
+### Added
+
+- `AutoPilot_Constants.ENDURANCE_SIT_MIN` (0.50), `ENDURANCE_REST_TARGET`
+  (0.70), `REST_HOLD_MS` (30 game minutes) and `REST_OUTSIDE_SEARCH_DIST`
+  (20 tiles).
+- Three Survival Fail-Safe sliders on the same live-read seam as the V4.7
+  hunger and thirst pair, so a save retunes resting on the next cycle with no
+  reload: "Sit to recover when endurance falls below (%)", "Stay seated until
+  endurance reaches (%)", "Max time seated per rest (game minutes)".
+- `AutoPilot_Needs.seatPriorityForSprite(name)`, the pure sprite-name
+  classifier, exposed so the pattern list is unit-testable on its own.
+- Telemetry for the new branch: `action=rest`, `reason=sit_recover`. No new
+  action label was introduced, so the `REASON_CLASS` / `_ACTION_CLASS_MAP`
+  sync guard is untouched: `rest` was already classified as `survival` on
+  both sides. `action=rest` should now appear in the histogram where the
+  reported run had none.
+
+### Changed
+
+- The ground-sit fallback (`ISSitOnGround`) is genuinely reachable. It was
+  already implemented, but sat behind an inside-home-only furniture search and
+  a 30% gate that the reported run never crossed, so it effectively never
+  fired. The user asked for "at least sit on the ground"; that is now the
+  guaranteed floor of the rest path.
+
+### Verification
+
+- Lua suites: 695 to 779 assertions, 0 failures. 17 new behavioral cases in
+  `test_priority_logic.lua` and 3 in `test_options_mapping.lua`.
+- Negative control: the headline dead-zone case was run against pre-fix
+  production Lua and failed as predicted, `check()` returning false with no
+  action queued at 40% endurance.
+- Not verified in game. Needs an in-game smoke test before the Workshop
+  update.
+
 ## [V5.3] - 2026-07-20 - VERSION VISIBILITY
 
 User request: "Can you add the current version to the description so that I
