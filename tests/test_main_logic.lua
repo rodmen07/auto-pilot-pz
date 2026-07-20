@@ -112,6 +112,13 @@ local _telemShut = {}
 
 AutoPilot_Telemetry = {
     setDecision = function(_action, _reason, _player) end,
+    -- Real signature already relied on by AutoPilot_Main (the V4.4 intention
+    -- label reads _lastActionLabel, which the Needs.check branch sets from
+    -- this call); configurable per test via _pendingLabel, default "idle".
+    getPendingAction = function(_player)
+        return AutoPilot_Telemetry._pendingLabel or "idle"
+    end,
+    _pendingLabel = nil,
     logTick     = function(player, action, reason)
         table.insert(_telemLog, { action = action, reason = reason })
     end,
@@ -126,6 +133,28 @@ AutoPilot_Telemetry = {
     end,
     getRunTick = function() return 0 end,
 }
+
+-- HaloTextHelper mock: captures every halo line so the V4.4 on-screen
+-- action/intention text can be asserted.  Signature matches Main.lua's
+-- existing hudAddText/hudAddGood/hudAddBad wrappers, the only real
+-- callsites for this global in the mod.
+local _haloLines = {}
+HaloTextHelper = {
+    addText     = function(_player, text) table.insert(_haloLines, text) end,
+    addGoodText = function(_player, text) table.insert(_haloLines, text) end,
+    addBadText  = function(_player, text) table.insert(_haloLines, text) end,
+}
+
+--- Most recent "Action: ..." halo line, or nil if none was emitted.
+local function lastActionLine()
+    for i = #_haloLines, 1, -1 do
+        local line = _haloLines[i]
+        if type(line) == "string" and line:match("^Action: ") then
+            return line
+        end
+    end
+    return nil
+end
 
 -- Extend the ISTimedActionQueue mock with methods required by AutoPilot_Main.
 ISTimedActionQueue.isPlayerDoingAction = function(_p) return false end
@@ -147,6 +176,11 @@ AutoPilot_Needs = {
     trySleep        = function(_player) return false end,
     tryGoOutside    = function(_player) return false end,
     preferredExerciseType = function(_player) return "either" end,
+    -- Real signature already relied on by AutoPilot_UI (F11 panel); the
+    -- V4.4 intention accessor reads the same call.  Configurable per test.
+    getExerciseStatus = function()
+        return { outcome = "idle", setsToday = 0, cap = 20 }
+    end,
     noteForeignExercise = function(_player)
         AutoPilot_Needs._foreignNotes = AutoPilot_Needs._foreignNotes + 1
     end,
@@ -247,9 +281,17 @@ local function reset()
     AutoPilot_Needs._modClearNotes = 0
     AutoPilot_Needs._panicNotes    = 0
     AutoPilot_Needs.shouldInterrupt = function(_player) return false end
+    AutoPilot_Needs.getExerciseStatus = function()
+        return { outcome = "idle", setsToday = 0, cap = 20 }
+    end
+    AutoPilot_Telemetry._pendingLabel = nil
     AutoPilot_Threat.check = function(_player) return false end
     ISTimedActionQueue.isPlayerDoingAction = function(_p) return false end
     ISTimedActionQueue.getTimedActionQueue = function(_p) return nil end
+    -- V4.4: clear captured halo lines and restore the HUD toggle default
+    -- between tests.
+    _haloLines = {}
+    AutoPilot_Constants.HUD_SHOW_ACTION = 1
     -- Advance mock clock to expire any active cooldowns.
     MockTime.advance(120000)
 end
@@ -666,6 +708,114 @@ do
     assert_true("noteModExerciseCleared called on threat response",
         AutoPilot_Needs._modClearNotes >= 1)
     AutoPilot_Threat.check = function(_player) return false end
+    disarm()
+end
+
+-- ── V4.4: on-screen action/intention display ───────────────────────────────
+
+-- 19. Armed and idle: the HUD shows the generic idle/evaluating label.
+print("\n-- Test 19: V4.4 armed idle shows 'Idle, evaluating' on the HUD")
+do
+    reset()
+    local player = makePlayer(0)
+    _mockPlayers[0] = player
+    arm()
+    -- Drain any residual cooldown/label left by a prior test (shared module
+    -- state), same pattern as every other test that needs a clean idle
+    -- read; the cooldown branch intentionally does not relabel, so the
+    -- PREVIOUS action's label (and its halo text) persists through the
+    -- cooldown tail, which is accurate, not stale.
+    tickN(AutoPilot_Constants.ACTION_COOLDOWN_CYCLES)
+    tickN(1)
+    assert_eq("HUD shows idle intention when armed and idle",
+        lastActionLine(), "Action: Idle, evaluating")
+    disarm()
+end
+
+-- 20. Armed with a mod-queued exercise decision: the HUD shows the enriched
+--     trainer status (same data the F11 panel already reads), capitalized.
+print("\n-- Test 20: V4.4 armed training shows the enriched exercise status")
+do
+    reset()
+    local player = makePlayer(0)
+    _mockPlayers[0] = player
+    arm()
+    tickN(AutoPilot_Constants.ACTION_COOLDOWN_CYCLES)  -- drain residual cooldown
+    AutoPilot_Needs._returnVal = true
+    AutoPilot_Telemetry._pendingLabel = "exercise"
+    AutoPilot_Needs.getExerciseStatus = function()
+        return { outcome = "training: barbellcurl", setsToday = 1, cap = 20 }
+    end
+    tickN(1)
+    assert_eq("HUD shows the enriched training outcome, capitalized",
+        lastActionLine(), "Action: Training: barbellcurl")
+    disarm()
+end
+
+-- 21. Disarmed: the HUD shows the honest "no monitoring" state, matching
+--     the fact that _tickForPlayer returns immediately when mode is "off"
+--     (verified above: no survival check of any kind runs while disarmed).
+print("\n-- Test 21: V4.4 disarmed shows the accurate no-monitoring label")
+do
+    reset()
+    local player = makePlayer(0)
+    _mockPlayers[0] = player
+    disarm()
+    tickN(1)
+    assert_eq("HUD shows disarmed/no-monitoring state",
+        lastActionLine(), "Action: Disarmed (no monitoring)")
+end
+
+-- 22. getActionIntention is a pure read: repeated calls are stable and
+--     never mutate mode, telemetry, or the action queue.
+print("\n-- Test 22: V4.4 getActionIntention never mutates state (pure read)")
+do
+    reset()
+    local player = makePlayer(0)
+    _mockPlayers[0] = player
+    arm()
+    tickN(1)
+    local modeBefore  = AutoPilot.isActive()
+    local telemBefore = #_telemLog
+    local queueCleared = false
+    local origClear = ISTimedActionQueue.clear
+    ISTimedActionQueue.clear = function(_p) queueCleared = true end
+
+    local a = AutoPilot.getActionIntention(player)
+    local b = AutoPilot.getActionIntention(player)
+    local c = AutoPilot.getActionIntention(player)
+
+    assert_eq("repeated reads return the identical label (1st/2nd)", a, b)
+    assert_eq("repeated reads return the identical label (2nd/3rd)", b, c)
+    assert_eq("mode unchanged after reading the intention",
+        AutoPilot.isActive(), modeBefore)
+    assert_eq("telemetry untouched by a pure read", #_telemLog, telemBefore)
+    assert_false("queue never cleared by a pure read", queueCleared)
+
+    ISTimedActionQueue.clear = origClear
+    disarm()
+end
+
+-- 23. HUD_SHOW_ACTION = 0 hides the action line entirely (toggle off).
+print("\n-- Test 23: V4.4 HUD_SHOW_ACTION=0 hides the action line")
+do
+    reset()
+    local player = makePlayer(0)
+    _mockPlayers[0] = player
+    arm()
+    tickN(1)
+    assert_true("sanity: action line present with the toggle on (default)",
+        lastActionLine() ~= nil)
+
+    AutoPilot_Constants.HUD_SHOW_ACTION = 0
+    _haloLines = {}
+    tickN(1)
+    assert_eq("no Action: line emitted when the toggle is off",
+        lastActionLine(), nil)
+    assert_true("status line is unaffected by the toggle",
+        #_haloLines > 0)
+
+    AutoPilot_Constants.HUD_SHOW_ACTION = 1
     disarm()
 end
 
