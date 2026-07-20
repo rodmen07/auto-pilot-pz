@@ -296,5 +296,14 @@ AutoPilot_Constants.SESSION_HISTORY_PANEL_ROWS = 5
 -- defers every day to the F11 focus selection, i.e. it is exactly the
 -- pre-V4.3 behavior whenever Options never loads.
 AutoPilot_Constants.TRAINING_PROGRAM = "balanced"
+
+-- On-screen action/intention display (V4.4) ----------------------------------
+-- Toggle for the read-only HUD line showing what the mod is currently doing
+-- (or "Disarmed" when off). Live-read constant (V3.3 pattern: Options writes
+-- here, so a mid-session options-save takes effect on the very next cycle).
+-- 1 = show (default: this directly answers the feature request that
+-- prompted V4.4), 0 = hide. Presentation only; never read by any decision
+-- path, only by AutoPilot_Main's HUD line.
+AutoPilot_Constants.HUD_SHOW_ACTION = 1
 -- format `AutoPilot_Constants.FIELD = <number>` with no leading whitespace.
 -- Do not introduce leading spaces or multi-line assignments for tunable lines.

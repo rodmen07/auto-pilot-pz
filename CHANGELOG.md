@@ -2,6 +2,60 @@
 
 All notable changes to AutoPilot are documented here.
 
+## [V4.4] - 2026-07-19 - ON-SCREEN ACTION/INTENTION DISPLAY
+
+User-requested after the V4.3 smoke test: a way to see what the mod is
+currently doing (or why it is doing nothing) without opening the F11 panel.
+
+### Added - read-only HUD line
+
+- `AutoPilot_Main.lua` gains a second halo-text line, `Action: <label>`,
+  drawn every evaluation cycle right under the existing status line
+  (same `HaloTextHelper.addText` mechanism, font, and once-per-cycle
+  cadence). It is emitted right AFTER the per-cycle evaluation (not from
+  inside it) specifically so the label reflects THIS cycle's decision
+  instead of the previous one.
+- Sourced entirely from state the mod already tracks for other purposes:
+  the queue-thrash guard's `_lastActionLabel`, `player:isDead()` /
+  `isAsleep()` (already queried elsewhere in the same cycle), and, for
+  exercise, `AutoPilot_Needs.getExerciseStatus()` (the same read the F11
+  panel already performs, itself backed by the V4.5 ownership registry).
+  No new decision data, no mutation: `AutoPilot.getActionIntention()` is a
+  pure read, per the V4.5 player-agency guarantee that presentation must
+  never gate or influence a decision.
+- While armed: shows the current mod-queued action (e.g. "Training:
+  barbellcurl", "Eating", "Fighting/fleeing zombies") or "Idle,
+  evaluating" when nothing is queued.
+- While disarmed: shows "Disarmed (no monitoring)". This intentionally
+  does NOT claim a fail-safe is "active" while off: `_tickForPlayer`
+  returns immediately when `_mode == "off"`, right after the status line,
+  so no survival check of any kind runs until the player arms the mod; the
+  display says so rather than implying otherwise.
+
+### Added - Options toggle
+
+- Options > Mods > AutoPilot Leveler > Display gains "Show current action
+  on HUD" (0 off, 1 on; default on, since this directly answers the
+  feature request). Lands in the live-read `AutoPilot_Constants.
+  HUD_SHOW_ACTION`, same pattern as the V4.3 training-program selector.
+  `addCheckBox` is not in the verified 42.19 record, so this reuses the
+  already-verified `addSlider` surface as a 0/1 toggle.
+
+### Testing
+
+- `test_main_logic`: 37 -> 48 assertions. New V4.4 section covers: armed
+  idle shows "Idle, evaluating"; armed with a mod-queued exercise decision
+  shows the enriched, capitalized trainer status; disarmed shows the
+  accurate no-monitoring label; `getActionIntention` is a pure read
+  (repeated calls are stable and never touch mode, telemetry, or the
+  action queue); and the Options toggle hides the line while leaving the
+  status line untouched. Suite gains a `HaloTextHelper` mock (matches the
+  signature Main.lua already relies on) plus `AutoPilot_Telemetry.
+  getPendingAction` / `AutoPilot_Needs.getExerciseStatus` stubs (both real,
+  already-relied-upon production signatures that were simply unstubbed
+  until now). Total Lua assertions 449 -> 460; luacheck stays 0
+  warnings / 0 errors across 18 modules; no telemetry schema change.
+
 ## [V4.5] - 2026-07-19 - NEVER TOUCH PLAYER ACTIONS + F10 PANIC STOP
 
 Fixes the user-reported lockup "when manually initiating exercise, I can't

@@ -84,6 +84,22 @@ local function _updateStatusHUD(player)
     hudAddText(player, latest)
 end
 
+-- V4.4: read-only action/intention line.  Deliberately NOT called from
+-- inside _updateStatusHUD above: that call happens at the very TOP of
+-- _tickForPlayer, before this cycle's decision logic has updated
+-- _lastActionLabel, which would make the line always one cycle stale.
+-- Calling this instead AFTER _tickForPlayer returns (see onTick below)
+-- reads _lastActionLabel post-update, so the line reflects THIS cycle's
+-- decision.  Same halo mechanism and font as the status line; toggleable
+-- via Options ("Show current action on HUD"), default ON.
+local function _updateActionHUD(player)
+    if not player then return end
+    local showAction = AutoPilot_Constants.HUD_SHOW_ACTION
+    if showAction == nil or showAction ~= 0 then
+        hudAddText(player, "Action: " .. AutoPilot.getActionIntention(player))
+    end
+end
+
 -- ── First-active-tick init (home setup) ────────────────────────────────────────
 -- Runs on the first evaluation cycle AFTER the player arms the mod (F10):
 -- anchors home at the current position and queues an initial barricade pass.
@@ -247,6 +263,71 @@ function AutoPilot.isActive()
     return _mode == "autopilot"
 end
 
+-- ── V4.4: on-screen action/intention display ────────────────────────────────
+-- Read-only presentation of what the mod is currently doing (or why it is
+-- doing nothing), so the player can tell at a glance without opening the
+-- F11 panel.  Sourced entirely from state already tracked for OTHER
+-- purposes: _lastActionLabel (computed every cycle above for the
+-- queue-thrash guard) and, for exercise, AutoPilot_Needs.getExerciseStatus
+-- (the same read the F11 panel already performs, itself backed by the V4.5
+-- ownership registry's pending-set bookkeeping).  This adds no new
+-- decision state and mutates nothing: per the V4.5 player-agency guarantee,
+-- presentation must never gate or influence a decision.
+local ACTION_LABELS = {
+    idle      = "Idle, evaluating",
+    busy      = "Busy (action in progress)",
+    foreign   = "Busy (player action in progress)",
+    cooldown  = "Cooldown",
+    combat    = "Fighting/fleeing zombies",
+    sleep     = "Sleeping",
+    eat       = "Eating",
+    drink     = "Drinking",
+    rest      = "Resting",
+    bandage   = "Treating wound",
+    shelter   = "Taking shelter",
+    clothing  = "Adjusting clothing",
+    read      = "Reading",
+    outside   = "Getting fresh air",
+    scavenge  = "Scavenging supplies",
+    barricade = "Barricading",
+    exercise  = "Training",
+}
+
+local function _capitalize(s)
+    if type(s) ~= "string" or s == "" then return s end
+    return s:sub(1, 1):upper() .. s:sub(2)
+end
+
+--- Read-only current action/intention label for the on-screen HUD (V4.4).
+--- Never mutates any state; safe to call any number of times per cycle.
+--- Disarmed reads honestly: the survival cycle returns immediately when
+--- "off" (see _tickForPlayer above), so nothing is being monitored or
+--- queued, and the label says so rather than implying otherwise.
+--- @param player IsoPlayer|nil  Used only to read isDead()/isAsleep(); optional.
+--- @return string
+function AutoPilot.getActionIntention(player)
+    if _mode == "off" then
+        return "Disarmed (no monitoring)"
+    end
+    if player then
+        local okDead, dead = pcall(function() return player:isDead() end)
+        if okDead and dead then return "Dead" end
+        local okAsleep, asleep = pcall(function() return player:isAsleep() end)
+        if okAsleep and asleep then return "Sleeping" end
+    end
+    local label = _lastActionLabel
+    if label == "exercise" or label == "busy" then
+        -- Enrich with the live trainer status (e.g. "training: barbellcurl")
+        -- when one is available; falls back to the generic label otherwise.
+        local status = nil
+        pcall(function() status = AutoPilot_Needs.getExerciseStatus() end)
+        if status and type(status.outcome) == "string" and status.outcome ~= "idle" then
+            return _capitalize(status.outcome)
+        end
+    end
+    return ACTION_LABELS[label] or "Idle, evaluating"
+end
+
 local function onTick()
     local st = AutoPilot
     if type(st) ~= "table" then return end
@@ -263,7 +344,8 @@ local function onTick()
     st.tickCounter = 0
 
     -- Stale-closure guard: dead upvalues mean this copy must retire quietly.
-    if not (_getLocalPlayer and _initPlayer and _tickForPlayer) then return end
+    if not (_getLocalPlayer and _initPlayer and _tickForPlayer
+        and _updateActionHUD) then return end
 
     -- Player-configured options first, THEN the death-learning deltas on top,
     -- so both layers of tuning compose in a stable order.
@@ -277,6 +359,10 @@ local function onTick()
     local player = _getLocalPlayer()
     if player then
         pcall(_tickForPlayer, player)
+        -- V4.4: emitted AFTER _tickForPlayer so _lastActionLabel reflects
+        -- THIS cycle's decision, not the previous one (see _updateActionHUD
+        -- above for why this cannot live inside _tickForPlayer itself).
+        pcall(_updateActionHUD, player)
     end
 end
 

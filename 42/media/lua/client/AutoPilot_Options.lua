@@ -10,6 +10,10 @@
 -- V4.3 (C3): also registers the weekly training-program selector; the pick
 -- lands in AutoPilot_Constants.TRAINING_PROGRAM, which AutoPilot_Leveler
 -- reads live at the exercise slot (the scheduler logic itself lives there).
+--
+-- V4.4: also registers the on-screen action/intention HUD toggle, landing
+-- in AutoPilot_Constants.HUD_SHOW_ACTION (read live by AutoPilot_Main's
+-- status-HUD line; default on).
 
 AutoPilot_Options = {}
 
@@ -87,6 +91,13 @@ function AutoPilot_Options.applyToConstants()
             local id = _programIdFromValue(progOpt:getValue())
             if id then AutoPilot_Constants.TRAINING_PROGRAM = id end
         end
+        -- V4.4: on-screen action/intention HUD toggle.  Same live-read
+        -- pattern as the training program above.
+        local hudOpt = _opts:getOption("showActionHud")
+        if hudOpt then
+            local v = tonumber(hudOpt:getValue())
+            if v then AutoPilot_Constants.HUD_SHOW_ACTION = v end
+        end
     end)
     print("[Options] Applied to constants.")
 end
@@ -162,6 +173,19 @@ pcall(function()
         local cur = AutoPilot_Constants[d.key] or d.min
         if d.scale then cur = cur / d.scale end
         o:addSlider(d.id, d.name, d.min, d.max, d.step, cur)
+    end
+
+    o:addTitle("Display")
+    -- V4.4: on-screen action/intention line (read-only presentation; see
+    -- AutoPilot_Main.getActionIntention).  addCheckBox is not in the
+    -- verified 42.19 record (same gap as addComboBox above), so this reuses
+    -- the already-verified addSlider surface as a 0/1 toggle, same pattern
+    -- as every other DEFS-style control on this page.
+    do
+        local cur = AutoPilot_Constants.HUD_SHOW_ACTION
+        if cur == nil then cur = 1 end
+        o:addSlider("showActionHud",
+            "Show current action on HUD (0 off, 1 on)", 0, 1, 1, cur)
     end
 
     o:addTitle("Keys")
