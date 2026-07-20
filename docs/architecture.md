@@ -315,7 +315,8 @@ listed in the F11 panel.
 `AutoPilot_Options` registers a `PZAPI.ModOptions` page (Options > Mods >
 AutoPilot Leveler) with sliders for the optional daily set cap (0 =
 unlimited), endurance minimum,
-XP-fatigue recovery hours, food/drink stockpile minimums, proactive loot
+XP-fatigue recovery hours, the hunger and thirst trigger points (V4.7),
+food/drink stockpile minimums, proactive loot
 radius, detection radius, and close-danger radius, plus rebindable arm and
 panel keys. Values are copied into `AutoPilot_Constants` once per session
 from `Main`'s tick, BEFORE `Adaptive.init`, so player settings and
@@ -333,12 +334,30 @@ the Leveler reads live at the exercise slot. The program table itself and
 all day resolution live in `AutoPilot_Leveler`, keeping the documented
 no-suite-loads-Options coverage gap exactly as narrow as it was.
 
+V4.7 adds "Eat when hunger reaches (%)" and "Drink when thirst reaches
+(%)" to the Survival Fail-Safe group, both percentage sliders (5 to 50 in
+steps of 5) mapping through `scale = 0.01` into `HUNGER_THRESHOLD` and
+`THIRST_THRESHOLD`. **Defaults are unchanged at 0.20.** The change exists
+because a bot that never crosses 20% hunger never enters the eat branch,
+which reads from the outside like broken eating; the slider lets a player
+lower the trigger instead of guessing. `AutoPilot_Needs.check` re-reads
+both constants at every decision, so a save retunes the very next cycle
+with no reload.
+
+V4.7 also narrows the coverage gap for the first time: `test_options_mapping`
+loads `AutoPilot_Options` against a suite-local mock of exactly the verified
+calls above and asserts that every DEFS slider registers seeded from its
+compiled-in default and that a saved value reaches the right constant
+through the right scale. The widgets themselves stay playtest-only.
+
 This works because of the V3.3 fix: tunable constants are read live from
 `AutoPilot_Constants` at their use sites. Before V3.3, several modules
 captured tunables into file-locals at load time (`DETECTION_RADIUS` and
 `FLEE_HORDE_SIZE` in Threat, `MEDICAL_LOOT_RADIUS` in Medical, the
 hunger/thirst triggers in Needs), which made the Adaptive rules targeting
-them silently inert and would have broken mod options the same way.
+them silently inert and would have broken mod options the same way. The
+hunger/thirst triggers are exactly the constants V4.7 exposes, so that fix
+is what makes these sliders take effect at all.
 
 ## Multiplayer Guards
 

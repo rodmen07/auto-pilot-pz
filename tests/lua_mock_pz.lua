@@ -129,12 +129,17 @@
 --          back to ISWalkToTimedAction)
 --   [G]  getClimateManager()   existence-guarded in Needs.isRaining
 --   [G]  HaloTextHelper.addText/addGoodText/addBadText   rawget-guarded (Main)
---   [G]  PZAPI.ModOptions   :create / :addTitle / :addSlider / :addKeyBind /
+--   [S]  PZAPI.ModOptions   :create / :addTitle / :addSlider / :addKeyBind /
 --          getOption(id):getValue() / per-instance apply() / :load
 --          (42.19-verified surface per AutoPilot_Options header,
---          client/PZAPI/ModOptions.lua).  NO suite loads AutoPilot_Options;
---          its registration is pcall plus existence guarded and falls back
---          to compiled-in defaults.  DOCUMENTED GAP.
+--          client/PZAPI/ModOptions.lua).  V4.7: test_options_mapping now
+--          loads AutoPilot_Options against a SUITE-LOCAL mock of exactly
+--          these calls (nothing new), asserting that every DEFS slider
+--          registers seeded from its compiled-in default and that a saved
+--          value lands in the right constant through the right scale.  The
+--          WIDGETS remain playtest-only (a mock cannot prove the real page
+--          draws), and the registration stays pcall plus existence guarded
+--          so it falls back to compiled-in defaults.  PARTIAL GAP.
 --          V4.3 (C3): the training-program selector rides this same gap.
 --          addComboBox is NOT in the verified record: the registration
 --          existence-checks it inside its own pcall and falls back to an

@@ -73,8 +73,19 @@ verified. A fresh character starts with no skills and no home base.
 - [ ] First arming auto-sets home base (console shows "[Home] Home set at X, Y (z=Z, r=R)")
 
 ## Survival Needs
-- [ ] Bot eats when hungry (selects food from inventory or loots nearby)
+- [ ] Bot eats when hungry (selects food from inventory or loots nearby).
+      The trigger is 20% hunger by default: a well-fed character may go a
+      long session without ever reaching it, which is correct behavior and
+      not a broken eat path. To force the branch, use the V4.7 slider
+      (below) or play until the "Hungry" moodle appears.
+- [ ] V4.7: Options > Mods > AutoPilot Leveler > Survival Fail-Safe > "Eat
+      when hunger reaches (%)". Set it to 5, Save, and confirm the bot eats
+      on the next cycle with NO reload (console: "[Needs] Hunger triggered
+      (N%). Attempting to eat."); set it to 50 and confirm it stops eating
+      at mild hunger. Return it to 20 (the shipped default) afterwards.
 - [ ] Bot drinks from a sink/tap when thirsty
+- [ ] V4.7: "Drink when thirst reaches (%)" behaves the same way (same
+      group, same live-apply-on-Save, default 20)
 - [ ] Bot finds a bed and sleeps when tired
 - [ ] Bot rests on floor when no bed is available
 - [ ] Bot bandages a wound when injured (apply a scratch in debug mode)
