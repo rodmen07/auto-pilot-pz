@@ -114,7 +114,14 @@
 --   [S]  Events.OnTick / OnKeyPressed / OnMainMenuEnter / OnQueueNewGame (.Add)
 --          capture harness in test_main_logic; OnQueueNewGame can be ABSENT
 --          during the 42.19 MP server-connect reload (V3.2), so Main guards
---          both session-end registrations with existence checks
+--          both session-end registrations with existence checks.
+--          V5.5: AutoPilot_Options now rides OnMainMenuEnter and OnTick too
+--          (its mod-options registration retry), with the same existence
+--          guards, and test_options_registration adds a second capture
+--          harness for exactly those two.  Only .Add is in the verified
+--          record, so nothing is ever unregistered: the tick retry early-
+--          outs on a boolean instead of calling a .Remove that this project
+--          has never verified
 --   [S]  Keyboard.KEY_F10 / KEY_F11   test_main_logic
 --   [S]  getPlayer()   test_main_logic (Main's fallback resolver only)
 --   [S]  instanceof(item, className)   V5.1: now modelled, because the carried
@@ -151,9 +158,29 @@
 --          that seam (validation, day resolution, rest-day yield) is what
 --          test_leveler_metrics covers.  The widget itself stays
 --          playtest-only, like every control on the page.
+--          V5.5 (BUG FIX): the assumption written into this record and into
+--          AutoPilot_Options' own header, that PZAPI is vanilla client lua
+--          and therefore always present when a mod file loads, was FALSE on
+--          a real 42.19 client (console.txt: 'require("pzapi/ui/ui")
+--          failed').  PZAPI was nil at load, the load-time registration
+--          returned silently, and EVERY option this mod ever shipped was
+--          inert in game while test_options_mapping stayed green (it puts
+--          PZAPI in _G before the dofile, so it could only ever test the
+--          happy path).  Registration is now retried on OnMainMenuEnter and
+--          OnTick behind one _registered flag, and
+--          test_options_registration models PZAPI as ABSENT AT LOAD AND
+--          APPEARING LATER, the state no suite could previously express.
+--          No new engine surface: same create/addTitle/addSlider/addKeyBind/
+--          getOption/apply/load calls, plus the [MA] getFileWriter append
+--          used to record the failure in the run log.
 --   [G]  ISCollapsableWindow / ISButton / UIFont / require("ISUI/...")
---          NO suite loads AutoPilot_UI (vanilla-widget F11 panel).
---          DOCUMENTED GAP.
+--          The F11 panel's widgets are vanilla ISUI and stay playtest-only:
+--          nothing here instantiates or draws the panel.  DOCUMENTED GAP.
+--          Two suites do dofile AutoPilot_UI with suite-local [S] stubs for
+--          its LOAD-time surface only (require("ISUI/...") plus
+--          ISCollapsableWindow:derive), so its pure string helpers can be
+--          tested for real: test_version_constant (V5.3 formatTitle) and
+--          test_options_registration (V5.5 optionsWarningLine).
 --
 -- Enums and definition tables:
 --   [M]  CharacterStat   HUNGER/THIRST/FATIGUE/ENDURANCE/PAIN/BOREDOM/SANITY;

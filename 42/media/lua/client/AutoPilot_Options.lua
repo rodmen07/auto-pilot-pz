@@ -24,6 +24,20 @@
 -- minimum).  Both write constants AutoPilot_Needs.check re-reads at every
 -- decision, so an options-save retunes eating and drinking mid-session with
 -- no reload.  Defaults stay at 20%.
+--
+-- V5.5 (BUG FIX): registration is no longer a bare file-load side effect.
+-- The pre-V5.5 file asserted "PZAPI is vanilla client lua, loads before
+-- mods" and registered inline; on a real 42.19 client that assumption is
+-- false (console.txt: 'require("pzapi/ui/ui") failed'), so
+-- PZAPI.ModOptions was nil when this file ran and NOTHING registered.  The
+-- user-visible result was "I don't see where the settings are configurable
+-- in-game": ~/Zomboid/Lua/ModOptions.ini stayed 0 bytes and mods_options.ini
+-- never grew an [AutoPilot] section, while other mods' sections were there.
+-- Every option this project ever shipped was inert (V4.3 program selector,
+-- V4.4 HUD toggle, V4.5 backoff, V4.6 daily cap, V4.7 hunger/thirst, V5.4
+-- rest sliders, both keybinds).  Registration now retries on events and the
+-- failure is recorded loudly instead of being swallowed by the debug-print
+-- shadow below.  No default, range or DEFS entry changed.
 
 AutoPilot_Options = {}
 
@@ -32,6 +46,20 @@ local print = _apNoop
 
 local _opts      = nil
 local _appliedOnce = false
+
+-- ── V5.5 registration state ─────────────────────────────────────────────────
+-- _registered flips exactly once, and every entry point funnels through
+-- _register(), so PZAPI.ModOptions:create is called at most once per Lua
+-- load no matter how many retries fire.  That is the idempotence guarantee:
+-- no duplicate page, no duplicate sliders, no duplicate keybinds.
+local _registered   = false
+local _failureNoted = false
+-- OnTick runs per frame, so this is a few seconds of grace for a slow or
+-- out-of-order PZAPI load before the failure is written to the run log.
+-- Retrying continues past it (the check is one nil test per tick); only the
+-- diagnostic is one-shot.
+local RETRY_TICKS = 200
+local _ticks      = 0
 
 -- Slider definitions: option value * scale -> AutoPilot_Constants[key].
 local DEFS = {
@@ -151,14 +179,49 @@ function AutoPilot_Options.getKey(id, default)
     return v or default
 end
 
--- ── Registration (at load; PZAPI is vanilla client lua, loads before mods) ───
+--- V5.5: did the in-game mod options page actually come into existence?
+--- False means every option above is sitting on its compiled-in default and
+--- there is no settings entry to find in the menus.  Read by the F11 panel
+--- (AutoPilot_UI.optionsWarningLine) and by tests.
+--- @return boolean
+function AutoPilot_Options.isRegistered()
+    return _registered
+end
 
-pcall(function()
-    if not (PZAPI and PZAPI.ModOptions and PZAPI.ModOptions.create) then
-        print("[Options] PZAPI.ModOptions unavailable; using defaults.")
-        return
-    end
+-- ── V5.5 loud failure channel ───────────────────────────────────────────────
+-- The pre-V5.5 diagnostic was a print(), and this file shadows print with a
+-- noop on purpose (the other messages here are debug chatter), so the one
+-- message that mattered never reached console.txt.  That single line of
+-- shadowing is why a completely dead options page survived six releases.
+-- The replacement writes ONE line to the telemetry run log, which is a file
+-- the project already owns, already ships tooling for (triage_run_log.py),
+-- and already asks users to attach to bug reports.  It is preferred over
+-- HaloTextHelper here because a startup condition should not put text on a
+-- player's screen every session; the F11 panel carries the on-screen half.
+-- Written with a leading "#" so triage_run_log.py reads it as a comment
+-- rather than counting it as a malformed telemetry line.
+local function _noteUnavailable()
+    if _failureNoted then return end
+    _failureNoted = true
+    if type(getFileWriter) ~= "function" then return end
+    pcall(function()
+        -- (name, createIfNotExist, append): append MUST be true or this
+        -- truncates the whole run log (the V2.1 one-line-log bug).
+        local w = getFileWriter("auto_pilot_run.log", true, true)
+        if not w then return end
+        w:write("# AutoPilot V5.5: PZAPI.ModOptions never became available;"
+            .. " the in-game mod options page did NOT register."
+            .. " Every AutoPilot option is using its compiled-in default"
+            .. " and there is no settings entry to find in the menus.\n")
+        w:close()
+    end)
+end
 
+-- ── Registration ────────────────────────────────────────────────────────────
+-- The page builder itself is unchanged from V5.4 (same controls, same order,
+-- same seeds); only WHEN it runs changed.  It is a named function now so the
+-- retry path below can call it more than once without duplicating anything.
+local function _buildPage()
     local o = PZAPI.ModOptions:create("AutoPilot", "AutoPilot Leveler")
 
     o:addTitle("Training")
@@ -235,5 +298,67 @@ pcall(function()
 
     -- MP-join reload: the fresh registration starts with defaults; re-read
     -- the saved options file so values survive the reload (idempotent).
-    pcall(function() PZAPI.ModOptions:load() end)
-end)
+    if type(PZAPI.ModOptions.load) == "function" then
+        pcall(function() PZAPI.ModOptions:load() end)
+    end
+end
+
+--- Register the page if PZAPI is available; idempotent and safe to spam.
+--- Type-checked rather than pcall-probed: pcall does NOT stop PZ logging a
+--- Java exception, which is what the V5.1 hotfix was about.
+--- @return boolean  true once the page exists
+local function _register()
+    if _registered then return true end
+    if not (PZAPI and PZAPI.ModOptions
+            and type(PZAPI.ModOptions.create) == "function") then
+        return false
+    end
+    -- A partial failure mid-build must not kill this file's load: a Lua error
+    -- escaping here would stop every alphabetically-later module (Session
+    -- History, Telemetry, Threat, UI...) from loading at all, which is the
+    -- exact failure mode documented at the bottom of AutoPilot_Main.
+    local ok = pcall(_buildPage)
+    if ok and _opts then _registered = true end
+    return _registered
+end
+
+-- Attempt 1: at file load.  Free and correct when PZAPI really did load
+-- first; this is the only path V5.4 and earlier had.
+_register()
+
+-- Attempts 2..n: events.  Only wired when attempt 1 failed, so a healthy
+-- client pays nothing.
+--
+-- Event choice, and why these two:
+--   * OnMainMenuEnter is already a verified surface in this mod (it carries
+--     the session-end telemetry hook in AutoPilot_Main) and is the natural
+--     "the client's vanilla Lua is fully up" moment, which is before the
+--     player can ever open the options screen.  Registering there is what
+--     makes the settings visible in the main menu's Mod Options.
+--   * OnTick covers the case OnMainMenuEnter cannot: a mod loaded into an
+--     ALREADY-RUNNING game, i.e. the 42.19 MP server-connect Lua reload,
+--     where the main menu has long since been left behind and never fires
+--     again.  It is the same event AutoPilot_Main already drives the whole
+--     mod from, so it is guaranteed to fire wherever the mod does anything.
+-- OnGameStart is deliberately NOT used: it is not in this project's verified
+-- 42.19 record and is not modelled in tests/lua_mock_pz.lua, and the pair
+-- above already covers both entry paths.
+--
+-- Events.X existence is checked before .Add (the project's standing rule):
+-- OnQueueNewGame is ABSENT during the MP reload, and blindly indexing an
+-- event killed this file's load once already.
+if not _registered and Events then
+    if Events.OnMainMenuEnter and Events.OnMainMenuEnter.Add then
+        Events.OnMainMenuEnter.Add(function() _register() end)
+    end
+    if Events.OnTick and Events.OnTick.Add then
+        Events.OnTick.Add(function()
+            if _registered then return end
+            _ticks = _ticks + 1
+            if _register() then return end
+            -- Keep retrying (one nil test per tick) in case PZAPI arrives
+            -- very late, but say so once when the grace window is gone.
+            if _ticks >= RETRY_TICKS then _noteUnavailable() end
+        end)
+    end
+end

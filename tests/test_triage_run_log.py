@@ -112,6 +112,28 @@ class TestParseRunLog(unittest.TestCase):
         self.assertEqual(entries[0]["action"], "idle")
         self.assertEqual(skipped, 3)
 
+    def test_lua_diagnostic_comments_are_ignored_not_skipped(self) -> None:
+        """V5.5: AutoPilot_Options writes '#' diagnostics into this same log.
+
+        They are comments, not damaged telemetry, so they must neither parse
+        as entries nor inflate the skipped counter that signals a corrupt log.
+        """
+        with tempfile.TemporaryDirectory() as td:
+            log = _write_log(td, [
+                "# AutoPilot V5.5: PZAPI.ModOptions never became available;"
+                " the in-game mod options page did NOT register.",
+                "schema_version=4,player=0,mode=autopilot,ff=normal,run_tick=1,"
+                "action=idle,reason=no_action,class=idle,stage=,fail_reason=,"
+                "retry_count=0,hunger=5,thirst=5,fatigue=5,endurance=90,"
+                "zombies=0,bleeding=0,str=1,fit=1,doc=0",
+                "#another diagnostic",
+            ])
+            entries, skipped = tr.parse_run_log(log)
+
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(entries[0]["action"], "idle")
+        self.assertEqual(skipped, 0)
+
     def test_truncated_tail_with_action_still_parses(self) -> None:
         """A line cut off mid-write keeps its parsed prefix fields."""
         with tempfile.TemporaryDirectory() as td:
