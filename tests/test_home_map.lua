@@ -1,9 +1,15 @@
--- tests/test_home_map_barricade.lua
--- Integration and unit tests for AutoPilot_Home, AutoPilot_Map, and
--- AutoPilot_Barricade modules.
+-- tests/test_home_map.lua
+-- Integration and unit tests for the AutoPilot_Home and AutoPilot_Map
+-- modules.
+--
+-- V5.0: this file was tests/test_home_map_barricade.lua.  Barricading left
+-- the mod's scope, so the seven AutoPilot_Barricade cases were deleted along
+-- with the module; every Home and Map case is retained verbatim, since that
+-- behavior (home anchoring, bounds, clamping, depleted-square caching) all
+-- survives and is still depended on by Inventory, Threat, Needs and DeathLog.
 --
 -- Run from the project root with standard Lua 5.1:
---   lua tests/test_home_map_barricade.lua
+--   lua tests/test_home_map.lua
 
 -- ── Load mocks ────────────────────────────────────────────────────────────────
 dofile("tests/lua_mock_pz.lua")
@@ -11,30 +17,8 @@ dofile("tests/lua_mock_pz.lua")
 -- ── Load constants ────────────────────────────────────────────────────────────
 dofile("42/media/lua/client/AutoPilot_Constants.lua")
 
--- Additional action stubs required by Barricade.
--- Real B42 signature (shared/TimedActions/ISBarricadeAction.lua):
--- new(character, item, isMetal, isMetalBar) — item is the WINDOW object and
--- both flags are booleans; materials come from the equipped hands.
-ISBarricadeAction = {
-    new = function(_, _player, obj, isMetal, isMetalBar)
-        assert(type(isMetal) == "boolean",
-            "ISBarricadeAction:new expects boolean isMetal, got " .. type(isMetal))
-        assert(type(isMetalBar) == "boolean",
-            "ISBarricadeAction:new expects boolean isMetalBar, got " .. type(isMetalBar))
-        return { type = "barricade", obj = obj }
-    end,
-}
-
-ISEquipWeaponAction = {
-    new = function(_, _player, item, _time, primary)
-        return { type = "equip", item = item, primary = primary }
-    end,
-}
-
+-- Walk helper stub used by AutoPilot_Home.clampSq.
 luautils = {
-    walkAdjWindowOrDoor = function(_player, _sq, _obj, _keepActions)
-        return true
-    end,
     walkAdj = function(_player, _sq, _keepActions)
         return true
     end,
@@ -51,7 +35,6 @@ AutoPilot_Utils.iterateNearbySquares = function(...) end
 -- ── Load modules under test ───────────────────────────────────────────────────
 dofile("42/media/lua/client/AutoPilot_Map.lua")
 dofile("42/media/lua/client/AutoPilot_Home.lua")
-dofile("42/media/lua/client/AutoPilot_Barricade.lua")
 
 -- ── Minimal test framework ────────────────────────────────────────────────────
 local PASS = 0
@@ -195,152 +178,6 @@ do
     local result = AutoPilot_Home.isSet(player)
     -- isSet returning true means it either used the cache or loaded from ModData.
     assert_true("isSet returns true with valid player ModData", result)
-end
-
--- ── AutoPilot_Barricade tests ─────────────────────────────────────────────────
-print("\n=== AutoPilot_Barricade Tests ===")
-
-local function makeBarricadePlayer(barricadeDone)
-    local md = barricadeDone and { AutoPilot_Barricaded = true } or {}
-    local player = MockPlayer.new({})
-    player.getModData      = function(self) return md end
-    player.transmitModData = function(self) end
-    player.getX            = function(self) return 100 end
-    player.getY            = function(self) return 100 end
-    player.getZ            = function(self) return 0 end
-    return player
-end
-
-print("\n-- Barricade Test 1: isDone returns false when flag is not set")
-do
-    local player = makeBarricadePlayer(false)
-    assert_false("isDone returns false when ModData flag is absent",
-        AutoPilot_Barricade.isDone(player))
-end
-
-print("\n-- Barricade Test 2: isDone returns false (legacy, always false)")
-do
-    local player = makeBarricadePlayer(true)
-    assert_false("isDone returns false (legacy behavior, periodic maintenance now used)",
-        AutoPilot_Barricade.isDone(player))
-end
-
-print("\n-- Barricade Test 3: doBarricade returns 0 when already done")
-do
-    ISTimedActionQueue_calls = {}
-    local player = makeBarricadePlayer(true)
-    local count = AutoPilot_Barricade.doBarricade(player)
-    assert_eq("doBarricade returns 0 when already barricaded", count, 0)
-    assert_eq("no actions queued when already barricaded",
-        #ISTimedActionQueue_calls, 0)
-end
-
-print("\n-- Barricade Test 4: doBarricade returns 0 when home is not set")
-do
-    ISTimedActionQueue_calls = {}
-    local player = makeBarricadePlayer(false)
-    -- Temporarily override isSet to return false to simulate no home.
-    local origIsSet = AutoPilot_Home.isSet
-    AutoPilot_Home.isSet = function(_p) return false end
-    local count = AutoPilot_Barricade.doBarricade(player)
-    AutoPilot_Home.isSet = origIsSet
-    assert_eq("doBarricade returns 0 when home not set", count, 0)
-end
-
-print("\n-- Barricade Test 5: doBarricade is idempotent (second call after ModData set)")
-do
-    ISTimedActionQueue_calls = {}
-    -- Player already barricaded → doBarricade must return 0 without re-queuing.
-    local player = makeBarricadePlayer(true)
-    AutoPilot_Barricade.doBarricade(player)  -- first call
-    local count = AutoPilot_Barricade.doBarricade(player)  -- second call
-    assert_eq("second doBarricade call also returns 0", count, 0)
-end
-
-print("\n-- Barricade Test 6 (V4.1 C2): maintenance pass samples the Woodwork perk")
-do
-    ISTimedActionQueue_calls = {}
-
-    -- Suite-local recording stub for the mod's XP metrics module: Barricade
-    -- resolves AutoPilot_XP at call time, so defining it here is enough.
-    AutoPilot_XP = {
-        _samples = {},
-        sample = function(_player, perk)
-            table.insert(AutoPilot_XP._samples, perk)
-        end,
-    }
-
-    -- Player with barricade materials: hammer + plank + 2+ nails.
-    local player = makeBarricadePlayer(false)
-    player.getInventory = function(_self)
-        return {
-            getFirstTypeRecurse = function(_inv, itemType)
-                if itemType == "Hammer" then return { type = "Hammer" } end
-                if itemType == "Plank"  then return { type = "Plank" }  end
-                return nil
-            end,
-            getItemCount = function(_inv, fullType, _recurse)
-                return (fullType == "Base.Nails") and 4 or 0
-            end,
-        }
-    end
-    AutoPilot_Home.set(player)  -- home at (100,100,0), radius 150
-
-    -- One in-bounds square carrying one un-barricaded window object.
-    local windowObj = {
-        getName = function(_self) return "Double Pane Window" end,
-        getBarricadeOnSurface = function(_self) return nil end,
-    }
-    local windowSq = {
-        getX = function(_self) return 100 end,
-        getY = function(_self) return 101 end,
-        getZ = function(_self) return 0 end,
-        getObjects = function(_self)
-            return {
-                size = function(_o) return 1 end,
-                get  = function(_o, _i) return windowObj end,
-            }
-        end,
-    }
-    local origIterate = AutoPilot_Utils.iterateNearbySquares
-    AutoPilot_Utils.iterateNearbySquares = function(_x, _y, _z, _r, cb)
-        cb(windowSq)
-    end
-
-    AutoPilot_Barricade._recheckCountdown = 0
-    local queued = AutoPilot_Barricade.checkMaintenance(player)
-    AutoPilot_Utils.iterateNearbySquares = origIterate
-
-    assert_true("maintenance pass queues barricade work", queued)
-    local sawBarricade = false
-    for _, a in ipairs(ISTimedActionQueue_calls) do
-        if a.type == "barricade" then sawBarricade = true end
-    end
-    assert_true("a barricade action was queued", sawBarricade)
-    assert_eq("exactly one Woodwork sample recorded", #AutoPilot_XP._samples, 1)
-    assert_eq("sample uses the verified 42.19 perk name",
-        AutoPilot_XP._samples[1], Perks.Woodwork)
-
-    -- Countdown now armed: the next cycle is a decrement-only no-op and must
-    -- not sample again (visibility is event-driven, not per-cycle).
-    local again = AutoPilot_Barricade.checkMaintenance(player)
-    assert_false("countdown cycle queues nothing", again)
-    assert_eq("no extra Woodwork sample on a no-op cycle",
-        #AutoPilot_XP._samples, 1)
-end
-
-print("\n-- Barricade Test 7 (V4.1 C2): a scan that queues nothing never samples")
-do
-    ISTimedActionQueue_calls = {}
-    AutoPilot_XP._samples = {}
-    -- Default MockPlayer inventory has no materials, so _doScan exits early.
-    local player = makeBarricadePlayer(false)
-    AutoPilot_Home.set(player)
-    AutoPilot_Barricade._recheckCountdown = 0
-    local queued = AutoPilot_Barricade.checkMaintenance(player)
-    assert_false("scan without materials queues nothing", queued)
-    assert_eq("no Woodwork sample without queued work",
-        #AutoPilot_XP._samples, 0)
 end
 
 -- ── AutoPilot_Map edge cases ──────────────────────────────────────────────────

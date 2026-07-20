@@ -14,10 +14,9 @@
 --   5. Tired         -> sleep (recovers both fatigue AND endurance)
 --   6. Exhausted     -> rest in place (endurance critically low, but not sleepy)
 --   7. Scavenge      -> proactive supply top-up before stats drop
---   8. Maintenance   -> periodic barricade re-check
---   9. Explore       -> frontier scouting and supply runs
---  10. Bored/Sad     -> read literature, then go outside
---  11. Idle          -> exercise (strength/fitness alternating by level)
+--   8. Explore       -> frontier scouting and supply runs
+--   9. Bored/Sad     -> read literature, then go outside
+--  10. Idle          -> exercise (strength/fitness alternating by level)
 
 AutoPilot_Needs = {}
 
@@ -743,14 +742,6 @@ local function doProactiveScavenge(player)
     return false
 end
 
--- Base maintenance: delegates to the barricade maintenance timer.
-local function doBaseMaintenance(player)
-    if not (AutoPilot_Barricade and AutoPilot_Barricade.checkMaintenance) then
-        return false
-    end
-    return AutoPilot_Barricade.checkMaintenance(player)
-end
-
 -- ── Exercise ────────────────────────────────────────────────────────────────
 -- B42: ISFitnessAction:new(character, exercise, timeToExe, exeData, exeDataType)
 -- Exercise data comes from FitnessExercises.exercisesType
@@ -1353,10 +1344,10 @@ function AutoPilot_Needs.check(player)
     AutoPilot_Telemetry.setDecision("scavenge", "low_supplies")
     if doProactiveScavenge(player) then return true end
 
-    -- 10. Base maintenance (periodic barricade re-check; no-ops most cycles)
-    AutoPilot_Telemetry.setDecision("barricade", "maintenance")
-    if doBaseMaintenance(player) then return true end
-
+    -- V5.0: the priority chain used to end with a base-maintenance slot that
+    -- ran a barricade re-check.  Barricading and woodworking left the mod's
+    -- scope (an artifact of the broader auto-survival design), so the chain
+    -- now ends at proactive scavenging.
     return false
 end
 

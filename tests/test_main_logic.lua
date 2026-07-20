@@ -94,11 +94,6 @@ AutoPilot_Threat = {
     forceFlee             = function(_) end,
 }
 
-AutoPilot_Barricade = {
-    doBarricade = function(_player) return 0 end,
-    isDone      = function(_player) return true end,
-}
-
 AutoPilot_Map = {
     isDepleted    = function(_sq) return false end,
     markDepleted  = function(_sq) end,

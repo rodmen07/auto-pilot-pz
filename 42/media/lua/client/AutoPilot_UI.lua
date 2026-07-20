@@ -1,7 +1,7 @@
 -- AutoPilot_UI.lua
 -- F11 leveler panel: pick the exercise focus — Auto / Strength / Fitness —
--- watch live XP metrics for both exercise perks plus the V4.1 action perks
--- (Woodwork from the barricade pass, Doctor from wound treatment), see
+-- watch live XP metrics for both exercise perks plus the V4.1 action perk
+-- (Doctor, from wound treatment), see
 -- exactly what the trainer is doing right now (current exercise, resting
 -- reasons, sets today), arm or disarm the mod, review the death-learning
 -- adjustments, and (V4.2) scan the session-history block: the last few
@@ -59,11 +59,12 @@ function AutoPilot_UI:createChildren()
 
     self.metricsY = y
     -- Metrics + status + adaptive list drawn in render().
-    -- V4.1: +4 rows for the Woodwork/Doctor visibility blocks.
+    -- V4.1: +2 rows for the Doctor visibility block (V5.0 removed the
+    -- Woodwork block, so the panel is 2 rows shorter than in V4.x).
     -- V4.2: +7 rows for the session-history block (title + up to
     -- SESSION_HISTORY_PANEL_ROWS sessions + trend sparkline).
     -- V4.3: +1 row for the training-program day line.
-    self:setHeight(self.metricsY + ROW_H * 25 + PAD)
+    self:setHeight(self.metricsY + ROW_H * 23 + PAD)
 end
 
 -- ── Button handlers ──────────────────────────────────────────────────────────
@@ -190,13 +191,11 @@ function AutoPilot_UI:render()
     y = self:_drawPerkBlock("Fitness", mFit, y, target == "fitness")
     y = y + 4
 
-    -- V4.1 action-perk visibility (C2/C6): XP the game grants for the real
-    -- actions the mod already queues (barricade maintenance / wound
-    -- treatment), shown in the same block style.  Never a focus target.
-    local mWood = AutoPilot_Leveler.getMetricsFor(player, "woodwork")
-    local mDoc  = AutoPilot_Leveler.getMetricsFor(player, "doctor")
-    y = self:_drawPerkBlock("Woodwork", mWood, y, false)
-    y = y + 4
+    -- V4.1 action-perk visibility (C6): XP the game grants for the real
+    -- action the mod already queues (wound treatment), shown in the same
+    -- block style.  Never a focus target.  (V5.0 dropped the Woodwork block
+    -- along with the barricade pass that fed it.)
+    local mDoc = AutoPilot_Leveler.getMetricsFor(player, "doctor")
     y = self:_drawPerkBlock("Doctor", mDoc, y, false)
     y = y + ROW_H
 

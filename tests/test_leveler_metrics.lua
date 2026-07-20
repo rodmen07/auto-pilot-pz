@@ -155,27 +155,28 @@ do
     assert_eq("no-gain rate is 0", AutoPilot_XP.ratePerHour(p, "Cooking"), 0)
 end
 
--- V4.1 (C2): the engine is perk-generic, so Woodwork rides the same paths
--- the STR/FIT tests above exercise; these are the near-copies the proposal
--- calls for, keyed by the verified 42.19 perk name (Perks.Woodwork).
-print("\n=== XP Test 5 (V4.1 C2): Woodwork metrics and session gain ===")
+-- V4.1 (C6): the engine is perk-generic, so an action perk rides the same
+-- paths the STR/FIT tests above exercise.  (V5.0 re-keyed this case from
+-- Woodwork to Doctor: the mod no longer touches Woodwork, but the generic
+-- level / xpToNext / sessionGain paths still need non-exercise coverage.)
+print("\n=== XP Test 5 (V4.1 C6): action-perk metrics and session gain ===")
 do
     AutoPilot_XP.resetAll()
     MockRealTime.set(0)
-    local p = MockPlayer.new({ perks = { Woodwork = 2 } })
-    p._xp.Woodwork = 210
+    local p = MockPlayer.new({ perks = { Doctor = 2 } })
+    p._xp.Doctor = 210
 
-    AutoPilot_XP.sample(p, Perks.Woodwork)        -- baseline at 210
+    AutoPilot_XP.sample(p, Perks.Doctor)          -- baseline at 210
     MockRealTime.advance(60000)                   -- +1 min
-    p._xp.Woodwork = 270                          -- +60 xp (game-granted)
-    AutoPilot_XP.sample(p, Perks.Woodwork)
+    p._xp.Doctor = 270                            -- +60 xp (game-granted)
+    AutoPilot_XP.sample(p, Perks.Doctor)
 
-    local m = AutoPilot_XP.getMetrics(p, Perks.Woodwork)
-    assert_eq("Woodwork level read from perk level", m.level, 2)
-    assert_eq("Woodwork xp read from Xp store", m.xp, 270)
+    local m = AutoPilot_XP.getMetrics(p, Perks.Doctor)
+    assert_eq("Doctor level read from perk level", m.level, 2)
+    assert_eq("Doctor xp read from Xp store", m.xp, 270)
     -- Mock PerkFactory: level 3 threshold = 300 total XP.
-    assert_eq("Woodwork xpToNext = 300 - 270", m.xpToNext, 30)
-    assert_eq("Woodwork session gain since baseline", m.sessionGain, 60)
+    assert_eq("Doctor xpToNext = 300 - 270", m.xpToNext, 30)
+    assert_eq("Doctor session gain since baseline", m.sessionGain, 60)
 end
 
 print("\n=== XP Test 6 (V4.1 C6): Doctor rate and ETA ===")
@@ -401,23 +402,17 @@ do
         mFit and mFit.xpToNext, 50)
 end
 
-print("\n=== Leveler Test 4 (V4.1): getMetricsFor serves woodwork/doctor ids ===")
+print("\n=== Leveler Test 4 (V4.1): getMetricsFor serves the doctor id ===")
 do
     AutoPilot_Leveler.resetForTest()
     AutoPilot_XP.resetAll()
-    local p = MockPlayer.new({ perks = { Woodwork = 1, Doctor = 2 } })
-    p._xp.Woodwork = 150
-    p._xp.Doctor   = 250
+    local p = MockPlayer.new({ perks = { Doctor = 2 } })
+    p._xp.Doctor = 250
 
-    local mWood = AutoPilot_Leveler.getMetricsFor(p, "woodwork")
-    local mDoc  = AutoPilot_Leveler.getMetricsFor(p, "doctor")
-    assert_eq("woodwork metrics available", mWood and mWood.xp, 150)
+    local mDoc = AutoPilot_Leveler.getMetricsFor(p, "doctor")
     assert_eq("doctor metrics available", mDoc and mDoc.xp, 250)
-    assert_eq("woodwork level surfaces", mWood and mWood.level, 1)
     assert_eq("doctor level surfaces", mDoc and mDoc.level, 2)
     -- Mock PerkFactory: level 2 threshold = 200; level 3 = 300.
-    assert_eq("woodwork xpToNext from cumulative table",
-        mWood and mWood.xpToNext, 50)
     assert_eq("doctor xpToNext from cumulative table",
         mDoc and mDoc.xpToNext, 50)
 
@@ -426,6 +421,24 @@ do
     local mUnknown = AutoPilot_Leveler.getMetricsFor(p, "carpentry")
     assert_eq("unknown id falls back to Strength metrics",
         mUnknown and mUnknown.xp, 42)
+end
+
+-- V5.0 anti-resurrection guard: "woodwork" was a tracked METRIC_PERKS id
+-- through V4.9.  It must now behave like any other unknown id, i.e. fall back
+-- to Strength rather than resolve to a Woodwork perk of its own.
+print("\n=== Leveler Test 5 (V5.0): woodwork is no longer a tracked perk id ===")
+do
+    AutoPilot_Leveler.resetForTest()
+    AutoPilot_XP.resetAll()
+    local p = MockPlayer.new({ perks = { Strength = 1, Woodwork = 4 } })
+    p._xp.Strength = 42
+    p._xp.Woodwork = 999
+
+    local mWood = AutoPilot_Leveler.getMetricsFor(p, "woodwork")
+    assert_eq("woodwork id falls back to Strength metrics",
+        mWood and mWood.xp, 42)
+    assert_true("woodwork id does NOT resolve to the Woodwork perk",
+        (mWood and mWood.xp) ~= 999)
 end
 
 -- ══ AutoPilot_Leveler training programs (V4.3, expansion candidate C3) ═══════

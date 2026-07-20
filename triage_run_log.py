@@ -1,9 +1,9 @@
 """triage_run_log.py - Telemetry triage summarizer for AutoPilot run logs.
 
 Reads the structured key=value telemetry log written by AutoPilot_Telemetry.lua
-(schema_version=3; one line per evaluation cycle, older v2 lines parse the
-same because the schema is additive-only) and prints a human-readable
-triage report:
+(schema_version=4; one line per evaluation cycle, older v2/v3 lines parse the
+same because the parser keys off whatever fields a line carries) and prints a
+human-readable triage report:
 
   * Action mix        - per-action tick counts and percentages
   * Transitions       - top action-to-action transitions (within a session)
@@ -49,12 +49,18 @@ DEFAULT_LOG = Path.home() / "Zomboid" / "Lua" / "auto_pilot_run.log"
 # ── Category mapping ──────────────────────────────────────────────────────────
 # Derived from the action labels actually emitted by the Lua runtime:
 #   AutoPilot_Needs.check()      - bandage, sleep, rest, drink, shelter, eat,
-#                                  clothing, read, outside, exercise, scavenge,
-#                                  barricade
+#                                  clothing, read, outside, exercise, scavenge
 #   AutoPilot_Main               - sleep, combat, cooldown, busy, idle
 #   AutoPilot_Telemetry.onDeath  - dead
 # plus the legacy labels still present in Telemetry's REASON_CLASS table
 # (loot, fight, flee, happiness, recover, blocked) so old logs triage cleanly.
+#
+# This tool reads HISTORICAL logs, so retired labels stay in the map: V5.0
+# removed barricading from the mod, but logs recorded through V4.9 still carry
+# barricade lines and must keep triaging as base upkeep rather than falling
+# through to "idle".  Unlike benchmark._ACTION_CLASS_MAP, this table is not
+# sync-guarded against the Lua REASON_CLASS table, precisely so it can retain
+# labels the runtime no longer emits.
 #
 # NOTE: "scavenge" and "barricade" are absent from the Lua REASON_CLASS table,
 # so telemetry lines for them carry class=idle.  This map intentionally files
@@ -78,7 +84,7 @@ ACTION_CATEGORY: dict[str, str] = {
     "happiness": "survival",    # legacy REASON_CLASS label
     "loot":      "survival",    # legacy REASON_CLASS label
     "scavenge":  "survival",    # Needs step 9 (class=idle in the raw log)
-    "barricade": "survival",    # Needs step 10 (class=idle in the raw log)
+    "barricade": "survival",    # historical: removed from the mod in V5.0
     "combat":    "survival",
     "fight":     "survival",    # legacy REASON_CLASS label
     "flee":      "survival",    # legacy REASON_CLASS label
@@ -172,8 +178,10 @@ _INT_FIELDS = {
     "schema_version", "player", "run_tick", "retry_count",
     "hunger", "thirst", "fatigue", "endurance",
     "zombies", "bleeding", "str", "fit",
-    # Schema v3 (V4.1): Woodwork / Doctor perk levels.  Absent from v2 and
-    # older lines, which must keep parsing (additive-only schema).
+    # Perk levels appended by later schema versions: "doc" from v3 (V4.1),
+    # "wood" from v3 only (V5.0 dropped it with the barricading feature).
+    # Both are coerced when present and simply absent otherwise, so v2, v3
+    # and v4 lines all parse, including mixed files.
     "wood", "doc",
 }
 
@@ -193,11 +201,12 @@ def parse_run_log(log_path: str | os.PathLike[str]) -> tuple[list[dict[str, Any]
     """Parse *auto_pilot_run.log* and return ``(entries, skipped_line_count)``.
 
     Each entry mirrors the key=value fields written by AutoPilot_Telemetry.lua
-    (schema v3 field order; v2 lines simply lack the trailing wood/doc pair):
+    (schema v4 field order; v3 lines also carry wood, v2 lines carry neither
+    wood nor doc, and every variant parses):
       schema_version, player, mode, ff, run_tick,
       action, reason, class, stage, fail_reason, retry_count,
       hunger, thirst, fatigue, endurance, zombies, bleeding, str, fit,
-      wood, doc
+      doc (plus wood on v3 lines)
 
     Integer fields are coerced; empty string values (stage=, fail_reason=)
     are kept as empty strings.  A non-empty line is counted as skipped when it

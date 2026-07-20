@@ -79,8 +79,7 @@ end
 -- selector that scanned that flat list was therefore blind to anything stashed
 -- in a backpack, fanny pack, holster or bag-in-a-bag, which is why a bandage in
 -- a fanny pack never got used.  These helpers walk the whole carried tree.
--- (The mod already relied on recursive lookups elsewhere: Barricade uses
--- inv:getFirstTypeRecurse / inv:getItemCount(type, true) and the exercise gate
+-- (The mod already relied on recursive lookups elsewhere: the exercise gate
 -- uses inv:contains(fullType, true).  This is the same idea, generalised.)
 
 -- Deepest sub-container nesting walked by iteratePlayerItems.  Depth 0 is the

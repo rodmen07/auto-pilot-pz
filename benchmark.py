@@ -193,7 +193,12 @@ _THIRST_PRESSURE_THRESHOLD  = 20   # thirst ≥ 20%
 
 # Maps action labels (from the telemetry log) to broad reason classes.
 # Used as a fallback when the "class" field is absent (older log files).
-# Must stay in sync with the REASON_CLASS table in AutoPilot_Telemetry.lua.
+# Must stay in sync with the REASON_CLASS table in AutoPilot_Telemetry.lua
+# (tests/test_automation_metrics.py enforces exact key-set equality both
+# ways, so an entry may only be added or removed on BOTH sides at once).
+# V5.0 removed "barricade" from both sides with the barricading feature.
+# Historical logs still carrying barricade lines keep their own class= field,
+# which is what score_run reads first; this map is only the legacy fallback.
 _ACTION_CLASS_MAP: dict[str, str] = {
     "eat":      "survival",
     "drink":    "survival",
@@ -203,7 +208,6 @@ _ACTION_CLASS_MAP: dict[str, str] = {
     "bandage":  "survival",
     "loot":     "survival",
     "scavenge": "survival",
-    "barricade": "survival",
     "fight":    "combat",
     "flee":     "combat",
     "combat":   "combat",

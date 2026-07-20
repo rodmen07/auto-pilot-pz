@@ -61,12 +61,12 @@ local function makePlayer(perks)
     return MockPlayer.new({
         playerNum = 0,
         stats = { HUNGER = 0.10, THIRST = 0.05, ENDURANCE = 0.90, FATIGUE = 0.10 },
-        perks = perks or { Strength = 1, Fitness = 2, Woodwork = 0, Doctor = 0 },
+        perks = perks or { Strength = 1, Fitness = 2, Doctor = 0 },
     })
 end
 
-local function statsFor(str, fit, wood, doc)
-    return { str = str, fit = fit, wood = wood, doc = doc }
+local function statsFor(str, fit, doc)
+    return { str = str, fit = fit, doc = doc }
 end
 
 -- Fresh module state + fresh file: simulates a brand-new install.
@@ -96,12 +96,12 @@ do
     freshInstall()
     local p = makePlayer()
     for _ = 1, CHECKPOINT do
-        AutoPilot_SessionHistory.observe(p, statsFor(1, 2, 0, 0))
+        AutoPilot_SessionHistory.observe(p, statsFor(1, 2, 0))
     end
     local lines = fileLines()
     assert_eq("file holds header + one checkpoint line", #lines, 2)
     assert_true("line 1 is the versioned header",
-        tostring(lines[1]):find("# auto_pilot_sessions schema=1", 1, true) ~= nil)
+        tostring(lines[1]):find("# auto_pilot_sessions schema=2", 1, true) ~= nil)
     local parsed = AutoPilot_SessionHistory.parseLine(lines[2])
     assert_true("checkpoint line parses", parsed ~= nil)
     assert_eq("parsed session id", parsed.session, 1)
@@ -121,7 +121,7 @@ do
     for i = 1, CHECKPOINT * 2 do
         -- Levels move mid-session; the collapse must serve the newest values.
         local fit = (i > CHECKPOINT) and 3 or 2
-        AutoPilot_SessionHistory.observe(p, statsFor(1, fit, 0, 0))
+        AutoPilot_SessionHistory.observe(p, statsFor(1, fit, 0))
     end
     assert_eq("two checkpoint lines after two intervals",
         #fileLines(), 3)  -- header + 2
@@ -138,7 +138,7 @@ do
     freshInstall()
     local p = makePlayer()
     for _ = 1, 10 do
-        AutoPilot_SessionHistory.observe(p, statsFor(1, 2, 0, 1))
+        AutoPilot_SessionHistory.observe(p, statsFor(1, 2, 1))
     end
     local wrote = AutoPilot_SessionHistory.finalize(p, "dead")
     assert_true("finalize returns true on the first call", wrote)
@@ -157,9 +157,9 @@ print("\n=== SessionHistory Test 4: respawn after death begins session id+1 ==="
 do
     freshInstall()
     local p = makePlayer()
-    AutoPilot_SessionHistory.observe(p, statsFor(1, 1, 0, 0))
+    AutoPilot_SessionHistory.observe(p, statsFor(1, 1, 0))
     AutoPilot_SessionHistory.finalize(p, "dead")
-    AutoPilot_SessionHistory.observe(p, statsFor(0, 0, 0, 0))
+    AutoPilot_SessionHistory.observe(p, statsFor(0, 0, 0))
     local hist = AutoPilot_SessionHistory.getHistory(p)
     assert_eq("two sessions in history", #hist, 2)
     assert_eq("newest first: live session id 2", hist[1].session, 2)
@@ -168,17 +168,16 @@ do
 end
 
 -- ── Test 5: per-perk deltas ──────────────────────────────────────────────────
-print("\n=== SessionHistory Test 5: STR/FIT/WOOD/DOC delta computation ===")
+print("\n=== SessionHistory Test 5: STR/FIT/DOC delta computation ===")
 do
     freshInstall()
     local p = makePlayer()
-    AutoPilot_SessionHistory.observe(p, statsFor(1, 2, 0, 1))
-    AutoPilot_SessionHistory.observe(p, statsFor(2, 4, 1, 1))
+    AutoPilot_SessionHistory.observe(p, statsFor(1, 2, 1))
+    AutoPilot_SessionHistory.observe(p, statsFor(2, 4, 1))
     AutoPilot_SessionHistory.finalize(p, "timeout")
     local hist = AutoPilot_SessionHistory.getHistory(p)
     assert_eq("dstr = end - start", hist[1].dstr, 1)
     assert_eq("dfit = end - start", hist[1].dfit, 2)
-    assert_eq("dwood = end - start", hist[1].dwood, 1)
     assert_eq("ddoc = end - start", hist[1].ddoc, 0)
     assert_eq("ended timeout", hist[1].ended, "timeout")
 end
@@ -196,7 +195,7 @@ do
     assert_eq("missing ended -> nil", P("schema=1,session=3,ticks=5"), nil)
     local old = P("schema=1,session=7,player=0,ticks=42,"
         .. "str_start=1,str_end=2,fit_start=1,fit_end=1,ended=dead")
-    assert_true("older line missing wood/doc pairs still parses", old ~= nil)
+    assert_true("older line missing the doc pair still parses", old ~= nil)
     assert_eq("known fields coerce to numbers", old.ticks, 42)
     local future = P("schema=2,session=9,ticks=5,ended=open,"
         .. "sets=12,hours_survived=30")
@@ -209,12 +208,12 @@ print("\n=== SessionHistory Test 7: panel summary formatting ===")
 do
     local F = AutoPilot_SessionHistory.formatSummary
     local line = F({ session = 3, ticks = 812, dstr = 1, dfit = 0,
-                     dwood = 2, ddoc = 0, ended = "dead" })
-    assert_eq("full summary line", line, "#3  812t  S+1 F+0 W+2 D+0  dead")
+                     ddoc = 0, ended = "dead" })
+    assert_eq("full summary line", line, "#3  812t  S+1 F+0 D+0  dead")
     local degraded = F({ session = 7, ticks = 42, dstr = 1, dfit = 0,
                          ended = "dead" })
     assert_eq("absent delta pairs render as ? (old lines)",
-        degraded, "#7  42t  S+1 F+0 W? D?  dead")
+        degraded, "#7  42t  S+1 F+0 D?  dead")
 end
 
 -- ── Test 8: sparkline ────────────────────────────────────────────────────────
@@ -234,6 +233,9 @@ do
     freshInstall()
     -- Build a dirty file: header, KEEP+5 sessions (with a stale duplicate
     -- checkpoint for one of them) and one malformed line.
+    -- These are deliberately schema=1 lines, still carrying the
+    -- wood_start/wood_end pair V5.0 retired: rotation must keep parsing and
+    -- rewriting the real pre-V5.0 files players already have on disk.
     local f = { "# auto_pilot_sessions schema=1" }
     for id = 1, KEEP + 5 do
         table.insert(f, string.format(
@@ -250,13 +252,16 @@ do
 
     restartGame()
     local p = makePlayer()
-    AutoPilot_SessionHistory.observe(p, statsFor(0, 0, 0, 0))
+    AutoPilot_SessionHistory.observe(p, statsFor(0, 0, 0))
 
     local lines = fileLines()
     assert_eq("rotation rewrote exactly once", fileTruncates(), 1)
     assert_eq("file bounded to header + KEEP lines", #lines, KEEP + 1)
-    assert_true("header survives rotation",
-        tostring(lines[1]):find("schema=1", 1, true) ~= nil)
+    -- Rotation rewrites the header at the CURRENT schema (2 since V5.0),
+    -- while the retained body lines stay verbatim at whatever schema wrote
+    -- them (schema=1 here), which is the whole point of raw-text retention.
+    assert_true("header survives rotation at the current schema",
+        tostring(lines[1]):find("schema=2", 1, true) ~= nil)
     local oldest = AutoPilot_SessionHistory.parseLine(lines[2])
     assert_eq("oldest retained session is id 6 (newest KEEP kept)",
         oldest and oldest.session, 6)
@@ -275,11 +280,11 @@ print("\n=== SessionHistory Test 10: clean file is never truncated ===")
 do
     freshInstall()
     local p = makePlayer()
-    AutoPilot_SessionHistory.observe(p, statsFor(0, 0, 0, 0))
+    AutoPilot_SessionHistory.observe(p, statsFor(0, 0, 0))
     AutoPilot_SessionHistory.finalize(p, "timeout")
 
     restartGame()
-    AutoPilot_SessionHistory.observe(p, statsFor(0, 0, 0, 0))
+    AutoPilot_SessionHistory.observe(p, statsFor(0, 0, 0))
     assert_eq("no truncate across restart with a clean small file",
         fileTruncates(), 0)
     local hist = AutoPilot_SessionHistory.getHistory(p)
@@ -297,18 +302,18 @@ do
 
     -- Three finished sessions with rising gains, then a live one.
     for s = 1, 3 do
-        AutoPilot_SessionHistory.observe(p, statsFor(0, 0, 0, 0))
-        AutoPilot_SessionHistory.observe(p, statsFor(s, 0, 0, 0))
+        AutoPilot_SessionHistory.observe(p, statsFor(0, 0, 0))
+        AutoPilot_SessionHistory.observe(p, statsFor(s, 0, 0))
         AutoPilot_SessionHistory.finalize(p, "timeout")
         restartGame()
     end
-    AutoPilot_SessionHistory.observe(p, statsFor(0, 0, 0, 0))
+    AutoPilot_SessionHistory.observe(p, statsFor(0, 0, 0))
 
     local lines = AutoPilot_SessionHistory.getPanelLines(p, 2)
     -- 2 session rows (cap) + 1 trend row.
     assert_eq("row cap respected (+ trend line)", #lines, 3)
-    assert_eq("newest session first", lines[1], "#4  1t  S+0 F+0 W+0 D+0  open")
-    assert_eq("second row is session 3", lines[2], "#3  2t  S+3 F+0 W+0 D+0  timeout")
+    assert_eq("newest session first", lines[1], "#4  1t  S+0 F+0 D+0  open")
+    assert_eq("second row is session 3", lines[2], "#3  2t  S+3 F+0 D+0  timeout")
     assert_eq("trend spans ALL sessions oldest to newest",
         lines[3], "trend: .:-_")
 end
@@ -318,7 +323,7 @@ print("\n=== SessionHistory Test 12: Telemetry drives the data layer ===")
 do
     freshInstall()
     MockFiles["auto_pilot_run.log"] = nil
-    local p = makePlayer({ Strength = 2, Fitness = 3, Woodwork = 1, Doctor = 0 })
+    local p = makePlayer({ Strength = 2, Fitness = 3, Doctor = 0 })
     AutoPilot_Telemetry.logTick(p, "exercise", "training")
     AutoPilot_Telemetry.logTick(p, "idle", "no_action")
     local hist = AutoPilot_SessionHistory.getHistory(p)

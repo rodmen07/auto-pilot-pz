@@ -139,10 +139,10 @@ do
     assert_eq("pending action is 'recover'", AutoPilot_Telemetry.getPendingAction(p), "recover")
 end
 
--- ── Test 8: schema v3 appends wood/doc perk levels after fit ─────────────────
--- V4.1 (C2/C6): the run-log line ends str,fit,wood,doc so old parsers keep
--- reading their known prefix and new parsers get the action-perk levels.
-print("\n=== Telemetry Test 8: schema v3 line carries wood/doc after fit ===")
+-- ── Test 8: schema v4 appends the doc perk level after fit ───────────
+-- V4.1 (C6) put wood,doc after fit; V5.0 removed barricading and with it the
+-- wood field, so the line now ends str,fit,doc at schema_version=4.
+print("\n=== Telemetry Test 8: schema v4 line carries doc after fit ===")
 do
     MockFiles["auto_pilot_run.log"] = nil
     local p = MockPlayer.new({
@@ -150,15 +150,35 @@ do
         stats = { HUNGER = 0.10, THIRST = 0.05, ENDURANCE = 0.90, FATIGUE = 0.10 },
         perks = { Strength = 1, Fitness = 2, Woodwork = 4, Doctor = 3 },
     })
-    AutoPilot_Telemetry.logTick(p, "barricade", "maintenance")
+    AutoPilot_Telemetry.logTick(p, "exercise", "training")
 
     local f = MockFiles["auto_pilot_run.log"]
     assert_true("run-log line written", f ~= nil and #f.lines >= 1)
     local line = (f and f.lines[#f.lines]) or ""
-    assert_true("schema_version=3 emitted",
-        line:find("schema_version=3,", 1, true) ~= nil)
-    assert_true("wood/doc appended after fit (additive order)",
-        line:find("str=1,fit=2,wood=4,doc=3", 1, true) ~= nil)
+    assert_true("schema_version=4 emitted",
+        line:find("schema_version=4,", 1, true) ~= nil)
+    assert_true("doc appended after fit",
+        line:find("str=1,fit=2,doc=3", 1, true) ~= nil)
+    -- The player above still HAS Woodwork 4; the field must be gone anyway.
+    assert_true("wood= is no longer emitted at any level",
+        line:find("wood=", 1, true) == nil)
+end
+
+-- ── Test 9 (V5.0): barricade is gone from REASON_CLASS ─────────────────
+-- Anti-resurrection guard for the scope removal AND for the Lua/Python sync
+-- guard: benchmark._ACTION_CLASS_MAP must not carry a key REASON_CLASS lacks
+-- (tests/test_automation_metrics.py enforces the other direction).
+print("\n=== Telemetry Test 9 (V5.0): barricade classifies as idle, not survival ===")
+do
+    MockFiles["auto_pilot_run.log"] = nil
+    local p = makePlayer(0)
+    AutoPilot_Telemetry.logTick(p, "barricade", "maintenance")
+    local f = MockFiles["auto_pilot_run.log"]
+    local line = (f and f.lines[#f.lines]) or ""
+    assert_true("a retired barricade label falls through to class=idle",
+        line:find("class=idle,", 1, true) ~= nil)
+    assert_true("barricade is NOT classified as survival",
+        line:find("class=survival", 1, true) == nil)
 end
 
 -- ── Summary ───────────────────────────────────────────────────────────────────

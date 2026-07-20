@@ -77,7 +77,8 @@ order:
 | `zombies` | int | Nearby-zombie count from the per-cycle cached scan. |
 | `bleeding` | int | Bleeding-wound count from the medical snapshot. |
 | `str`, `fit` | int | Strength / Fitness perk levels. |
-| `wood`, `doc` | int | v3 only (V4.1): Woodwork / Doctor perk levels, appended after `fit`. Absent on v2 lines. |
+| `doc` | int | v3+ (V4.1): Doctor perk level, appended after `fit`. Absent on v2 lines. |
+| `wood` | int | **v3 only.** Woodwork perk level. Added in V4.1, removed in V5.0 with barricading, so it appears on v3 lines and on no other version. Coerced when present, never consumed. |
 
 Real lines from the clean test fixture
 (`tests/fixtures/run_log_v2_sample.log`, schema v2 kept deliberately as
@@ -91,17 +92,29 @@ schema_version=2,player=0,mode=autopilot,ff=normal,run_tick=1,action=idle,reason
 ```
 
 The last two lines show a session boundary: `run_tick` drops from 14 back
-to 1, so the tool starts session 2 there. A v3 line, as used by the
-schema-tolerance tests in `tests/test_triage_run_log.py`:
+to 1, so the tool starts session 2 there. A v3 line (V4.1 through V4.9), as
+used by the schema-tolerance tests in `tests/test_triage_run_log.py`:
 
 ```
 schema_version=3,player=0,mode=autopilot,ff=normal,run_tick=1,action=barricade,reason=maintenance,class=idle,stage=,fail_reason=,retry_count=0,hunger=5,thirst=5,fatigue=5,endurance=90,zombies=0,bleeding=0,str=1,fit=2,wood=4,doc=3
 ```
 
-Legacy `class` note: that test line carries `class=idle` on a barricade
-action because scavenge/barricade were missing from the Lua
-`REASON_CLASS` table until the V3.6 audit fix (PR #19); the current
-writer emits `class=survival` for both. Both eras triage identically
+A v4 line (V5.0 onward), which drops `wood` and never emits `barricade`:
+
+```
+schema_version=4,player=0,mode=autopilot,ff=normal,run_tick=1,action=exercise,reason=training,class=exercise,stage=,fail_reason=,retry_count=0,hunger=5,thirst=5,fatigue=5,endurance=90,zombies=0,bleeding=0,str=1,fit=2,doc=3
+```
+
+Schema versions parse interchangeably, including inside one file that spans
+an upgrade: the parser keys off whatever fields a line carries and requires
+only `action` and `run_tick`. So a pre-V5.0 run log on disk stays fully
+readable after the mod updates.
+
+Legacy `class` note: the v3 test line above carries `class=idle` on a
+barricade action because scavenge/barricade were missing from the Lua
+`REASON_CLASS` table until the V3.6 audit fix (PR #19); V3.6 through V4.9
+emitted `class=survival` for both, and since V5.0 `barricade` is not emitted
+at all. Both eras triage identically
 because the tool's time split is computed from the `action` label, never
 from `class`.
 
@@ -124,10 +137,16 @@ Decision pairs set by `AutoPilot_Needs` via `setDecision`: `bandage`
 (`rest_cooldown`, `low_endurance`), `drink` (`thirst_thresh`), `shelter`
 (`weather`), `eat` (`hunger_thresh`, `unhappy`), `clothing`
 (`temperature`), `read` (`boredom`), `outside` (`boredom`), `exercise`
-(`training`), `scavenge` (`low_supplies`), `barricade` (`maintenance`).
+(`training`), `scavenge` (`low_supplies`).
 
 Older logs may also contain the legacy labels `loot`, `fight`, `flee`,
-`happiness`, `recover`, and `blocked`; the tool still categorizes them.
+`happiness`, `recover`, `blocked`, and (through V4.9) `barricade`
+(`maintenance`); the tool still categorizes all of them. Retired labels
+stay in `ACTION_CATEGORY` on purpose: this tool reads historical logs,
+so it must not silently reclassify old ticks as `idle`. That is the one
+place `triage_run_log.py` deliberately diverges from
+`benchmark.py`'s `_ACTION_CLASS_MAP`, which is CI-sync-guarded against
+the Lua `REASON_CLASS` table and therefore lost `barricade` in V5.0.
 
 ### Parser tolerance
 
@@ -160,7 +179,7 @@ Parsed N tick(s) across M session(s); K malformed line(s) skipped.
   |---|---|
   | training | `exercise` |
   | resting | `sleep`, `rest`, `recover` |
-  | survival | `eat`, `drink`, `shelter`, `bandage`, `clothing`, `read`, `outside`, `happiness`, `loot`, `scavenge`, `barricade`, `combat`, `fight`, `flee` |
+  | survival | `eat`, `drink`, `shelter`, `bandage`, `clothing`, `read`, `outside`, `happiness`, `loot`, `scavenge`, `barricade` (historical), `combat`, `fight`, `flee` |
   | idle | `idle`, `busy`, `cooldown`, `blocked`, `dead`, plus any unknown label |
 
   The mod's purpose is training, so a healthy armed-and-safe log is
@@ -238,7 +257,8 @@ points that way.
   exercise that vanished early (player cancelled it), (b) an F10 panic
   stop, or (c) a stretch of `foreign_action` lines (a manual exercise
   refreshes the window every cycle). During the gap, armed cycles fall
-  through to `scavenge`/`barricade`/`idle` with no survival pressure.
+  through to `scavenge`/`idle` with no survival pressure (pre-V5.0 logs
+  may also show `barricade` here).
   Live, the F11 status line says "backing off (...)" or "waiting (manual
   exercise in progress)"; nothing about the backoff appears in
   `console.txt` (the module's debug prints are compiled to no-ops), so
@@ -254,6 +274,9 @@ points that way.
   version); check the reporter's mod version first.
 - **`class=idle` on scavenge/barricade lines**: pre-PR-#19 logs only
   (see the legacy note above). Harmless; confirms an older mod version.
+- **Any `barricade` line at all**: the log predates V5.0, which removed
+  barricading. Harmless, and the ticks still triage as base upkeep, but
+  it dates the log: correlate with the reported mod version.
 - **Rapid `run_tick` resets**: many sessions of only a handful of ticks
   each means the player is relogging or restarting rapidly, or the mod
   is being armed and the game quit over and over; correlate with

@@ -1262,6 +1262,69 @@ do
         ISTimedActionQueue_calls[1].item, pills)
 end
 
+-- ── V5.0 scope guard: the priority chain never calls a barricade module ─────
+-- Through V4.9 the chain ended with a base-maintenance slot that delegated to
+-- AutoPilot_Barricade.checkMaintenance and tagged the cycle
+-- setDecision("barricade", "maintenance").  Barricading left the mod's scope
+-- in V5.0.  This case plants a booby-trapped AutoPilot_Barricade global and a
+-- recording telemetry stub, then drives a fully idle cycle (no survival
+-- pressure, nothing to loot, no exercise queued) so evaluation walks the
+-- WHOLE chain to its end.  Any resurrection of the call site or the label
+-- fails here.
+print("\n=== Scope Test 1 (V5.0): no barricade module in the priority chain ===")
+do
+    ISTimedActionQueue_calls = {}
+    local barricadeCalls = 0
+    AutoPilot_Barricade = setmetatable({}, {
+        __index = function(_t, _k)
+            barricadeCalls = barricadeCalls + 1
+            return function() barricadeCalls = barricadeCalls + 1 return true end
+        end,
+    })
+
+    -- Decline training so evaluation continues past the exercise slot; the
+    -- point of this case is the TAIL of the chain, not the exercise gates.
+    local origLeveler = AutoPilot_Leveler
+    AutoPilot_Leveler = { check = function(_p) return false end }
+
+    local decisions = {}
+    local origSetDecision = AutoPilot_Telemetry.setDecision
+    AutoPilot_Telemetry.setDecision = function(action, reason, ...)
+        table.insert(decisions, tostring(action))
+        return origSetDecision(action, reason, ...)
+    end
+
+    -- Calm player: every survival branch above declines, so the chain runs
+    -- all the way down past scavenging to its end and returns false.
+    local player = MockPlayer.new({
+        stats = {
+            HUNGER    = 0.02,
+            THIRST    = 0.02,
+            FATIGUE   = 0.02,
+            ENDURANCE = 0.95,
+        },
+    })
+    local result = AutoPilot_Needs.check(player)
+
+    AutoPilot_Telemetry.setDecision = origSetDecision
+    AutoPilot_Leveler = origLeveler
+    AutoPilot_Barricade = nil
+
+    assert_eq("no AutoPilot_Barricade member was ever touched", barricadeCalls, 0)
+    local sawBarricade = false
+    for _, a in ipairs(decisions) do
+        if a == "barricade" then sawBarricade = true end
+    end
+    assert_false("no cycle is tagged with the retired 'barricade' decision",
+        sawBarricade)
+    -- Scavenging is the LAST slot since V5.0: reaching it proves the walk got
+    -- past every earlier branch, and nothing follows it any more.
+    assert_eq("the chain's final decision is now scavenge, not barricade",
+        decisions[#decisions], "scavenge")
+    assert_eq("an idle calm cycle queues nothing", #ISTimedActionQueue_calls, 0)
+    assert_false("an idle calm cycle returns false from check()", result)
+end
+
 -- ── Summary ───────────────────────────────────────────────────────────────────
 print(("\n=== Results: %d passed, %d failed ==="):format(PASS, FAIL))
 if FAIL > 0 then

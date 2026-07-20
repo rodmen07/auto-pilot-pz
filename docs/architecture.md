@@ -19,10 +19,10 @@ mod is client-side only and MP-compatible (in multiplayer each client
 automates its own character). Splitscreen is not supported (removed in
 V3.2). The mod starts OFF; arming it is a deliberate player action.
 
-The runtime is 18 modules under `42/media/lua/client/`. PZ loads client Lua
+The runtime is 17 modules under `42/media/lua/client/`. PZ loads client Lua
 files alphabetically; `AutoPilot_Constants` loads before every module that
-reads it at load time, and the modules that sort earlier (`Adaptive`,
-`Barricade`) only touch Constants inside function bodies, never at load.
+reads it at load time, and the module that sorts earlier (`Adaptive`) only
+touches Constants inside function bodies, never at load.
 
 ## Module Map
 
@@ -36,9 +36,9 @@ both `AutoPilot_Options` (player sliders) and `AutoPilot_Adaptive`
 
 | Module | Responsibility | Key interactions |
 |---|---|---|
-| `AutoPilot_Main` | Orchestrator for the local player: OnTick evaluation loop, F10 arm/disarm plus the V4.5 F10 panic stop (stops any RUNNING exercise on the keypress, mod-queued or manual, in addition to toggling), HUD status line, queue-thrash guard, session-end telemetry hooks. Owns the mode (off/autopilot), post-action cooldown, and action-streak counters. V4.5: every queue intervention (urgent-need interrupt, thrash clear) first verifies via `Utils.isModAction` that the running action is mod-queued; foreign actions are never touched. | Registers `Events.OnTick` / `OnKeyPressed` (plus guarded session-end events). Calls `Threat.beginCycle`/`check`, `Needs.check`/`shouldInterrupt`, the V4.5 intervention notifications (`Needs.noteForeignExercise`/`noteModExerciseCleared`/`notePanicStop`), `Telemetry.logTick`/`onDeath`/`onShutdown`, `Home.set`, `Barricade.doBarricade`, `Options.applyOnce`, `Adaptive.init`, `UI.toggle`. Exposes `AutoPilot.isActive()` / `AutoPilot.toggle()` for the panel. |
+| `AutoPilot_Main` | Orchestrator for the local player: OnTick evaluation loop, F10 arm/disarm plus the V4.5 F10 panic stop (stops any RUNNING exercise on the keypress, mod-queued or manual, in addition to toggling), HUD status line, queue-thrash guard, session-end telemetry hooks. Owns the mode (off/autopilot), post-action cooldown, and action-streak counters. V4.5: every queue intervention (urgent-need interrupt, thrash clear) first verifies via `Utils.isModAction` that the running action is mod-queued; foreign actions are never touched. | Registers `Events.OnTick` / `OnKeyPressed` (plus guarded session-end events). Calls `Threat.beginCycle`/`check`, `Needs.check`/`shouldInterrupt`, the V4.5 intervention notifications (`Needs.noteForeignExercise`/`noteModExerciseCleared`/`notePanicStop`), `Telemetry.logTick`/`onDeath`/`onShutdown`, `Home.set`, `Options.applyOnce`, `Adaptive.init`, `UI.toggle`. Exposes `AutoPilot.isActive()` / `AutoPilot.toggle()` for the panel. |
 | `AutoPilot_Leveler` | Training focus selection per character: Auto (balance the lower of STR/FIT), Strength, or Fitness. Focus persists in player ModData (MP-safe via `transmitModData`). V4.3: also owns the weekly training-program scheduler, a pure table plus day-resolution logic mapping the in-game weekday to that day's focus (auto/strength/fitness/rest); the selected program id is read live from `AutoPilot_Constants.TRAINING_PROGRAM`. | Called by `Needs.check`'s exercise slot (`Leveler.check`). Samples both exercise perks via `AutoPilot_XP.sample` every call, resolves today's program day (rest days yield the slot; a program day focus overrides the selection for that day), then delegates the actual set to `Needs.trainExercise(player, focus)`. `getMetricsFor` and `getProgramStatus` serve the UI. |
-| `AutoPilot_XP` | XP metrics engine: per-perk session baseline plus a rolling real-time sample window that yields session gain, XP/hour, and ETA to next level. | Leaf module (no calls into other AutoPilot modules). `sample`/`getMetrics` are called by `Leveler` (STR/FIT every exercise cycle) and, since V4.1, by `Barricade`/`Medical` when real barricade or treatment actions queue (Woodwork/Doctor visibility, read-only); the UI reads metrics through `Leveler.getMetricsFor`. |
+| `AutoPilot_XP` | XP metrics engine: per-perk session baseline plus a rolling real-time sample window that yields session gain, XP/hour, and ETA to next level. | Leaf module (no calls into other AutoPilot modules). `sample`/`getMetrics` are called by `Leveler` (STR/FIT every exercise cycle) and, since V4.1, by `Medical` when real treatment actions queue (Doctor visibility, read-only; the V4.1 Woodwork companion went with barricading in V5.0); the UI reads metrics through `Leveler.getMetricsFor`. |
 | `AutoPilot_UI` | F11 leveler panel (`ISCollapsableWindow`): focus buttons, arm/disarm button, live trainer status, sets/day, exercise regularity, both perks' metrics, death count, and the applied adaptive tweaks. Panel position is remembered per character in ModData. | Opened from `Main`'s key handler (panel errors are printed to the real console and flashed on the HUD, never swallowed). Reads `Leveler` (focus + metrics), `Needs.getExerciseStatus`, `DeathLog.getDeathCount`, `Adaptive.getApplied`; the arm button calls `AutoPilot.toggle`. |
 | `AutoPilot_Options` | In-game configurability via 42.19's `PZAPI.ModOptions`: sliders for training and fail-safe tunables (V4.5: including "Training backoff after manual cancel", 0 to 60 game minutes, default 10, 0 = off), rebindable arm/panel keys, and (V4.3) the weekly training-program selector. | Registers at load. `applyOnce` (called from `Main`'s tick, before `Adaptive.init`) copies slider values into `AutoPilot_Constants` (V4.3: including the program pick, mapped to a program id in `TRAINING_PROGRAM`); saving the options screen re-applies live. `Main` reads `getKey` for the rebindable F10/F11 bindings. |
 
@@ -46,12 +46,11 @@ both `AutoPilot_Options` (player sliders) and `AutoPilot_Adaptive`
 
 | Module | Responsibility | Key interactions |
 |---|---|---|
-| `AutoPilot_Needs` | Priority state machine for survival needs plus the exercise slot: eat/drink/sleep/rest, shelter, clothing, wound treatment dispatch, boredom relief, proactive scavenging, base maintenance, and `doExercise` (endurance gates, optional daily set cap (V4.6: 0 = unlimited by default), equipment preference, XP-fatigue rotation, and the V4.5 player-intervention backoff: a mod-queued set that vanishes uncompleted without a mod-initiated clear, an observed manual exercise, or an F10 panic stop holds training off for `EXERCISE_BACKOFF_MINUTES` game minutes instead of re-queuing over the player). | Called by `Main` (`check`, `shouldInterrupt`, and the V4.5 notifications `noteForeignExercise`/`noteModExerciseCleared`/`notePanicStop`). Calls `Medical.check`/`hasCriticalWound`, many `Inventory` helpers, `Home` bounds checks, `Barricade.checkMaintenance`, `Leveler.check`, and `Telemetry.setDecision` for every decision. Exposes `trainExercise` (the Leveler's seam) and `getExerciseStatus` (the panel's status line). |
+| `AutoPilot_Needs` | Priority state machine for survival needs plus the exercise slot: eat/drink/sleep/rest, shelter, clothing, wound treatment dispatch, boredom relief, proactive scavenging, and `doExercise` (endurance gates, optional daily set cap (V4.6: 0 = unlimited by default), equipment preference, XP-fatigue rotation, and the V4.5 player-intervention backoff: a mod-queued set that vanishes uncompleted without a mod-initiated clear, an observed manual exercise, or an F10 panic stop holds training off for `EXERCISE_BACKOFF_MINUTES` game minutes instead of re-queuing over the player). | Called by `Main` (`check`, `shouldInterrupt`, and the V4.5 notifications `noteForeignExercise`/`noteModExerciseCleared`/`notePanicStop`). Calls `Medical.check`/`hasCriticalWound`, many `Inventory` helpers, `Home` bounds checks, `Leveler.check`, and `Telemetry.setDecision` for every decision. Exposes `trainExercise` (the Leveler's seam) and `getExerciseStatus` (the panel's status line). |
 | `AutoPilot_Threat` | Zombie detection (same z-level, cached per cycle) and the fight/flee decision, including the V3.2 engagement gate, directional spread analysis, encirclement handling, and flee stutter prevention. | Called by `Main` (`beginCycle`, `check`). `getNearbyZombies` is also read by `Main`'s HUD, `Telemetry`, and `DeathLog`. Calls `Medical.hasCriticalWound` (bleeding forces flee), `Inventory.checkAndSwapWeapon`/`getBestWeapon` (pre-equip before the engage decision), and `Home` (flee redirects toward home when set). |
 | `AutoPilot_Inventory` | Item selection and looting: safe-food/drink choice, weapon selection and swap, bandage-loot support, supply counts, supply runs, water sourcing and refill, clothing adjustment, and exercise-equipment checks plus the daily gear fetch. | Called by `Needs` and `Threat`. Reads `Home` bounds to keep loot trips inside the containment circle and reads/writes `Map` depletion so empty containers are not revisited. |
 | `AutoPilot_Medical` | Wound detection and treatment: bleeding first, then deep wounds, bites, scratches, burns; bandage selection by quality with a rip-sheets fallback. | `check(player, bleedingOnly)` is called from `Needs`; `hasCriticalWound` from `Needs` and `Threat`; `getWoundSnapshot` from `Telemetry` and `DeathLog`. V4.1: a queued treatment samples the Doctor perk via `AutoPilot_XP.sample` (visibility only). |
-| `AutoPilot_Home` | Home anchor persistence (player ModData, survives save/reload) and bounds logic: `isInside`, walk-target clamping, and up to three fallback shelter squares. | Anchored by `Main` on the first ACTIVE cycle after arming. Read by `Barricade` (scan bounds), `Inventory` (loot bounds), `Threat` (flee-toward-home), `Needs`, and `DeathLog` (distance from home at death). |
-| `AutoPilot_Barricade` | Periodic barricade maintenance: re-barricades windows inside home bounds when the countdown expires; requires an equipped hammer and plank plus 2+ nails. | `checkMaintenance` is called every cycle from `Needs`' base-maintenance slot (a single counter decrement in the common case); `doBarricade` is the immediate pass `Main` runs at first-active-cycle init. Uses `Home.isInside` and `Utils` square iteration. V4.1: a scan that queues barricade work samples the Woodwork perk via `AutoPilot_XP.sample` (visibility only). |
+| `AutoPilot_Home` | Home anchor persistence (player ModData, survives save/reload) and bounds logic: `isInside`, walk-target clamping, and up to three fallback shelter squares. | Anchored by `Main` on the first ACTIVE cycle after arming. Read by `Inventory` (loot bounds), `Threat` (flee-toward-home), `Needs`, and `DeathLog` (distance from home at death). |
 | `AutoPilot_Map` | Depleted-square memory: remembers containers found empty so loot passes skip them; entry count is bounded (`DEPLETED_CAP`). | Written and read by `Inventory` only (`markDepleted`, `isDepleted`); supply runs call `resetDepleted` so the expanded search re-checks everything. |
 
 ### Learning and infrastructure
@@ -60,7 +59,7 @@ both `AutoPilot_Options` (player sliders) and `AutoPilot_Adaptive`
 |---|---|---|
 | `AutoPilot_DeathLog` | Death learning, recording half: a per-player ring buffer of the last 15 distinct decisions (consecutive duplicates collapse) and, on death, one key=value context snapshot line (stats, wounds, zombie count, position, distance from home, hours survived, focus, recent decisions, classified cause) appended to `auto_pilot_deaths.log`. | `recordDecision` is fed by `Telemetry.logTick` each cycle; `writeSnapshot` is triggered by `Telemetry.onDeath`. Snapshot collection reads `Home`, `Medical`, `Threat`, `Leveler`, and `Utils`. `readLines`/`parseLine` serve `Adaptive`; `getDeathCount` serves the panel. |
 | `AutoPilot_Adaptive` | Death learning, adaptation half: once per session, reads the death log, buckets causes over the most recent 25 deaths, and applies bounded, transparent threshold adjustments to `AutoPilot_Constants` (each rule has a hard floor or cap). | `init` is called from `Main`'s tick (after `Options.applyOnce`, so player settings are the base the deltas apply to). Reads `DeathLog`; `getApplied` lists this session's adjustments in the F11 panel. |
-| `AutoPilot_SessionHistory` | Session history data layer (V4.2): one compact key=value summary line per session (ticks, STR/FIT/Woodwork/Doctor start/end levels, end reason) appended to `auto_pilot_sessions.log`, written at session end and refreshed by periodic "open" checkpoints; a versioned header line, a tolerant parser, once-per-session collapse rotation (newest `SESSION_HISTORY_KEEP` sessions survive), and pre-formatted panel strings (rows + trend sparkline). Registers NO events. | `observe` is fed by `Telemetry.logTick` each cycle; `finalize` by `Telemetry.onDeath` ("dead") and `Telemetry.onShutdown` ("timeout"), all existence-guarded. `getPanelLines` serves the F11 history block (the UI renders the returned strings verbatim). |
+| `AutoPilot_SessionHistory` | Session history data layer (V4.2): one compact key=value summary line per session (ticks, STR/FIT/Doctor start/end levels, end reason; V5.0 retired the Woodwork pair at file schema 2, and pre-V5.0 lines carrying it still parse) appended to `auto_pilot_sessions.log`, written at session end and refreshed by periodic "open" checkpoints; a versioned header line, a tolerant parser, once-per-session collapse rotation (newest `SESSION_HISTORY_KEEP` sessions survive), and pre-formatted panel strings (rows + trend sparkline). Registers NO events. | `observe` is fed by `Telemetry.logTick` each cycle; `finalize` by `Telemetry.onDeath` ("dead") and `Telemetry.onShutdown` ("timeout"), all existence-guarded. `getPanelLines` serves the F11 history block (the UI renders the returned strings verbatim). |
 | `AutoPilot_Telemetry` | Per-tick run-log writer: one key=value CSV line per evaluation cycle to `auto_pilot_run.log`, a JSON end marker (`dead` or `timeout`) to `auto_pilot_run_end.json`, and once-per-session log rotation. | `logTick` is called by `Main` every evaluation; `setDecision` by `Needs` at each decision point; `onDeath`/`onShutdown` by `Main`. Collects stats via `Utils.safeStat`, `Threat.getNearbyZombies` (cached scan), and `Medical.getWoundSnapshot`; feeds `DeathLog.recordDecision` and `SessionHistory.observe`/`finalize` (V4.2) and triggers `DeathLog.writeSnapshot`. |
 | `AutoPilot_Constants` | Central registry of tunable thresholds and constants, with documented units and rationale. The shared tuning surface: `Options` writes player settings into it, then `Adaptive` applies its deltas on top; consuming modules read tunables live at their use sites (the V3.3 fix). | Read by every module. Written only by `Options` and `Adaptive`. |
 | `AutoPilot_Utils` | Safe shared helpers: `safeStat` (pcall-wrapped B42 `getStats():get(CharacterStat.X)` access), the square-scan primitives `iterateNearbySquares` (flat radius scan) and `findNearestSquare` (outward spiral), and (V4.5) the mod-action ownership registry: a weak-keyed table of every timed action the mod queues (`tagModAction`/`isModAction`/`clearModAction`/`queueModAction`), so the safety paths can prove an action is the mod's own before touching it. Weak keys mean dropped actions untag themselves via GC (no leak); a Lua reload starts an empty registry, so anything pre-reload reads as foreign, which fails safe. | Leaf module; called from nearly everywhere. All mod queue sites route through `queueModAction`; `Main` reads `isModAction`; `Needs` tags its exercise sets and untags on resolution. Sorts last alphabetically, which is safe because its globals are only resolved when functions are called, never at load. |
@@ -81,8 +80,7 @@ first stage that claims the cycle ends it:
 1. `Threat.beginCycle` clears and arms the zombie-scan cache (HUD, threat
    check, and telemetry share one scan per cycle), then the HUD status
    line updates. If the mod is OFF, the cycle ends here.
-2. First ACTIVE cycle only: anchor home at the current position and queue
-   an initial barricade pass (idempotent).
+2. First ACTIVE cycle only: anchor home at the current position.
 3. Dead: log the death once (`Telemetry.onDeath`, which also writes the
    DeathLog snapshot) and stop.
 4. Asleep: log and wait.
@@ -158,8 +156,11 @@ wins. Hunger/thirst triggers and other tunables are read live from
  7  boredom/unhappy   tasty food, then read, then go outside
  8  EXERCISE          the mod's purpose (see focus flow below)
  9  scavenge          bounded background chore: proactive supply top-up
-10  maintenance       periodic barricade re-check (no-op most cycles)
 ```
+
+V5.0 removed a tenth slot, `maintenance` (a periodic barricade re-check):
+barricading and woodworking were artifacts of the broader auto-survival
+scope the mod no longer pursues, so scavenging is now the final slot.
 
 Exercise sits directly above the background chores (a V3.2 reorder: it was
 previously at the bottom and proactive scavenging claimed every idle
@@ -276,12 +277,13 @@ exercise currently training, the V4.3 training-program day line
 pre-formatted by `Leveler.getProgramStatus` ("today: STR day (program:
 Strength emphasis)"; rest days read "today: rest day (program: Rest-day
 split), survival chores only"), both exercise perks' metric blocks (level, XP
-to next, session gain, XP/hour, ETA), the V4.1 Woodwork and Doctor blocks in
+to next, session gain, XP/hour, ETA), the V4.1 Doctor block in
 the same style (read-only visibility of the XP the game grants for the
-barricade maintenance and wound treatment the mod already performs), the
+wound treatment the mod already performs; V5.0 removed the companion
+Woodwork block along with the barricade pass that fed it), the
 V4.2 session-history block (the last `SESSION_HISTORY_PANEL_ROWS` sessions,
-newest first, each row showing session number, ticks, STR/FIT/Woodwork/
-Doctor level deltas, and end reason, plus a trend sparkline of total level
+newest first, each row showing session number, ticks, STR/FIT/Doctor
+level deltas, and end reason, plus a trend sparkline of total level
 gains across the retained sessions), and the death count plus up to four
 applied adaptive tweaks. Every history string is pre-formatted by
 `AutoPilot_SessionHistory` (where the logic is unit-tested); the panel only
@@ -392,13 +394,21 @@ file API in PZ's sandbox); a JSON end marker distinguishing `dead` from
 `timeout` goes to `auto_pilot_run_end.json`, and death snapshots go to
 `auto_pilot_deaths.log`.
 
-Schema v3 fields (additive; old parsers ignore unknown keys):
+Schema v4 fields (old parsers ignore unknown keys):
 `schema_version`, `player`, `mode`, `ff` (normal/active), `run_tick`,
 `action`, `reason`, `class`, `stage`, `fail_reason`, `retry_count`, and the
 stat fields `hunger`, `thirst`, `fatigue`, `endurance`, `zombies`,
-`bleeding`, `str`, `fit`, plus the V4.1 action-perk levels `wood`, `doc`
-(Woodwork / Doctor) appended after `fit`. Schema v2 lines are identical
-minus the trailing `wood`/`doc` pair and still parse everywhere.
+`bleeding`, `str`, `fit`, plus the V4.1 action-perk level `doc` (Doctor)
+appended after `fit`.
+
+Schema history and compatibility: v2 lines end at `fit`; v3 (V4.1) appended
+`wood`,`doc`; v4 (V5.0) dropped `wood` again with the barricading feature.
+v4 is therefore the first non-additive change, and it is safe because both
+offline parsers are key=value readers that require only `action` and
+`run_tick`. `triage_run_log.py` coerces `wood` when present and never
+consumes it; `benchmark.py` never listed it. Every version parses, including
+a single file that spans the upgrade, so pre-V5.0 run logs on disk stay
+fully readable.
 
 Rotation (V3.3): once per session, on the first append per player, if the
 run log exceeds `TELEMETRY_MAX_LINES` (20,000) the oldest lines are dropped
