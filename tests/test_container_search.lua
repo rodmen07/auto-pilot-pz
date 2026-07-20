@@ -619,6 +619,48 @@ do
     assert_eq("the bag's container is reported", cont, bag:getItemContainer())
 end
 
+print("\n=== V5.1 Test 31: an ordinary item is NEVER probed for a sub-container ===")
+do
+    -- The V4.8 regression: getItemContainer() was called on every carried item
+    -- behind a pcall.  Functionally that read as "not a container", but on a
+    -- real 42.19 client the call raises a JAVA exception that pcall does not
+    -- stop PZ logging, so the console and the in-game ERROR badge filled up on
+    -- every survival tick.  A mock cannot reproduce PZ's logging, so the fix is
+    -- asserted directly: an ordinary item must be type-checked and skipped
+    -- WITHOUT the probe ever being attempted.
+    local probed = false
+    local plain = makeItem({ name = "Screwdriver" })
+    plain.getItemContainer = function(_self)
+        probed = true
+        error("getItemContainer must never be called on a non-container item")
+    end
+    local p = MockContainer.attach(player(), MockContainer.new({ plain }))
+
+    local seen = {}
+    AutoPilot_Utils.iteratePlayerItems(p, function(item) table.insert(seen, item) end)
+
+    assert_eq("the ordinary item is still visited", #seen, 1)
+    assert_eq("it was never probed for a sub-container", probed, false)
+end
+
+print("\n=== V5.1 Test 32: a real bag IS probed and its contents visited ===")
+do
+    -- The type check must not over-correct into skipping genuine containers.
+    local inner = makeItem({ name = "Bandage" })
+    local bag   = MockContainer.bag("FannyPack", { inner })
+    local p     = MockContainer.attach(player(), MockContainer.new({ bag }))
+
+    assert_eq("the bag type-checks as a container",
+        instanceof(bag, "InventoryContainer"), true)
+
+    local names = {}
+    AutoPilot_Utils.iteratePlayerItems(p, function(item)
+        table.insert(names, item:getName())
+    end)
+    assert_eq("both the bag and its contents are visited", #names, 2)
+    assert_eq("the nested item is reached", names[2], "Bandage")
+end
+
 -- ── Summary ───────────────────────────────────────────────────────────────────
 print(string.format("\n=== Results: %d passed, %d failed ===", PASS, FAIL))
 if FAIL > 0 then os.exit(1) end

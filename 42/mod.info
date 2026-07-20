@@ -3,6 +3,6 @@ poster=poster.png
 id=AutoPilot
 description=Auto-exercise leveler for Build 42. Inactive on spawn: stabilize first (clear the area, stock supplies), then press F10 to start the grind. Pick a focus in the F11 panel: Strength (push-ups), Fitness (squats, switching to sit-ups while the legs are stiff), or Auto (burpees, training both). Carried dumbbells/barbells unlock stronger lifts, and gear is fetched from home storage daily. Tunables and keybinds live under Options > Mods. The panel tracks XP gained, XP/hour, and time to next level. While training, survival acts as a FAIL-SAFE, not a full autopilot: eats, drinks, sleeps, bandages wounds, and fights or flees when zombies actually threaten (distant wanderers are ignored). Learns from your deaths and adjusts its survival thresholds within safe bounds. Multiplayer compatible: client-side only, each player automates their own character; safe to list on hosted servers.
 url=https://github.com/rodmen07/auto-pilot-pz
-modversion=5.0
+modversion=5.1
 pzversion=42.19.0
 tags=Multiplayer;Build 42;QualityOfLife;AFK;Skills
