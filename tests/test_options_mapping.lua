@@ -218,6 +218,65 @@ do
         AutoPilot_Constants.EXERCISE_DAILY_CAP, 0)
 end
 
+print("\n-- Test 8 (V5.4): the endurance-recovery sliders join the survival group")
+do
+    for _, id in ipairs({ "sitPct", "restTargetPct", "restHoldMin" }) do
+        assert_true(id .. " slider registered", slider(id) ~= nil)
+        assert_eq(id .. " grouped under Survival Fail-Safe",
+            groupOf(id), "Survival Fail-Safe")
+    end
+    assert_eq("the sit slider names the behaviour it controls",
+        slider("sitPct").name, "Sit to recover when endurance falls below (%)")
+    assert_eq("the target slider names the behaviour it controls",
+        slider("restTargetPct").name, "Stay seated until endurance reaches (%)")
+    assert_eq("the hold slider is in GAME minutes, not real seconds",
+        slider("restHoldMin").name, "Max time seated per rest (game minutes)")
+end
+
+print("\n-- Test 9 (V5.4): the sliders open on the shipped defaults")
+do
+    assert_near("ENDURANCE_SIT_MIN defaults to the exercise threshold",
+        AutoPilot_Constants.ENDURANCE_SIT_MIN, 0.50, 1e-9)
+    assert_near("ENDURANCE_REST_TARGET defaults to 0.70",
+        AutoPilot_Constants.ENDURANCE_REST_TARGET, 0.70, 1e-9)
+    assert_eq("REST_HOLD_MS defaults to 30 game minutes",
+        AutoPilot_Constants.REST_HOLD_MS, 30 * 60 * 1000)
+    assert_near("sit slider opens at 50",  slider("sitPct").default, 50, 1e-9)
+    assert_near("target slider opens at 70",
+        slider("restTargetPct").default, 70, 1e-9)
+    assert_near("hold slider opens at 30", slider("restHoldMin").default, 30, 1e-9)
+    -- The stand-up target must sit ABOVE the sit-down threshold or the
+    -- character oscillates on one number.
+    assert_true("the shipped target is above the shipped sit threshold",
+        AutoPilot_Constants.ENDURANCE_REST_TARGET
+            > AutoPilot_Constants.ENDURANCE_SIT_MIN)
+end
+
+print("\n-- Test 10 (V5.4): saving maps through the right scales")
+do
+    saveOption("sitPct", 65)
+    assert_near("slider 65 yields ENDURANCE_SIT_MIN 0.65",
+        AutoPilot_Constants.ENDURANCE_SIT_MIN, 0.65, 1e-9)
+    saveOption("restTargetPct", 85)
+    assert_near("slider 85 yields ENDURANCE_REST_TARGET 0.85",
+        AutoPilot_Constants.ENDURANCE_REST_TARGET, 0.85, 1e-9)
+    saveOption("restHoldMin", 45)
+    assert_eq("slider 45 yields 45 game minutes in ms",
+        AutoPilot_Constants.REST_HOLD_MS, 45 * 60000)
+    saveOption("restHoldMin", 5)
+    assert_eq("the floor is 5 game minutes, still far past the old 60000 ms",
+        AutoPilot_Constants.REST_HOLD_MS, 5 * 60000)
+    assert_true("even the floor outlasts the pre-V5.4 one-minute hold",
+        AutoPilot_Constants.REST_HOLD_MS > 60000)
+
+    -- Restore the shipped defaults for the no-op round-trip below.
+    saveOption("sitPct", 50)
+    saveOption("restTargetPct", 70)
+    saveOption("restHoldMin", 30)
+    assert_near("back to the shipped sit threshold",
+        AutoPilot_Constants.ENDURANCE_SIT_MIN, 0.50, 1e-9)
+end
+
 -- ── Summary ───────────────────────────────────────────────────────────────────
 print(("\n=== Results: %d passed, %d failed ==="):format(PASS, FAIL))
 if FAIL > 0 then
