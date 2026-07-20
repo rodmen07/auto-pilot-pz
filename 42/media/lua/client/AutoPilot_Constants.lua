@@ -12,6 +12,27 @@
 
 AutoPilot_Constants = {}
 
+-- Mod version (V5.3) --------------------------------------------------------
+-- The version string the RUNNING code reports, surfaced in the F11 panel
+-- title so a player can tell at a glance which build is actually loaded.
+--
+-- Why a compiled-in constant and not a runtime read of mod.info: Kahlua is
+-- sandboxed and this mod has no verified engine surface for reading its own
+-- mod.info (getFileReader only reaches ~/Zomboid, not the mod folder, and
+-- nothing in the verified 42.19 surface exposes the mod metadata table).  So
+-- the value is duplicated here on purpose, and the duplication is guarded:
+-- tests/test_version_sync.py fails the build unless this string equals
+-- `modversion=` in BOTH mod.info files and the README's "Current modversion:"
+-- line.  A release commit must therefore bump all four together.
+--
+-- This exists because of a real incident: the Workshop copy cached on the
+-- user's machine was modversion 3.2 while the source tree was 4.3, and the
+-- mismatch was invisible in game until it was dug out by hand.
+--
+-- NOT a tunable: never written by AutoPilot_Options, never read by any
+-- decision path.  Presentation only.
+AutoPilot_Constants.VERSION = "5.1"
+
 -- Search radii (in tiles) --------------------------------------------------
 
 -- Spiral-snap radius when resolving a walk target to the nearest free square.

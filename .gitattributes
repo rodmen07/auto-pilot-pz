@@ -1,0 +1,22 @@
+# .gitattributes - line-ending policy for this repo.
+#
+# Added in V5.3 after a real failure: the user ran `bash sync_workshop.sh`
+# during release staging and got
+#     sync_workshop.sh: line 9: $'\r': command not found
+#     : invalid option namee 10: set: pipefail
+# because git's global core.autocrlf=true had checked the script out with
+# CRLF terminators, and bash treats the trailing \r as part of each command.
+# Without a .gitattributes this recurs on every checkout of every shell
+# script, so the policy is pinned here rather than left to each machine's
+# git config.
+#
+# * text=auto  : git decides text vs binary and stores LF in the repo.
+#                Working-tree endings still follow core.autocrlf, so .bat
+#                files keep their native CRLF on Windows.
+# *.sh eol=lf  : shell scripts are checked out with LF ALWAYS, on every
+#                platform, because bash cannot parse them otherwise.
+#
+# Nothing here forces CRLF on anything.
+
+* text=auto
+*.sh text eol=lf

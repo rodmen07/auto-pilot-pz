@@ -9,7 +9,9 @@
 -- sparkline, all pre-formatted by AutoPilot_SessionHistory (the UI renders
 -- strings only; the data layer owns the logic and the tests).  V4.3 adds
 -- the training-program day line ("today: STR day (program: ...)"), also
--- pre-formatted, by AutoPilot_Leveler.getProgramStatus.
+-- pre-formatted, by AutoPilot_Leveler.getProgramStatus.  V5.3 puts the
+-- loaded mod version in the window title ("AutoPilot Leveler  v5.1"), which
+-- is the only in-game answer to "which build is this server running".
 --
 -- Built on vanilla ISUI widgets (ISCollapsableWindow + ISButton), standard
 -- :new -> :initialise -> :addToUIManager pattern.  Configures the LOCAL
@@ -89,6 +91,28 @@ function AutoPilot_UI:onToggleArm(_button)
 end
 
 -- ── Rendering ────────────────────────────────────────────────────────────────
+
+--- V5.3: panel title carrying the version of the code that is ACTUALLY
+--- loaded, e.g. "AutoPilot Leveler  v5.1".
+---
+--- Pure string formatting, deliberately factored out of :new so it can be
+--- unit-tested: no suite instantiates the panel (it needs the live ISUI
+--- widgets), but tests/test_version_constant.lua stubs only the two
+--- load-time widget calls and then exercises this function for real.
+---
+--- The title bar is the chosen home for the version because it costs the
+--- panel no extra row (the height arithmetic in createChildren is
+--- unchanged) and it stays readable even when the window is collapsed.
+--- @param version string|nil  AutoPilot_Constants.VERSION
+--- @return string
+function AutoPilot_UI.formatTitle(version)
+    if type(version) ~= "string" or version == "" then
+        -- Constants missing or malformed: degrade to the pre-V5.3 title
+        -- rather than drawing "v nil" at the top of the panel.
+        return "AutoPilot Leveler"
+    end
+    return "AutoPilot Leveler  v" .. version
+end
 
 local function _fmtHours(h)
     if not h then return "?" end
@@ -274,7 +298,10 @@ function AutoPilot_UI:new(x, y)
     setmetatable(o, self)
     self.__index = self
     o:setResizable(false)
-    o.title = "AutoPilot Leveler"
+    -- V5.3: the title reports the loaded version, so "which build is this
+    -- server actually running" is answerable with one keypress (F11).
+    o.title = AutoPilot_UI.formatTitle(
+        AutoPilot_Constants and AutoPilot_Constants.VERSION or nil)
     return o
 end
 
