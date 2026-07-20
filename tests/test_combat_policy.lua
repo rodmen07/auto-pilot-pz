@@ -193,15 +193,26 @@ do
     assert_true("3 blocked flee attempts did not crash", true)
 end
 
--- ── Test 4: Safehouse mode always redirects fight to flee ─────────────────────
+-- ── Test 4: Safehouse mode redirects fight to flee (retreat resolvable) ──────
 print("\n=== Combat Test 4: Safehouse mode redirects fight to flee ===")
 do
     ISTimedActionQueue_calls = {}
+    AutoPilot_Threat._engageActive = false
+    AutoPilot_Threat._fleeActive   = false
+    AutoPilot_Threat._fleeCooldown = 0
     AutoPilot_Inventory._bestWeapon = { getMaxDamage = function() return 5 end }
 
     local p = makePlayer({playerNum=0, moodles = { ENDURANCE=0, Unhappy=0 }})
     -- Home set → safehouse conservative mode
     AutoPilot_Home.set(p)
+
+    -- The retreat square must actually resolve, or there is nowhere to run to
+    -- and the V5.6 fail-safe correctly fights instead (see Test 5).
+    local retreatSq = makeSquare(20, 20, 0)
+    local origFind = AutoPilot_Utils.findNearestSquare
+    AutoPilot_Utils.findNearestSquare = function(_cx, _cy, _cz, _r, _pred)
+        return retreatSq
+    end
 
     -- Only 1 zombie → would normally fight, but home set redirects to flee
     local zombie = makeZombie(4, 4, true)
@@ -210,17 +221,67 @@ do
 
     AutoPilot_Threat.check(p)
 
-    AutoPilot_Threat.getNearbyZombies = origGet
+    AutoPilot_Threat.getNearbyZombies    = origGet
+    AutoPilot_Utils.findNearestSquare    = origFind
 
     -- With home set, doFight redirects to doFlee — no "walk to zombie" should appear
     local walkedToZombie = false
+    local walkedToRetreat = false
     for _, a in ipairs(ISTimedActionQueue_calls) do
         -- A walk action toward (4,4) would indicate fight not flee
         if a.type == "walk" and a.sq and a.sq:getX() == 4 and a.sq:getY() == 4 then
             walkedToZombie = true
         end
+        if a.type == "walk" and a.sq == retreatSq then walkedToRetreat = true end
     end
     assert_false("No direct walk-to-zombie in safehouse mode", walkedToZombie)
+    assert_true("Safehouse retreat walk queued", walkedToRetreat)
+    assert_eq("Safehouse redirect is reported as flee_safehouse",
+        AutoPilot_Threat.getEngageReason and AutoPilot_Threat.getEngageReason() or "threat",
+        "flee_safehouse")
+end
+
+-- ── Test 5 (V5.6): an UNRESOLVABLE safehouse retreat must still act ──────────
+-- Pre-V5.6 this was the fatal case: home is auto-anchored on the first armed
+-- cycle, so doFight always redirected into doFlee; when doFlee could not
+-- resolve a square, the horde fallback `if not doFlee() then doFight() end`
+-- called that same failing flee a second time and queued NOTHING.  The
+-- character stood still and was eaten (live log: 175 combat ticks, endurance
+-- frozen at 52, bleeding 0 -> 7, then action=dead).
+print("\n=== Combat Test 5 (V5.6): unresolvable retreat falls back to fighting ===")
+do
+    ISTimedActionQueue_calls = {}
+    AutoPilot_Threat._engageActive = false
+    AutoPilot_Threat._fleeActive   = false
+    AutoPilot_Threat._fleeCooldown = 0
+    AutoPilot_Inventory._bestWeapon = {
+        getMaxDamage    = function() return 10 end,
+        getCondition    = function() return 10 end,
+        getConditionMax = function() return 10 end,
+    }
+
+    local p = makePlayer({playerNum=0, moodles = { ENDURANCE=0, Unhappy=0 }})
+    p.getPrimaryHandItem = function(_self) return nil end
+    AutoPilot_Home.set(p)
+
+    -- findNearestSquare stays stubbed to nil (top of file) → no retreat square.
+    local zombie = makeZombie(4, 4, true)
+    local origGet = AutoPilot_Threat.getNearbyZombies
+    AutoPilot_Threat.getNearbyZombies = function(_) return {zombie} end
+
+    AutoPilot_Threat.check(p)
+    AutoPilot_Threat.getNearbyZombies = origGet
+
+    assert_true("something was queued instead of standing still",
+        #ISTimedActionQueue_calls > 0)
+    local walkedToZombie = false
+    for _, a in ipairs(ISTimedActionQueue_calls) do
+        if a.type == "walk" and a.sq and a.sq:getX() == 4 and a.sq:getY() == 4 then
+            walkedToZombie = true
+        end
+    end
+    assert_true("the character walks to the zombie when it cannot retreat",
+        walkedToZombie)
 end
 
 -- ── Summary ───────────────────────────────────────────────────────────────────

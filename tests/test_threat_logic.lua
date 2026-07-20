@@ -89,6 +89,12 @@ local function reset()
     AutoPilot_Inventory._weapon = nil
     AutoPilot_Inventory._weaponCont = nil
     AutoPilot_Home._homeSet     = false
+    -- V5.6 engage state is module-level; a leftover guard would make the next
+    -- case return early before it ever reaches a decision.
+    AutoPilot_Threat._engageActive = false
+    AutoPilot_Threat._fleeActive   = false
+    AutoPilot_Threat._fleeCooldown = 0
+    AutoPilot_Threat._engageReason = "threat"
 end
 
 -- ── World helpers ─────────────────────────────────────────────────────────────
@@ -367,6 +373,359 @@ do
         AutoPilot_Threat.check(player))
     assert_eq("no transfer action queued", indexOfType("transfer"), nil)
     assert_true("the equip still happens", indexOfType("equip_weapon") ~= nil)
+end
+
+-- ══ V5.6: fight and flee must ACTUALLY EXECUTE ═══════════════════════════════
+-- Regression cover for the user-reported HIGH severity bug ("the fight/flee
+-- mechanic is not working as expected").  Live run log: a 175-tick combat
+-- streak with zombies=7 and endurance=52 FROZEN throughout, ending in
+-- action=dead with bleeding climbing 0 -> 5 -> 7.  Nothing was executing:
+-- check() cleared the action queue on every tick, so whatever it queued 0.75 s
+-- earlier was destroyed before it could run, and with home auto-anchored the
+-- fight fallback bounced back into the flee that had just failed and queued
+-- nothing at all.
+
+-- A queue model faithful enough to reproduce the spin: clear() really empties
+-- the queue, and isPlayerDoingAction() reports whether anything is left (the
+-- real B42 helper the engage guard checks; isAllDone does not exist).
+local ISTQ_clears = 0
+
+local function installQueueModel()
+    ISTQ_clears = 0
+    ISTimedActionQueue_calls = {}
+    ISTimedActionQueue.clear = function(_p)
+        ISTQ_clears = ISTQ_clears + 1
+        ISTimedActionQueue_calls = {}
+    end
+    ISTimedActionQueue.isPlayerDoingAction = function(_p)
+        return #ISTimedActionQueue_calls > 0
+    end
+    ISTimedActionQueue.getTimedActionQueue = function(_p)
+        return { queue = { ISTimedActionQueue_calls[1] } }
+    end
+end
+
+local function makeSquareAt(x, y, z)
+    return {
+        getX   = function(_self) return x end,
+        getY   = function(_self) return y end,
+        getZ   = function(_self) return z or 0 end,
+        isFree = function(_self, _ignore) return true end,
+    }
+end
+
+-- A zombie that owns a square, so the fight path has somewhere to walk to.
+local function makeZombieAt(x, y)
+    local z  = makeZombie(x, y)
+    local sq = makeSquareAt(x, y, 0)
+    z.getSquare = function(_self) return sq end
+    return z
+end
+
+-- n zombies evenly spaced on a ring of the given radius around (0, 0).
+local function makeRing(n, radius)
+    local list = {}
+    for i = 1, n do
+        local a = (i - 1) * (2 * math.pi / n)
+        table.insert(list, makeZombieAt(math.cos(a) * radius, math.sin(a) * radius))
+    end
+    return list
+end
+
+local function healthyPlayer()
+    local p = MockPlayer.new({
+        stats = {
+            HUNGER = 0.05, THIRST = 0.05, FATIGUE = 0.10, ENDURANCE = 0.90,
+            PANIC  = 0,    PAIN   = 0,    SICKNESS = 0,
+            STRESS = 0,    SANITY = 0,
+        },
+    })
+    p.getPrimaryHandItem = function(_self) return nil end
+    return p
+end
+
+local function engageReason()
+    if AutoPilot_Threat.getEngageReason then
+        return AutoPilot_Threat.getEngageReason()
+    end
+    return "threat"
+end
+
+-- 15. THE HEADLINE SPIN.  7 zombies, no escape square anywhere: a fight must be
+-- queued AND must still be there on the next tick.
+print("\n-- Test 15 (V5.6): a fallback fight survives the next tick (the spin)")
+do
+    reset(); installQueueModel()
+    AutoPilot_Inventory._weapon = makeUsableWeapon()
+    setZombies(makeRing(7, 4))          -- 7 >= FLEE_HORDE_SIZE → flee branch
+    local player = healthyPlayer()
+
+    assert_true("tick 1: check() returns true", AutoPilot_Threat.check(player))
+    local queuedAfterTick1 = #ISTimedActionQueue_calls
+    assert_true("tick 1: the fallback fight queued something",
+        queuedAfterTick1 > 0)
+    assert_eq("tick 1: reported as fight_no_escape", engageReason(),
+        "fight_no_escape")
+
+    local clearsAfterTick1 = ISTQ_clears
+    assert_true("tick 2: check() returns true", AutoPilot_Threat.check(player))
+    assert_eq("tick 2: the queue was NOT cleared out from under the fight",
+        ISTQ_clears, clearsAfterTick1)
+    assert_eq("tick 2: the queued fight actions survived",
+        #ISTimedActionQueue_calls, queuedAfterTick1)
+    assert_eq("tick 2: reported as engage_running", engageReason(),
+        "engage_running")
+end
+
+-- 16. The same spin with HOME SET, which is the LIVE configuration: Main
+-- auto-anchors home on the first armed cycle, so pre-V5.6 doFight redirected
+-- into the failing doFlee and queued nothing at all.
+print("\n-- Test 16 (V5.6): home set + no escape square still queues a fight")
+do
+    reset(); installQueueModel()
+    AutoPilot_Home._homeSet     = true
+    AutoPilot_Inventory._weapon = makeUsableWeapon()
+    setZombies(makeRing(7, 4))
+    local player = healthyPlayer()
+
+    assert_true("check() returns true", AutoPilot_Threat.check(player))
+    assert_true("a fight was queued despite safehouse mode",
+        #ISTimedActionQueue_calls > 0)
+    assert_eq("reported as fight_no_escape", engageReason(), "fight_no_escape")
+end
+
+-- 17. A SUCCESSFUL flee still sets its guard and is not re-cleared.
+print("\n-- Test 17 (V5.6): a successful flee is left alone on the next tick")
+do
+    reset(); installQueueModel()
+    AutoPilot_Inventory._weapon = makeUsableWeapon()
+    setZombies(makeRing(7, 4))
+    local player = healthyPlayer()
+
+    local escapeSq = makeSquareAt(20, 20, 0)
+    local origFind = AutoPilot_Utils.findNearestSquare
+    AutoPilot_Utils.findNearestSquare = function(_cx, _cy, _cz, _r, _pred)
+        return escapeSq
+    end
+
+    assert_true("tick 1: check() returns true", AutoPilot_Threat.check(player))
+    assert_eq("tick 1: one walk queued", #ISTimedActionQueue_calls, 1)
+    assert_eq("tick 1: it walks to the escape square",
+        ISTimedActionQueue_calls[1].sq, escapeSq)
+    assert_eq("tick 1: reported as flee_horde", engageReason(), "flee_horde")
+    assert_true("tick 1: the flee guard is set", AutoPilot_Threat._fleeActive)
+
+    local clearsAfterTick1 = ISTQ_clears
+    assert_true("tick 2: check() returns true", AutoPilot_Threat.check(player))
+    assert_eq("tick 2: the flee walk was not cleared", ISTQ_clears, clearsAfterTick1)
+    assert_eq("tick 2: the flee walk is still queued",
+        ISTimedActionQueue_calls[1].sq, escapeSq)
+
+    AutoPilot_Utils.findNearestSquare = origFind
+end
+
+-- 18. V4.5 OWNERSHIP: a foreign (non-mod-queued) action is never cleared,
+-- not even in combat.
+print("\n-- Test 18 (V5.6/V4.5): combat never clears a foreign action")
+do
+    reset(); installQueueModel()
+    AutoPilot_Inventory._weapon = makeUsableWeapon()
+    setZombies(makeRing(7, 4))
+    local player = healthyPlayer()
+
+    -- A player-queued action: present in the queue, NOT in the ownership
+    -- registry (AutoPilot_Utils.tagModAction was never called on it).
+    local foreign = { type = "foreign_action" }
+    table.insert(ISTimedActionQueue_calls, foreign)
+    assert_false("sanity: the foreign action is not a mod action",
+        AutoPilot_Utils.isModAction(foreign))
+
+    assert_true("check() returns true", AutoPilot_Threat.check(player))
+    assert_eq("clear() was never called on a foreign action", ISTQ_clears, 0)
+    assert_eq("the foreign action is still at the head of the queue",
+        ISTimedActionQueue_calls[1], foreign)
+end
+
+-- 19. A mod-queued NON-engage action (e.g. an exercise set) may still be
+-- cleared to make room for the combat response.
+print("\n-- Test 19 (V5.6): the mod's own non-combat action is cleared for combat")
+do
+    reset(); installQueueModel()
+    AutoPilot_Inventory._weapon = makeUsableWeapon()
+    setZombies(makeRing(7, 4))
+    local player = healthyPlayer()
+
+    local ownAction = AutoPilot_Utils.tagModAction({ type = "exercise" })
+    table.insert(ISTimedActionQueue_calls, ownAction)
+
+    assert_true("check() returns true", AutoPilot_Threat.check(player))
+    assert_eq("the mod's own exercise was cleared once", ISTQ_clears, 1)
+    assert_true("a combat action replaced it", #ISTimedActionQueue_calls > 0)
+    assert_false("the exercise is gone",
+        ISTimedActionQueue_calls[1] == ownAction)
+end
+
+-- 20. Every priority branch still selects the right intent, and now says so.
+print("\n-- Test 20 (V5.6): each priority branch emits its own telemetry reason")
+do
+    -- An escape square IS available throughout this case, so each flee branch
+    -- reports its own decision rather than the fight_no_escape fallback.
+    local escapeSq = makeSquareAt(20, 20, 0)
+    local origFind = AutoPilot_Utils.findNearestSquare
+    AutoPilot_Utils.findNearestSquare = function(_cx, _cy, _cz, _r, _pred)
+        return escapeSq
+    end
+
+    -- Priority 1: bleeding always flees.
+    reset(); installQueueModel()
+    AutoPilot_Medical._bleeding = true
+    AutoPilot_Inventory._weapon = makeUsableWeapon()
+    setZombies({ makeZombieAt(3, 3) })
+    AutoPilot_Threat.check(healthyPlayer())
+    assert_eq("bleeding → flee_wounded", engageReason(), "flee_wounded")
+
+    -- Priority 2: horde.
+    reset(); installQueueModel()
+    AutoPilot_Inventory._weapon = makeUsableWeapon()
+    setZombies(makeRing(AutoPilot_Constants.FLEE_HORDE_SIZE, 4))
+    AutoPilot_Threat.check(healthyPlayer())
+    assert_eq("horde → flee_horde", engageReason(), "flee_horde")
+
+    -- Priority 3: no usable weapon and outnumbered.
+    reset(); installQueueModel()
+    AutoPilot_Inventory._weapon = nil
+    setZombies({ makeZombieAt(2, 2), makeZombieAt(4, 4) })
+    AutoPilot_Threat.check(healthyPlayer())
+    assert_eq("unarmed and outnumbered → flee_unarmed", engageReason(),
+        "flee_unarmed")
+
+    -- Priority 4: encircled (5 zombies at 72 degrees apart, all gaps < 90).
+    reset(); installQueueModel()
+    AutoPilot_Inventory._weapon = makeUsableWeapon()
+    setZombies(makeRing(5, 4))
+    AutoPilot_Threat.check(healthyPlayer())
+    assert_eq("encircled → fight_encircled", engageReason(), "fight_encircled")
+
+    -- Priority 5a: too many negative moodles.
+    reset(); installQueueModel()
+    AutoPilot_Inventory._weapon = makeUsableWeapon()
+    setZombies({ makeZombieAt(3, 3) })
+    AutoPilot_Threat.check(MockPlayer.new({
+        stats = { HUNGER = 0.50, THIRST = 0.50, FATIGUE = 0.70, PANIC = 50 },
+    }))
+    assert_eq("moodle limit exceeded → flee_moodles", engageReason(),
+        "flee_moodles")
+
+    -- Priority 5b: healthy, armed, one zombie → fight.
+    reset(); installQueueModel()
+    AutoPilot_Inventory._weapon = makeUsableWeapon()
+    setZombies({ makeZombieAt(3, 3) })
+    AutoPilot_Threat.check(healthyPlayer())
+    assert_eq("healthy and armed → fight_default", engageReason(),
+        "fight_default")
+
+    -- And when the escape square disappears, a flee branch reports the
+    -- fallback instead of silently doing nothing.
+    AutoPilot_Utils.findNearestSquare = function(_cx, _cy, _cz, _r, _pred)
+        return nil
+    end
+    reset(); installQueueModel()
+    AutoPilot_Inventory._weapon = makeUsableWeapon()
+    setZombies(makeRing(AutoPilot_Constants.FLEE_HORDE_SIZE, 4))
+    AutoPilot_Threat.check(healthyPlayer())
+    assert_eq("horde with no escape → fight_no_escape", engageReason(),
+        "fight_no_escape")
+
+    AutoPilot_Utils.findNearestSquare = origFind
+end
+
+-- 21. The encircled branch must NOT be redirected into a safehouse retreat:
+-- priority 4 exists precisely because fleeing is unsafe when surrounded.
+print("\n-- Test 21 (V5.6): encircled fights through the gap even with home set")
+do
+    reset(); installQueueModel()
+    AutoPilot_Home._homeSet     = true
+    AutoPilot_Inventory._weapon = makeUsableWeapon()
+    setZombies(makeRing(5, 4))
+    local player = healthyPlayer()
+
+    local homeSq   = makeSquareAt(0, 30, 0)
+    local origFind = AutoPilot_Utils.findNearestSquare
+    AutoPilot_Utils.findNearestSquare = function(_cx, _cy, _cz, _r, _pred)
+        return homeSq
+    end
+
+    assert_true("check() returns true", AutoPilot_Threat.check(player))
+    assert_eq("still reported as fight_encircled", engageReason(),
+        "fight_encircled")
+    local fledHome = false
+    for _, a in ipairs(ISTimedActionQueue_calls) do
+        if a.type == "walk" and a.sq == homeSq then fledHome = true end
+    end
+    assert_false("no retreat walk was queued while encircled", fledHome)
+
+    AutoPilot_Utils.findNearestSquare = origFind
+end
+
+-- 22. The escape destination must never be the tile the player already stands
+-- on: a walk to your own square completes instantly and escapes nothing (the
+-- home anchor IS that tile whenever the mod was armed on the spot).
+print("\n-- Test 22 (V5.6): the player's own square is not a flee destination")
+do
+    reset(); installQueueModel()
+    AutoPilot_Home._homeSet     = true
+    AutoPilot_Inventory._weapon = makeUsableWeapon()
+    setZombies(makeRing(7, 4))
+    local player = healthyPlayer()   -- MockPlayer sits at (0, 0, 0)
+
+    local ownSq    = makeSquareAt(0, 0, 0)
+    local origFind = AutoPilot_Utils.findNearestSquare
+    AutoPilot_Utils.findNearestSquare = function(_cx, _cy, _cz, _r, _pred)
+        return ownSq
+    end
+
+    assert_true("check() returns true", AutoPilot_Threat.check(player))
+    local walkedInPlace = false
+    for _, a in ipairs(ISTimedActionQueue_calls) do
+        if a.type == "walk" and a.sq == ownSq then walkedInPlace = true end
+    end
+    assert_false("no zero-length walk was queued", walkedInPlace)
+    assert_eq("falls back to fighting instead", engageReason(),
+        "fight_no_escape")
+
+    AutoPilot_Utils.findNearestSquare = origFind
+end
+
+-- 23. The escape-arc target is passed to the square lookup as ABSOLUTE world
+-- coordinates.  Pre-V5.6 it was clamped against cell:getWidth()/getHeight()
+-- (loaded-cell dimensions, a few hundred tiles), which squashed any real map
+-- position into a square that does not exist, so every non-home flee failed.
+print("\n-- Test 23 (V5.6): flee targets use unclamped world coordinates")
+do
+    reset(); installQueueModel()
+    AutoPilot_Inventory._weapon = makeUsableWeapon()
+    setZombies({ makeZombieAt(10600, 9200) })
+
+    -- A player standing at a REAL Muldraugh-scale world position.
+    local player = healthyPlayer()
+    player.getX = function(_self) return 10604 end
+    player.getY = function(_self) return 9204 end
+    AutoPilot_Medical._bleeding = true   -- priority 1 → flee
+
+    local seenX, seenY = nil, nil
+    local origFind = AutoPilot_Utils.findNearestSquare
+    AutoPilot_Utils.findNearestSquare = function(cx, cy, _cz, _r, _pred)
+        seenX, seenY = cx, cy
+        return nil
+    end
+
+    AutoPilot_Threat.check(player)
+    AutoPilot_Utils.findNearestSquare = origFind
+
+    assert_true("the flee target keeps world-scale X",
+        seenX ~= nil and seenX > 10000)
+    assert_true("the flee target keeps world-scale Y",
+        seenY ~= nil and seenY > 9000)
 end
 
 -- ── Summary ───────────────────────────────────────────────────────────────────
