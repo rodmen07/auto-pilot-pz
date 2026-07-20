@@ -149,11 +149,37 @@
 --          WIDGETS remain playtest-only (a mock cannot prove the real page
 --          draws), and the registration stays pcall plus existence guarded
 --          so it falls back to compiled-in defaults.  PARTIAL GAP.
+--          V5.7: the "Min endurance to start a set" slider became a PAIR
+--          ("Resume training when endurance reaches" / "Keep training until
+--          endurance falls to").  Nothing new on the engine surface -- both
+--          are addSlider, same as everything else here -- but the reason is
+--          worth recording next to the widget gap: a SINGLE endurance
+--          threshold was serving as both the start gate and the stop gate,
+--          which thrashes at any value (user, from live play: "only a single
+--          rep would be completed after a period of resting").  The suite
+--          asserts the pair, the run-state machine that makes two gates
+--          possible, and every path that ends a run.
 --          V4.3 (C3): the training-program selector rides this same gap.
---          addComboBox is NOT in the verified record: the registration
---          existence-checks it inside its own pcall and falls back to an
---          addSlider over the 1-based program indices (verified surface);
---          the picked value is copied into the live-read
+--          addComboBox is NOT in the verified record.  V5.7 (BUG FIX):
+--          "not in the verified record" turned out to mean the control was
+--          BROKEN IN GAME, not merely unproven.  The pre-V5.7 registration
+--          existence-checked addComboBox inside its own pcall and treated a
+--          successful pcall as proof the widget worked; on a real 42.19
+--          client the method EXISTS and the call SUCCEEDS, so the guard
+--          passed, the addSlider fallback never fired, and a user screenshot
+--          of the working (V5.5) options page shows the dropdown rendered
+--          with ZERO items in it.  The lesson is the V5.1 one again: an
+--          unverified call that does not throw is not an unverified call
+--          that works, and a mock cannot tell the difference.  The combo
+--          call is gone; the program picker is now unconditionally the
+--          addSlider over the 1-based program indices (verified surface),
+--          and test_options_mapping's suite-local mock now PROVIDES an
+--          addComboBox that accepts the call and populates nothing, so the
+--          suite finally models the live client instead of the one shape of
+--          page that always took the fallback.  It asserts the module never
+--          calls it.  Restoring a dropdown requires a verified signature
+--          AND a positive population check, not just a call that returns.
+--          The picked value is copied into the live-read
 --          AutoPilot_Constants.TRAINING_PROGRAM, and the Leveler side of
 --          that seam (validation, day resolution, rest-day yield) is what
 --          test_leveler_metrics covers.  The widget itself stays

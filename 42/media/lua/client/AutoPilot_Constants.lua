@@ -130,18 +130,24 @@ AutoPilot_Constants.WEAPON_FIGHT_CONDITION_MIN = 0.15
 -- Endurance is inverted: 1.0 = full, 0.0 = empty.
 -- Boredom / sanity / panic use an integer 0-100 scale in B42.
 
--- Trigger eating when hunger >= 20%.  Gives enough lead time to find food before
+-- Trigger eating when hunger >= 15%.  Gives enough lead time to find food before
 -- the moodle escalates from "Hungry" to "Very Hungry".
 -- V4.7: player-tunable ("Eat when hunger reaches (%)", Survival Fail-Safe group).
 -- Live-read constant (V3.3 pattern: AutoPilot_Needs.check re-reads it at every
 -- decision, so an options-save applies on the very next cycle).  A character who
--- never crosses 20% simply never triggers the eat branch: lower this to eat
--- sooner.  Default deliberately unchanged.
-AutoPilot_Constants.HUNGER_THRESHOLD = 0.20
+-- never crosses this simply never triggers the eat branch: lower it to eat
+-- sooner.
+-- V5.7: default lowered 0.20 -> 0.15.  This is the value the user dialled in on
+-- the (finally working, see V5.5) in-game options page during live play and then
+-- asked for as the shipped default: "I adjusted the settings, set these as the
+-- defaults".  Eating earlier costs nothing when food is stocked and buys more
+-- lead time to go find some when it is not.
+AutoPilot_Constants.HUNGER_THRESHOLD = 0.15
 
 -- Matched to hunger sensitivity; thirst escalates faster but same logic applies.
 -- V4.7: player-tunable ("Drink when thirst reaches (%)"); same live-read seam.
-AutoPilot_Constants.THIRST_THRESHOLD = 0.20
+-- V5.7: default lowered 0.20 -> 0.15 alongside hunger (same user request).
+AutoPilot_Constants.THIRST_THRESHOLD = 0.15
 
 -- Trigger sleep at 70% fatigue -- early enough to reach a bed before the
 -- "Exhausted" moodle fires and impairs movement.
@@ -155,28 +161,60 @@ AutoPilot_Constants.SADNESS_THRESHOLD = 20
 -- walk to a bed and hand off to sleep.  Unchanged since V1.
 AutoPilot_Constants.ENDURANCE_REST_MIN = 0.30
 
--- Do not start a new exercise set below 50% endurance; let it recover passively.
-AutoPilot_Constants.ENDURANCE_EXERCISE_MIN = 0.50
+-- V5.7 (CONSOLIDATION): ENDURANCE_EXERCISE_MIN used to live here at 0.50.  It
+-- was one of TWO transposed-name constants that BOTH gated exercise:
+--   ENDURANCE_EXERCISE_MIN = 0.50  (this one; copied into a FILE-LOCAL in
+--                                   AutoPilot_Needs, so it was NOT live-read
+--                                   and no options change could ever move it)
+--   EXERCISE_ENDURANCE_MIN = 0.30  (live-read, and the one the slider writes)
+-- Both were tested in doExercise, one immediately after the other, so the
+-- effective gate was max(0.30, 0.50) = 0.50: the untunable constant silently
+-- floored the tunable one, and the "Min endurance to start a set" slider did
+-- nothing at all below 50%.  Worse, that surviving single gate was ALSO the
+-- resume gate, which is the single-rep thrash the user reported.
+--
+-- The transposed pair is gone.  What replaced it is NOT one gate but the
+-- explicit hysteresis pair EXERCISE_ENDURANCE_MIN (floor) /
+-- EXERCISE_ENDURANCE_RESUME (start gate), documented in the Phase 2 block
+-- further down.  Both are live-read and both are slider-backed.
 
--- V5.4: sit down to recover when endurance is below this.  Defaults to the
--- exercise minimum (0.50), which CLOSES THE DEAD ZONE: before V5.4 training
+-- V5.4: sit down to recover when endurance is below this.  Tracks the
+-- exercise minimum, which CLOSES THE DEAD ZONE: before V5.4 training
 -- was gated at 50% and resting at 30%, so a character between the two could
 -- neither train nor rest and simply idled.  A live run log proved it: zero
 -- rest actions across ~16,000 ticks, idle streaks up to 403 ticks with
 -- reason=no_action, and endurance never dipping below 40% so the 30% rest
 -- gate never fired at all.  Sitting is a SEPARATE constant rather than a
--- hardcoded alias of ENDURANCE_EXERCISE_MIN so a player can decouple the two.
+-- hardcoded alias of the training gate so a player can decouple the two.
 -- V5.4: player-tunable ("Sit to recover when endurance falls below (%)").
 -- Live-read: AutoPilot_Needs.check re-reads it every decision (V3.3 pattern).
-AutoPilot_Constants.ENDURANCE_SIT_MIN = 0.50
+-- V5.7: default lowered 0.50 -> 0.35, tied to the training FLOOR rather than
+-- to the start gate.  Sitting should begin when training STOPS, and with the
+-- hysteresis pair training now runs all the way down to
+-- EXERCISE_ENDURANCE_MIN (0.30).  0.35 sits just above that floor so the
+-- character goes and sits down rather than first dipping under the floor and
+-- ending the run on the stat.
+--
+-- This value alone does NOT decide when to sit.  The use site raises it to
+-- the RESUME gate whenever no training run is active (see AutoPilot_Needs
+-- check 7b): a character who is not mid-run and is below the resume gate has
+-- nothing else to do, so it sits and keeps recovering toward
+-- ENDURANCE_REST_TARGET instead of idling.  That is what makes the idle dead
+-- zone unreachable for ANY combination of these sliders.
+AutoPilot_Constants.ENDURANCE_SIT_MIN = 0.35
 
 -- V5.4: stay seated until endurance climbs back to this.  Set ABOVE
 -- ENDURANCE_SIT_MIN on purpose: equal values would sit and stand at the same
 -- number and reintroduce the sit-stand loop the 30% floor was built to avoid.
--- 0.70 matches EXERCISE_ENDURANCE_RESUME, so the character stands up exactly
--- when it has enough endurance to train again.
 -- V5.4: player-tunable ("Stay seated until endurance reaches (%)"); live-read.
-AutoPilot_Constants.ENDURANCE_REST_TARGET = 0.70
+-- V5.7: raised 0.70 -> 0.95.  Directly from the user: "I want the character
+-- to rest until endurance is nearly full."  It must also stand the character
+-- up ABOVE EXERCISE_ENDURANCE_RESUME, or a completed rest ends in a band
+-- where training is still refused and the cycle idles again; with resume at
+-- 0.90, standing up at 0.70 would have meant every rest finished straight
+-- back into that band.  0.95 clears resume with 5 points of margin rather
+-- than matching it exactly, because equal values thrash at the boundary.
+AutoPilot_Constants.ENDURANCE_REST_TARGET = 0.95
 
 -- V5.4: maximum time held in a single rest, in GAME milliseconds.  This is a
 -- wedge guard, not the intended duration: the rest normally ends when
@@ -230,9 +268,45 @@ AutoPilot_Constants.INVENTORY_SUMMARY_MAX = 20
 -- barbell so the higher-xpMod equipment exercises unlock).
 AutoPilot_Constants.EXERCISE_EQUIP_SEARCH_RADIUS = 80  -- tiles (capped for scan cost)
 
--- Phase 2: Endurance gating thresholds (0.0-1.0)
-AutoPilot_Constants.EXERCISE_ENDURANCE_MIN    = 0.30    -- skip exercise below this
-AutoPilot_Constants.EXERCISE_ENDURANCE_RESUME = 0.70    -- resume exercise above this
+-- Phase 2 / V5.7: the exercise endurance HYSTERESIS PAIR (0.0-1.0).
+--
+-- These are TWO DIFFERENT QUESTIONS and must never collapse into one number:
+--   RESUME = "there is enough in the tank to START a training run"
+--   MIN    = "an ALREADY-RUNNING training run has to stop"
+--
+-- One threshold cannot express both, and trying made the mod useless.  The
+-- user found it live: "The old setting of 50 made it so that only a single rep
+-- would be completed after a period of resting (I guess the fatigue cap for
+-- exercise is just under 50)."  That is a textbook single-threshold thrash: at
+-- a lone gate of X the character rests up to X, starts a set, the first rep
+-- drops endurance below X, training stops, it rests again.  One rep per rest,
+-- forever.  Raising the number does not help, it makes it worse -- at 90 the
+-- very first rep falls out of the gate.  The user saw that too: "I see that
+-- the minimum endurance default of 90 is too high, but at the same time, I
+-- want the character to rest until endurance is nearly full."
+--
+-- With a gap between the two, the cycle is what was actually wanted:
+--   rest to 95% -> resume at 90% -> train all the way down to 30% (many reps)
+--   -> sit at 35% -> rest to 95% -> repeat.
+--
+-- Both are read LIVE (AutoPilot_Needs re-reads them at every decision, V3.3
+-- pattern) and both are player-tunable, so the pair can be retuned in game
+-- with no reload.  The invariant the use sites depend on is simply
+-- MIN < RESUME < ENDURANCE_REST_TARGET.
+
+-- The FLOOR: an active training run continues down to this and stops below
+-- it.  Deliberately LOW.  This is what buys a long productive run out of each
+-- rest instead of a single rep.
+-- V5.7: player-tunable ("Keep training until endurance falls to (%)").
+AutoPilot_Constants.EXERCISE_ENDURANCE_MIN = 0.30
+
+-- The START GATE: training RESUMES here after a rest.  Deliberately HIGH.
+-- This is where the user's 90 belongs: they asked for "90" against the only
+-- endurance slider the page had, and the value was right -- it was attached to
+-- the wrong gate.  Restored in V5.7 (it briefly had zero readers, which is how
+-- the single-threshold design got shipped in the first place).
+-- V5.7: player-tunable ("Resume training when endurance reaches (%)").
+AutoPilot_Constants.EXERCISE_ENDURANCE_RESUME = 0.90
 
 -- V4.6: optional hard ceiling on exercise sets per in-game day.
 -- 0 (the default) means UNLIMITED: training is limited by XP PRODUCTIVITY
