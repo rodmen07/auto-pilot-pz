@@ -197,10 +197,6 @@ AutoPilot_Constants.HAPPINESS_LOW_THRESHOLD  = 40   -- MoodleType.Unhappy level 
 -- Default 40 = same as HAPPINESS_LOW_THRESHOLD (food preferred whenever unhappy block fires).
 AutoPilot_Constants.HAPPINESS_FOOD_PRIORITY  = 40
 
--- Phase 3: Barricade maintenance
--- Re-check home perimeter for newly broken windows every this many in-game days.
-AutoPilot_Constants.BARRICADE_RECHECK_INTERVAL = 3  -- in-game days
-
 -- Phase 3: Foraging / supply run radii
 AutoPilot_Constants.LOOT_RADIUS_HOME   = 80    -- normal home-area loot radius (capped for scan cost)
 AutoPilot_Constants.LOOT_RADIUS_SUPPLY = 150   -- expanded radius for supply runs (rare; hitch accepted)
@@ -215,9 +211,6 @@ AutoPilot_Constants.WEAPON_SEARCH_RADIUS  = 80    -- tiles to search for a repla
 AutoPilot_Constants.TEMP_TOO_COLD = -20   -- equip warmer clothing below this
 AutoPilot_Constants.TEMP_TOO_HOT  =  20   -- equip lighter clothing above this
 AutoPilot_Constants.CLOTHING_SEARCH_RADIUS = 80
-
--- Phase 4: Barricading
-AutoPilot_Constants.BARRICADE_SEARCH_RADIUS = 15  -- only barricade windows/doors within home radius
 
 -- Pain / sleep arbitration ------------------------------------------------
 -- Pain (0-100 integer scale) above this value blocks the sleep transition until
@@ -253,10 +246,6 @@ AutoPilot_Constants.PROACTIVE_LOOT_RADIUS     = 25    -- tiles, home-ish only
 AutoPilot_Constants.SCAVENGE_COOLDOWN_CYCLES  = 80    -- ~1 min between trips
 AutoPilot_Constants.SCAVENGE_STUCK_LIMIT      = 3     -- attempts w/o supply gain
 AutoPilot_Constants.SCAVENGE_BACKOFF_CYCLES   = 1200  -- ~15 min after giving up
-
--- Base maintenance -----------------------------------------------------------
--- Eval cycles between barricade re-checks (~3 min at 0.75 s/cycle).
-AutoPilot_Constants.BARRICADE_RECHECK_CYCLES = 240
 
 -- Main loop timing (aliases) -----------------------------------------------
 -- TICK_INTERVAL and ACTION_COOLDOWN_CYCLES govern the main evaluation cadence:

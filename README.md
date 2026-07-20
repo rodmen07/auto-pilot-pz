@@ -115,7 +115,6 @@ Survival fail-safe:
 - AutoPilot_Inventory.lua: food/drink/loot/equipment helpers
 - AutoPilot_Medical.lua: wound detection and treatment
 - AutoPilot_Home.lua: home anchor persistence and bounds logic
-- AutoPilot_Barricade.lua: periodic barricade maintenance
 - AutoPilot_Map.lua: depleted-square tracking
 
 Learning and infrastructure:

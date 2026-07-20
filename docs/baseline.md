@@ -49,7 +49,7 @@ validates it.
 | `FLEE_MOODLE_LIMIT` | 2 | Threat.check | test_threat_logic #6/#7 |
 | `DETECTION_RADIUS` | 10 | Threat.getNearbyZombies | test_threat_logic #2/#3 |
 | `FLEE_DISTANCE` | 20 | Threat.doFlee | test_threat_logic #9 |
-| `HOME_DEFAULT_RADIUS` | 150 | Home.set | test_home_map_barricade Home#1 |
+| `HOME_DEFAULT_RADIUS` | 150 | Home.set | test_home_map Home#1 |
 | `MEDICAL_LOOT_RADIUS` | 30 | Medical.lootNearbyBandage | test_medical_logic #10 |
 | `LOOT_SEARCH_RADIUS` | 150 | Inventory.lootNearby* | — |
 | `WATER_SEARCH_RADIUS` | 150 | Inventory.findWaterSource | — |
@@ -57,8 +57,7 @@ validates it.
 | `WEAPON_CONDITION_MIN` | 0.25 | Inventory.checkAndSwapWeapon | — |
 | `TEMP_TOO_COLD` | −20 | Needs.doShelter | — |
 | `TEMP_TOO_HOT` | 20 | Needs.adjustClothing | — |
-| `DEPLETED_CAP` | 500 | Map.markDepleted | test_home_map_barricade Map#3 |
-| `BARRICADE_SEARCH_RADIUS` | 15 | Barricade.doBarricade | test_home_map_barricade Bar#3 |
+| `DEPLETED_CAP` | 500 | Map.markDepleted | test_home_map Map#3 |
 
 Values marked "slider" are also player-tunable in Options > Mods > AutoPilot
 Leveler; the value above is the compiled-in default, which an options save
@@ -90,9 +89,11 @@ without changing either default.
 6. **Home bounds are respected.**  
    Non-combat actions that move the player must check `AutoPilot_Home.isInside()`.
 
-7. **Barricade is idempotent.**  
-   `AutoPilot_Barricade.doBarricade()` is safe to call multiple times; the ModData
-   flag prevents duplicate work.
+7. **No construction.**  
+   The mod queues no building work. V5.0 removed the barricade pass (and the
+   idempotency invariant that governed it) as out of scope; nothing may
+   reintroduce a construction action without a fresh scope decision.
+   `tests/test_priority_logic.lua` Scope Test 1 guards this.
 
 ---
 

@@ -9,9 +9,14 @@
 -- and is unit-testable; AutoPilot_UI only renders what this module returns.
 --
 -- File format (mirrors the run-log discipline):
---   * line 1: a versioned header comment ("# auto_pilot_sessions schema=1");
---   * one key=value CSV line per session, fields additive-only, so old
---     parsers ignore unknown keys and new parsers tolerate old lines;
+--   * line 1: a versioned header comment ("# auto_pilot_sessions schema=2");
+--   * one key=value CSV line per session; old parsers ignore unknown keys and
+--     new parsers tolerate old lines, because parseLine keys off whatever is
+--     present and _withDeltas leaves a delta nil when its field pair is
+--     absent (rendered as "?").  Schema 2 (V5.0) is the first version to drop
+--     a pair: wood_start/wood_end went with the barricade pass that fed it.
+--     Existing schema-1 lines still parse; their surplus wood keys are simply
+--     never read, and the retained raw text is rewritten verbatim on rotation;
 --   * writes are APPEND-only (the V2.1 truncate bug rule): session-end
 --     lines on death/shutdown plus periodic "open" checkpoint lines, so a
 --     crash still leaves a recent summary.  At read time the LATEST line
@@ -36,14 +41,14 @@
 
 AutoPilot_SessionHistory = {}
 
-local SCHEMA_VERSION = 1
+local SCHEMA_VERSION = 2
 local FILE_HEADER    = "# auto_pilot_sessions schema=" .. SCHEMA_VERSION
 
 -- ── Per-player state ─────────────────────────────────────────────────────────
 -- Keys are playerNum.  _state[pnum] = {
 --   id            session id (monotonic per file),
 --   ticks         evaluation cycles observed this session,
---   start / last  { str, fit, wood, doc } perk levels,
+--   start / last  { str, fit, doc } perk levels,
 --   lastFlush     ticks value at the most recent checkpoint write,
 --   ended         nil while open, else "dead" / "timeout",
 -- }
@@ -74,10 +79,10 @@ local function _formatLine(pnum, st, ended)
     return string.format(
         "schema=%d,session=%d,player=%d,ticks=%d,"
         .. "str_start=%d,str_end=%d,fit_start=%d,fit_end=%d,"
-        .. "wood_start=%d,wood_end=%d,doc_start=%d,doc_end=%d,ended=%s",
+        .. "doc_start=%d,doc_end=%d,ended=%s",
         SCHEMA_VERSION, st.id, pnum, st.ticks,
         st.start.str, st.last.str, st.start.fit, st.last.fit,
-        st.start.wood, st.last.wood, st.start.doc, st.last.doc,
+        st.start.doc, st.last.doc,
         ended)
 end
 
@@ -113,7 +118,6 @@ end
 local function _withDeltas(sum)
     sum.dstr  = _delta(sum.str_start,  sum.str_end)
     sum.dfit  = _delta(sum.fit_start,  sum.fit_end)
-    sum.dwood = _delta(sum.wood_start, sum.wood_end)
     sum.ddoc  = _delta(sum.doc_start,  sum.doc_end)
     return sum
 end
@@ -219,7 +223,6 @@ local function _levelsFrom(stats)
     return {
         str  = tonumber(stats.str)  or 0,
         fit  = tonumber(stats.fit)  or 0,
-        wood = tonumber(stats.wood) or 0,
         doc  = tonumber(stats.doc)  or 0,
     }
 end
@@ -240,7 +243,7 @@ local function _newSession(pnum, stats)
 end
 
 --- Observe one evaluation cycle.  Called from Telemetry.logTick with the
---- collected stats table (str/fit/wood/doc perk levels).  Lazily begins the
+--- collected stats table (str/fit/doc perk levels).  Lazily begins the
 --- session (first observe after load, or the first one after a death
 --- finalized the previous session) and appends an "open" checkpoint line
 --- every SESSION_HISTORY_CHECKPOINT_CYCLES cycles.
@@ -304,7 +307,6 @@ function AutoPilot_SessionHistory.getHistory(player, maxN)
             ticks      = st.ticks,
             str_start  = st.start.str,  str_end  = st.last.str,
             fit_start  = st.start.fit,  fit_end  = st.last.fit,
-            wood_start = st.start.wood, wood_end = st.last.wood,
             doc_start  = st.start.doc,  doc_end  = st.last.doc,
             ended      = st.ended or "open",
         })
@@ -319,16 +321,16 @@ function AutoPilot_SessionHistory.getHistory(player, maxN)
     return sums
 end
 
---- Format one summary for the panel: "#3  812t  S+1 F+0 W+2 D+0  dead".
+--- Format one summary for the panel: "#3  812t  S+1 F+0 D+0  dead".
 --- A delta whose field pair is absent (older line) renders as "?".
 function AutoPilot_SessionHistory.formatSummary(sum)
     local function d(v)
         if type(v) ~= "number" then return "?" end
         return string.format("%+d", v)
     end
-    return string.format("#%d  %dt  S%s F%s W%s D%s  %s",
+    return string.format("#%d  %dt  S%s F%s D%s  %s",
         sum.session, sum.ticks,
-        d(sum.dstr), d(sum.dfit), d(sum.dwood), d(sum.ddoc),
+        d(sum.dstr), d(sum.dfit), d(sum.ddoc),
         tostring(sum.ended))
 end
 
@@ -350,8 +352,7 @@ function AutoPilot_SessionHistory.sparkline(gains)
 end
 
 local function _totalGain(sum)
-    return (sum.dstr or 0) + (sum.dfit or 0) + (sum.dwood or 0)
-        + (sum.ddoc or 0)
+    return (sum.dstr or 0) + (sum.dfit or 0) + (sum.ddoc or 0)
 end
 
 --- Pre-formatted panel strings: up to maxRows session rows (newest first)

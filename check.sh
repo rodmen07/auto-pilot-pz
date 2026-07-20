@@ -8,7 +8,7 @@
 #   1. luacheck      — Lua syntax + lint (skipped with instructions if not installed)
 #   2. Static API Guard — scans for deprecated PZ Build 42 API patterns
 #   3. Lua logic tests  — behavioral tests for AutoPilot_Needs, Threat, Medical,
-#                         Home, Map, Barricade
+#                         Home, Map
 #   4. pytest        — Python automation and benchmark unit tests
 #
 # First-time setup:

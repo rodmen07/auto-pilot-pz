@@ -51,7 +51,6 @@ globals = {
     "ISTakeWaterAction",
     "ISInventoryTransferAction",
     "ISWearClothing",
-    "ISBarricadeAction",
     "ISWorldObjectContextMenu",
 
     -- PZ engine utility functions
@@ -69,7 +68,6 @@ globals = {
     "AutoPilot_Medical",
     "AutoPilot_Home",
     "AutoPilot_Map",
-    "AutoPilot_Barricade",
     "AutoPilot_Telemetry",
 
     -- V3.x auto-leveler modules

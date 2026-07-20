@@ -59,8 +59,6 @@ verified. A fresh character starts with no skills and no home base.
       asleep (`onSleepWalkToComplete` path)
 - [ ] No bed available but a car nearby → character boards it and sleeps inside
 - [ ] Idle with good endurance → exercise animation actually plays (squats etc.)
-- [ ] Inside home with hammer + plank + 2 nails → a window gets barricaded
-      (hammer/plank equip actions first, then hammering animation)
 - [ ] `%USERPROFILE%/Zomboid/Lua/auto_pilot_run.log` GROWS across cycles
       (append fix — previously held only the single most recent line)
 - [ ] Telemetry: with a run log over 20k lines, session start trims it to 5k
@@ -109,11 +107,11 @@ verified. A fresh character starts with no skills and no home base.
 - [ ] Bot skips container after confirming empty (check depleted_squares in state logs)
 - [ ] Bot expands search after 5 empty cycles (set SUPPLY_RUN_TRIGGER=1 for faster test)
 
-## Home & Barricade
+## Home
 - [ ] Bot stays within home bounds for all non-combat activities
-- [ ] On first enable with hammer + plank + 2 nails, windows near home are queued for barricading
-- [ ] Already-barricaded windows are skipped on the periodic maintenance re-check
 - [ ] Home position reloads correctly after save/quit/reload
+- [ ] (V5.0) Arming the mod queues NO barricade or equip actions: no hammer or
+      plank is equipped and no window is boarded, even with materials carried
 
 ## Multiplayer (private server — setup guide in MULTIPLAYER.md)
 - [ ] Mod loads on client; no errors on server console

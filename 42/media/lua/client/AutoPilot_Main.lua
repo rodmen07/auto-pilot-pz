@@ -102,8 +102,8 @@ end
 
 -- ── First-active-tick init (home setup) ────────────────────────────────────────
 -- Runs on the first evaluation cycle AFTER the player arms the mod (F10):
--- anchors home at the current position and queues an initial barricade pass.
--- Barricade attempt is idempotent (ModData-backed).
+-- anchors home at the current position.  (Through V4.9 this also queued an
+-- initial barricade pass; barricading left the mod's scope in V5.0.)
 
 local function _initPlayer(player)
     if _inited then return end
@@ -112,7 +112,6 @@ local function _initPlayer(player)
         AutoPilot_Home.set(player)
         apLog("Home auto-set (always-on).")
     end
-    pcall(function() AutoPilot_Barricade.doBarricade(player) end)
 end
 
 -- ── Per-cycle evaluation ───────────────────────────────────────────────────────
@@ -124,7 +123,7 @@ local function _tickForPlayer(player)
     _updateStatusHUD(player)
     if _mode == "off" then return end
 
-    -- Home anchor + initial barricade pass on the first ACTIVE cycle.
+    -- Home anchor on the first ACTIVE cycle.
     _initPlayer(player)
 
     local deadOk, isDead = pcall(function() return player:isDead() end)
@@ -289,7 +288,6 @@ local ACTION_LABELS = {
     read      = "Reading",
     outside   = "Getting fresh air",
     scavenge  = "Scavenging supplies",
-    barricade = "Barricading",
     exercise  = "Training",
 }
 
@@ -376,7 +374,6 @@ local function _togglePlayer(player)
         -- Re-run init if somehow home was never set (e.g. first enable after clear).
         if player and not AutoPilot_Home.isSet(player) then
             AutoPilot_Home.set(player)
-            pcall(function() AutoPilot_Barricade.doBarricade(player) end)
         end
     end
     _sayMode(player)

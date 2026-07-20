@@ -2,6 +2,115 @@
 
 All notable changes to AutoPilot are documented here.
 
+## [V5.0] - 2026-07-19 - SCOPE REMOVAL: BARRICADING AND WOODWORKING
+
+User directive: "Let's remove the barricading/woodworking functionality,
+that is more of an artifact of the broader scoped auto-survival and is now
+out of scope"
+
+A scope removal earns the major bump. This is the same kind of change as
+V3.1 (which deleted the Skills, Foraging, Combat, Vehicles, Explore and
+Actions modules): the mod is an auto-EXERCISE leveler with a survival
+fail-safe, and construction work was a leftover from the broad
+auto-survival identity it stopped pursuing.
+
+Medical is explicitly UNAFFECTED. The Doctor perk, its V4.1 C6 XP
+visibility block, the `doc=` telemetry field, and all wound-treatment
+logic remain exactly as they were. Only woodworking went.
+
+### Removed
+
+- `42/media/lua/client/AutoPilot_Barricade.lua` deleted (periodic window
+  barricade maintenance, the immediate `doBarricade` pass, and the
+  Woodwork XP sample that rode on it).
+- The priority chain's tenth slot. `AutoPilot_Needs` no longer has a base
+  maintenance step: `doBaseMaintenance` and the
+  `setDecision("barricade", "maintenance")` tag are gone, and proactive
+  scavenging is now the final slot.
+- `AutoPilot_Main` no longer queues an initial barricade pass on the
+  first active cycle or on re-arm, and dropped the `barricade =
+  "Barricading"` HUD intention label.
+- The F11 panel's Woodwork block, and `woodwork` as a tracked
+  `METRIC_PERKS` id in `AutoPilot_Leveler`. The panel is two rows
+  shorter. `getMetricsFor(player, "woodwork")` now falls back to
+  Strength like any other unknown id.
+- Constants `BARRICADE_RECHECK_INTERVAL`, `BARRICADE_SEARCH_RADIUS` and
+  `BARRICADE_RECHECK_CYCLES`.
+- `ISBarricadeAction` and `AutoPilot_Barricade` from `.luacheckrc`
+  globals; `walkAdjWindowOrDoor` and `ISBarricadeAction` from the mock's
+  verified-surface record.
+- `barricade` from the Lua `REASON_CLASS` table AND from
+  `benchmark.py`'s `_ACTION_CLASS_MAP`, in this same commit. The CI sync
+  guard (`tests/test_automation_metrics.py`) enforces exact key-set
+  equality both ways, so a one-sided edit is a build failure.
+
+### Changed - telemetry schema v3 -> v4
+
+The run-log line dropped `wood=` and `SCHEMA_VERSION` became 4. This is
+the schema's first non-additive change, so it was made on evidence rather
+than convenience:
+
+- Both offline parsers are key=value readers. `parse_run_log` requires
+  only `action` and an integer `run_tick`, and coerces `wood` when present
+  but never consumes it. `benchmark.py` never listed `wood` among its
+  integer fields at all.
+- Verified empirically against the user's real ~2.6MB v3 log at
+  `~/Zomboid/Lua/auto_pilot_run.log` (read-only): `triage_run_log.py`
+  produced byte-identical output before and after the change, 13,867
+  ticks across 8 sessions, 0 malformed lines.
+- v2, v3 and v4 lines therefore all parse, including a single file that
+  spans the upgrade. Existing run logs stay fully readable; no tombstone
+  field was needed.
+
+`triage_run_log.py` deliberately KEEPS `barricade` in its
+`ACTION_CATEGORY` map. That tool reads historical logs, and dropping the
+label would silently reclassify pre-V5.0 base-upkeep ticks as idle. It is
+not sync-guarded against the Lua table, precisely so it can retain retired
+labels.
+
+The session-history file (`auto_pilot_sessions.log`) went to schema 2 for
+the same reason: its `wood_start`/`wood_end` pair could only ever report a
+perk the mod no longer touches, and the F11 history rows lost the dead
+`W+0` column. Existing schema-1 lines still parse (the parser keys off
+whatever fields a line carries and renders an absent pair as "?"), and
+rotation rewrites retained lines as verbatim raw text, so real files on
+disk survive untouched.
+
+### Tests
+
+- `tests/test_home_map_barricade.lua` renamed to `tests/test_home_map.lua`.
+  Its seven Barricade cases were deleted; every Home (9) and Map (5) case
+  was KEPT verbatim, because that behavior survives and Inventory, Threat,
+  Needs and DeathLog all still depend on it.
+- New `tests/test_priority_logic.lua` Scope Test 1: plants a
+  booby-trapped `AutoPilot_Barricade` global and a recording telemetry
+  stub, drives a fully idle cycle so evaluation walks the whole chain,
+  and asserts nothing touches the module, no cycle is tagged
+  `barricade`, and the chain's final decision is now `scavenge`.
+- New `tests/test_leveler_metrics.lua` Leveler Test 5: `"woodwork"` must
+  behave as an unknown id even though the engine still defines
+  `Perks.Woodwork`.
+- New `tests/test_telemetry_schema.lua` Test 9: a retired `barricade`
+  label falls through to `class=idle`, guarding the sync-guard invariant
+  from the Lua side.
+- New `tests/test_triage_run_log.py::TestSchemaV4NoWood`: a v3 line WITH
+  `wood=` and a v4 line WITHOUT it parse in the same file, and the
+  retired `barricade` label still categorizes as survival.
+- XP Test 5 was re-keyed from Woodwork to Doctor so the perk-generic XP
+  engine keeps its non-exercise coverage.
+- Suite: 12 Lua files, 658 assertions, all green (was 666 across 12 files
+  before: 14 barricade assertions left, 6 scope-guard assertions arrived).
+  luacheck 0 warnings / 0 errors. Python: 83 passed, up from 80.
+
+### Docs
+
+`README.md`, `ROADMAP.md` (barricading added to the standing non-goals),
+`TESTING.md`, `WORKSHOP.md`, `docs/architecture.md`, `docs/baseline.md`,
+`docs/triage.md` and the embedded Workshop description in
+`sync_workshop.sh` all updated. `docs/EXPANSION_PROPOSAL_V4.md` is marked
+HISTORICAL with a V5.0 supersession banner on candidate C2; C6 (Doctor)
+is called out as still in scope.
+
 ## [V4.9] - 2026-07-19 - TRANSFER, THEN USE
 
 User directive: "It should be transfer then bandage".

@@ -35,10 +35,11 @@ The near-term direction is **stabilize**: harden CI, make the docs truthful, bui
 Standing non-goals (do NOT plan these without explicit user direction):
 
 - NO resurrection of the deleted Skills / Foraging / Combat / Vehicles / Explore / Actions modules.
+- NO resurrection of barricading, woodworking, or any other construction work (deleted in V5.0 as an artifact of the broader auto-survival scope). This includes the Woodwork XP-visibility block that rode on it. `tests/test_priority_logic.lua` Scope Test 1 and `tests/test_leveler_metrics.lua` Leveler Test 5 guard against accidental reintroduction.
 - NO LLM sidecar (retired; `release.yml` asserts no anthropic imports, and the Kahlua sandbox forbids HTTP anyway).
 - NO splitscreen support (removed in V3.2 because it could not be made reliable).
 - NO direct `addXp()` grants (rejected in V3.0 as cheating; XP must come from real queued actions).
-- Non-exercise leveler skills (Tailoring, Mechanics, Cooking, Fishing, Foraging) are not scheduled directly: 42.19 offers no clean queueable action path for most of them. Where a real queued-action path exists (skill-book reading, carpentry via the barricade pass), the V4.0 expansion proposal is the route in; do not add them outside that gate.
+- Non-exercise leveler skills (Tailoring, Mechanics, Cooking, Fishing, Foraging) are not scheduled directly: 42.19 offers no clean queueable action path for most of them. Where a real queued-action path exists (skill-book reading), the V4.0 expansion proposal is the route in; do not add them outside that gate. The carpentry-via-barricade-pass route is closed: V5.0 removed barricading from the mod's scope entirely.
 
 ---
 
@@ -103,7 +104,7 @@ Build 42.20 was announced as the stable candidate on 2026-07-09, and 42.19 saves
 The V3.1 trim was about shedding the broad-survival identity, not about the mod staying small. This milestone restarts deliberate expansion under the leveler identity, grounded in verified 42.19 APIs.
 
 - **Proposal drafted 2026-07-19:** see [docs/EXPANSION_PROPOSAL_V4.md](docs/EXPANSION_PROPOSAL_V4.md) (six costed candidates with verdicts and a per-candidate decision section; awaiting user accept/reject).
-- Draft `docs/EXPANSION_PROPOSAL_V4.md`: candidate features with effort, risk, and the exact API surface each needs. Starting candidates: skill-book reading (SkillBook table + ISReadABook, with the Carpentry=Woodwork / FirstAid=Doctor / Foraging=PlantScavenging perk-name mapping), carpentry XP via the existing barricade pass, configurable training programs and schedules, richer Adaptive strategies from accumulated death-log data, and F11 panel upgrades (session history, per-perk ETAs).
+- Draft `docs/EXPANSION_PROPOSAL_V4.md`: candidate features with effort, risk, and the exact API surface each needs. Starting candidates: skill-book reading (SkillBook table + ISReadABook, with the Carpentry=Woodwork / FirstAid=Doctor / Foraging=PlantScavenging perk-name mapping), carpentry XP via the existing barricade pass (shipped as V4.1 C2, then removed in V5.0 with barricading), configurable training programs and schedules, richer Adaptive strategies from accumulated death-log data, and F11 panel upgrades (session history, per-perk ETAs).
 - Every candidate must respect the standing non-goals (no direct addXp, no LLM sidecar, no splitscreen) and cite runtime-verified API facts, never phantom reads.
 - USER-ONLY: choosing which proposals proceed; each approved feature becomes its own V4.x milestone with one-or-two-PR slices.
 - **Done when:** the proposal doc exists with at least five costed candidates and the user has marked accept or reject on each.
@@ -125,7 +126,7 @@ Worth recording so they are not lost, but none should preempt the milestones abo
 | Item | Blocking reason |
 |------|-----------------|
 | B42.20 migration (executing the V3.8 checklist) | Gated on Build 42.20 becoming the Steam default AND an explicit user decision; 42.19 saves will not carry over. |
-| Non-exercise leveler skills (Tailoring, Mechanics, Cooking, Fishing, Foraging) | 42.19 has no clean queueable action path for most; candidates with a real path (book reading, carpentry) route through the V4.0 expansion proposal rather than being planned directly. |
+| Non-exercise leveler skills (Tailoring, Mechanics, Cooking, Fishing, Foraging) | 42.19 has no clean queueable action path for most; candidates with a real path (book reading) route through the V4.0 expansion proposal rather than being planned directly. Carpentry is no longer a candidate: its only path was the barricade pass, removed in V5.0. |
 
 The 2026-06-04 GCP/Fly infra decommission blocks nothing here: this mod has no cloud dependency, and the LLM sidecar retirement was an independent design decision.
 
@@ -146,6 +147,6 @@ These are never agent work:
 ## History and supersession
 
 - **The V1.1-V2.0 expansion plan is superseded.** `EXPANSION_ROADMAP.md` planned smarter foraging, extended combat, advanced skills, vehicles, NPCs, base building, analytics, an LLM sidecar, economy, and quests. Phase 1 of it (Foraging, Combat, Skills, Vehicles) was actually built on 2026-06-01 (commit 1962c8b) and then deliberately DELETED in V3.1 on 2026-07-18 when the mod pivoted to the leveler identity. The LLM sidecar was retired separately. `PHASE1_SUMMARY.md` documents the deleted phase and is historical only.
-- **Reversed decisions:** V1.1 shipped always-on-by-default and splitscreen support; V3.x reversed both (OFF by default since the pivot, splitscreen removed in V3.2). Direct `addXp()` grants were rejected in V3.0.
+- **Reversed decisions:** V1.1 shipped always-on-by-default and splitscreen support; V3.x reversed both (OFF by default since the pivot, splitscreen removed in V3.2). Direct `addXp()` grants were rejected in V3.0. V4.1 shipped Woodwork XP visibility on the barricade maintenance pass (candidate C2); V5.0 reversed it, deleting `AutoPilot_Barricade` and every woodworking surface at the user's direction: barricading was "more of an artifact of the broader scoped auto-survival and is now out of scope".
 - **Distribution shift:** git release tags stopped at v1.2.1; V2.0 through V3.3 shipped untagged, and distribution moved to Steam Workshop (published 2026-07-18).
 - `CHANGELOG.md` remains the single source of truth on what shipped; `docs/baseline.md` and `CODE_REVIEW.md` are historical records.

@@ -1,6 +1,17 @@
 # AutoPilot Leveler: V4.0 Expansion Proposal
 
-**Status:** DRAFT for user decision (drafted 2026-07-19, branch `autodev/v4.0-expansion-proposal`).
+**Status:** HISTORICAL RECORD (drafted 2026-07-19, branch `autodev/v4.0-expansion-proposal`;
+every candidate has since been decided). Read it as the record of what was proposed and why,
+not as a statement of current behavior.
+
+> **V5.0 supersession:** candidate **C2 (Woodwork XP visibility on the barricade maintenance
+> pass)** was approved and shipped as part of V4.1, then REMOVED in V5.0 along with
+> `AutoPilot_Barricade.lua` itself, at the user's direction: barricading was "more of an
+> artifact of the broader scoped auto-survival and is now out of scope". The C2 section below,
+> and every mention of the barricade pass, `AutoPilot_Barricade.lua`, `ISBarricadeAction`,
+> `test_home_map_barricade.lua`, or `Perks.Woodwork` as a production callsite, describes the
+> mod as it was between V4.1 and V4.9. None of it is current. C6 (Doctor XP visibility) was
+> approved on the same day and REMAINS in scope and shipped.
 **Fulfils:** ROADMAP.md, milestone "V4.0: expansion track kickoff". The milestone is done when
 the user has marked accept or reject on every candidate in the Decision section at the bottom.
 **Scope discipline:** implementation is user-gated. Nothing in this document is scheduled work
@@ -39,7 +50,8 @@ Every API claim below cites one of the repo's own verified records:
 - **CHANGELOG.md** V2.1 / V3.0 / V3.1 / V3.2 / V3.3 entries (live-install and running-game
   verification sweeps).
 - **docs/architecture.md** (the current 17-module design) and in-module header comments
-  (`AutoPilot_XP.lua`, `AutoPilot_Options.lua`, `AutoPilot_Barricade.lua`).
+  (`AutoPilot_XP.lua`, `AutoPilot_Options.lua`, `AutoPilot_Barricade.lua`; the last of these
+  was deleted in V5.0).
 
 No claim comes from a fresh read of the game install. That rule exists because of the
 phantom-file incident: V2.1 shipped a wrong `ISFitnessAction` signature from a stale copy while
@@ -129,6 +141,9 @@ If C2 and C6 are both rejected, this candidate loses its consumers and should be
 ---
 
 ## C2. Woodwork XP visibility on the existing barricade maintenance pass
+
+> **REMOVED IN V5.0.** Shipped in V4.1, then deleted with the barricade pass it depended on.
+> Everything in this section is historical. Do not treat it as a live design.
 
 **What the player gets.** The barricade maintenance the mod already performs quietly earns
 Carpentry (42.19 name: Woodwork) XP; this candidate makes that visible. The Woodwork perk joins
@@ -354,7 +369,7 @@ marked; approved rows become V4.x milestones per the ordering above (adjusted to
 | # | Candidate | Proposal verdict | Your decision |
 |---|-----------|------------------|---------------|
 | C1 | Skill-book reading sessions | Recommend (gated) | [ ] Approve  [ ] Reject |
-| C2 | Woodwork XP visibility (barricade pass) | Recommend | [x] Approve (2026-07-19; shipped as V4.1)  [ ] Reject |
+| C2 | Woodwork XP visibility (barricade pass) | Recommend | [x] Approve (2026-07-19; shipped as V4.1), then REMOVED in V5.0 with barricading (user scope decision) |
 | C3 | Configurable training programs | Recommend | [x] Approve (2026-07-19; shipped as V4.3)  [ ] Reject |
 | C4 | Adaptive strategy packs | Defer | [ ] Approve  [ ] Reject  [ ] Confirm defer |
 | C5 | F11 session history and trends | Recommend | [x] Approve (2026-07-19; shipped as V4.2)  [ ] Reject |

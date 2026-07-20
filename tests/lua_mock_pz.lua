@@ -59,11 +59,9 @@
 --   [M]  ISReadABook:new(character, book)   unexercised: doRead's literacy
 --          gate fails in the suites (see Perks.Literacy below)
 --   [S]  ISEquipWeaponAction:new(character, item, time, primary)
---          test_threat_logic / test_combat_policy / test_home_map_barricade
---   [S]  ISBarricadeAction:new(character, windowObj, isMetal, isMetalBar)
---          assertion-bearing in test_home_map_barricade; V2.1-verified:
---          materials must be EQUIPPED (hammer primary, plank secondary,
---          2+ nails carried), the window object is the 2nd arg
+--          test_threat_logic / test_combat_policy / test_container_search
+--          (ISBarricadeAction left this record in V5.0 with the barricading
+--          feature; the mod has no barricade callsite to model any more)
 --   [S]  ISInventoryTransferAction:new(character, item, srcContainer, destContainer)
 --          test_medical_logic / test_resource_economy; the constructor is
 --          never reached at runtime by current suites (pcall-guarded paths)
@@ -121,12 +119,12 @@
 --   [S]  getPlayer()   test_main_logic (Main's fallback resolver only)
 --   [G]  instanceof(item, className)   only getBestWeapon uses it and no
 --          suite drives that with items; absence fails loudly, as intended
---   [G]  luautils.walkAdj(character, square, keepActions) and
---          luautils.walkAdjWindowOrDoor(character, square, obj, keepActions)
---          suite-local stubs exist in test_home_map_barricade and
+--   [G]  luautils.walkAdj(character, square, keepActions)
+--          suite-local stubs exist in test_home_map and
 --          test_resource_economy but no suite reaches the calls at runtime;
 --          production callsites are pcall-guarded (walkAdj failure falls
---          back to ISWalkToTimedAction)
+--          back to ISWalkToTimedAction).  walkAdjWindowOrDoor left this
+--          record in V5.0 with the barricade scan that was its only caller
 --   [G]  getClimateManager()   existence-guarded in Needs.isRaining
 --   [G]  HaloTextHelper.addText/addGoodText/addBadText   rawget-guarded (Main)
 --   [S]  PZAPI.ModOptions   :create / :addTitle / :addSlider / :addKeyBind /
@@ -168,12 +166,16 @@
 --          (not in the verified record; doRead's illiterate fallback is what
 --          the suites exercise).  The stale "Carpentry" alias was removed by
 --          this audit so Perks.Carpentry resolves nil here, as in-game.
---          V4.1 (C2/C6): Perks.Woodwork and Perks.Doctor became production
---          callsites (AutoPilot_XP.sample at the Barricade/Medical action
---          sites plus getPerkLevel in Telemetry's schema-v3 wood/doc fields),
---          all riding surfaces already in this record (no new mock surface);
---          the sampling callsites are asserted via suite-local AutoPilot_XP
---          recording stubs in test_home_map_barricade / test_medical_logic.
+--          V4.1 (C6): Perks.Doctor is a production callsite
+--          (AutoPilot_XP.sample at the Medical action site plus getPerkLevel
+--          in Telemetry's schema-v4 doc field), riding surfaces already in
+--          this record (no new mock surface); the sampling callsite is
+--          asserted via a suite-local AutoPilot_XP recording stub in
+--          test_medical_logic.  Perks.Woodwork was a production callsite in
+--          V4.1-V4.9 and is NOT one any more (V5.0 removed barricading), but
+--          it stays in this table because 42.19 really does define it: the
+--          V5.0 scope guards assert the mod ignores a Woodwork perk that the
+--          engine still offers.
 --   [M]  IsoFlagType.bed
 --   [M]  FitnessExercises.exercisesType   mirrors shared/Definitions/
 --          FitnessExercises.lua including the V3.3 equipment item/prop fields
@@ -605,8 +607,8 @@ function MockContainer.new(items)
             table.insert(arr, item)
             return item
         end,
-        -- Recursive lookups the mod already used elsewhere (Barricade, the
-        -- exercise gate).  Defaults model "nothing found".
+        -- Recursive lookups (the exercise gate uses contains).  Defaults
+        -- model "nothing found".
         contains            = function(_self, _fullType, _recurse) return false end,
         getFirstTypeRecurse = function(_self, _itemType) return nil end,
         getItemCount        = function(_self, _fullType, _recurse) return 0 end,
@@ -716,8 +718,9 @@ function MockPlayer.new(cfg)
         contains = function(self, _fullType, _recurse)
             return cfg.hasItems == true
         end,
-        -- Barricade material lookups (V2.1-verified surface).  Defaults model
-        -- an empty inventory so _doScan takes its "missing materials" exit.
+        -- Recursive type/count lookups (V2.1-verified surface).  Retained
+        -- after V5.0 removed their last production caller: they are real
+        -- engine methods and the defaults model an empty inventory.
         getFirstTypeRecurse = function(self, _itemType) return nil end,
         getItemCount        = function(self, _fullType, _recurse) return 0 end,
     }

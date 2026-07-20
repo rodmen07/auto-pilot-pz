@@ -22,7 +22,6 @@ AutoPilot Leveler is a client-side mod for Project Zomboid Build 42 (unstable). 
 [*]Eats, drinks (including sinks/taps), sleeps in the nearest bed, and bandages wounds
 [*]Fights or flees when zombies actually threaten — chasing, visible, or adjacent. Wanderers shambling outside your walls are ignored, not panicked over
 [*]Keeps a small food/drink stockpile with short, near-home loot trips (never wanders the neighborhood)
-[*]Maintains window barricades at your home anchor (hammer + planks + nails)
 [*]Temperature-aware clothing swaps
 [/list]
 
@@ -51,7 +50,7 @@ AutoPilot Leveler is a client-side mod for Project Zomboid Build 42 (unstable). 
 
 [h2]Known Limitations[/h2]
 [list]
-[*]Exercise-focused by design: it will not explore, clear buildings, or manage a base beyond barricade upkeep
+[*]Exercise-focused by design: it will not explore, clear buildings, build, or manage a base
 [*]The survival layer is a fail-safe, not a caretaker — arm it from a stable position
 [*]Telemetry log ([i]~/Zomboid/Lua/auto_pilot_run.log[/i]) rotates automatically since V3.3 (trimmed to the newest 5,000 lines at session start once it passes 20,000); safe to delete anytime
 [*]B42 multiplayer is itself unstable; expect the usual unstable-branch rough edges

@@ -19,11 +19,18 @@
 
 AutoPilot_Telemetry = {}
 
--- Telemetry schema version — increment when new fields are added.
--- Old parsers that don't know this field simply ignore it (additive-only).
--- v3 (V4.1): appends wood/doc (Woodwork and Doctor perk levels) after fit,
+-- Telemetry schema version: increment when the field set changes.
+-- Old parsers that don't know this field simply ignore it.
+-- v3 (V4.1): appended wood/doc (Woodwork and Doctor perk levels) after fit,
 -- the read-only action-perk visibility from expansion candidates C2/C6.
-local SCHEMA_VERSION = 3
+-- v4 (V5.0): drops wood, the only non-additive change so far.  Barricading
+-- and woodworking left the mod's scope, so the field could only ever report
+-- a perk the mod no longer touches.  Safe because both offline parsers
+-- (triage_run_log.py, benchmark.py) are key=value readers that require only
+-- action and run_tick: triage coerces wood when present and never consumes
+-- it, and benchmark never listed it at all.  Existing v3 logs therefore keep
+-- parsing verbatim, and mixed v3/v4 files parse line by line.
+local SCHEMA_VERSION = 4
 
 -- ── Per-player state ───────────────────────────────────────────────────────────
 -- Keys are playerNum (0-based integer from player:getPlayerNum()).
@@ -65,7 +72,6 @@ local REASON_CLASS = {
     bandage    = "survival",
     loot       = "survival",
     scavenge   = "survival",
-    barricade  = "survival",
     fight      = "combat",
     flee       = "combat",
     combat     = "combat",
@@ -176,12 +182,10 @@ local function _collectStats(player)
     pcall(function() strLvl = player:getPerkLevel(Perks.Strength) end)
     pcall(function() fitLvl = player:getPerkLevel(Perks.Fitness)  end)
 
-    -- Schema v3 (V4.1 C2/C6): action-perk levels for the perks the mod
-    -- trains through real queued actions (barricade pass / wound treatment).
-    local woodLvl = 0
-    local docLvl  = 0
-    pcall(function() woodLvl = player:getPerkLevel(Perks.Woodwork) end)
-    pcall(function() docLvl  = player:getPerkLevel(Perks.Doctor)   end)
+    -- Schema v4 (V4.1 C6, trimmed in V5.0): action-perk level for the perk
+    -- the mod trains through a real queued action (wound treatment).
+    local docLvl = 0
+    pcall(function() docLvl = player:getPerkLevel(Perks.Doctor) end)
 
     return {
         hunger    = math.floor(hunger    * 100),
@@ -192,7 +196,6 @@ local function _collectStats(player)
         bleeding  = bleeding,
         str       = strLvl,
         fit       = fitLvl,
-        wood      = woodLvl,
         doc       = docLvl,
     }
 end
@@ -255,11 +258,11 @@ function AutoPilot_Telemetry.logTick(player, action, reason)
         "schema_version=%d,player=%d,mode=autopilot,ff=%s,run_tick=%d,"
         .. "action=%s,reason=%s,class=%s,stage=%s,fail_reason=%s,retry_count=%d,"
         .. "hunger=%d,thirst=%d,fatigue=%d,endurance=%d,"
-        .. "zombies=%d,bleeding=%d,str=%d,fit=%d,wood=%d,doc=%d",
+        .. "zombies=%d,bleeding=%d,str=%d,fit=%d,doc=%d",
         SCHEMA_VERSION, pnum, ff, _runTick[pnum],
         action, reason, cls, stage, fail_reason, retry_count,
         s.hunger, s.thirst, s.fatigue, s.endurance,
-        s.zombies, s.bleeding, s.str, s.fit, s.wood, s.doc
+        s.zombies, s.bleeding, s.str, s.fit, s.doc
     )
     _appendLine(pnum, line)
 

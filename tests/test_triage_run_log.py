@@ -5,11 +5,11 @@ schema_version=2 excerpt matching the line format AutoPilot_Telemetry.logTick
 wrote before V4.1: two sessions for player 0, the first ending in a death
 marker, the second still open.  Field order, empty stage=/fail_reason=
 values, and the class=idle fall-through for scavenge/barricade all mirror the
-real writer.  Since V4.1 the writer emits schema_version=3, which appends
-wood= and doc= (Woodwork / Doctor perk levels) after fit=; the v2 fixtures
-stay as the backward-compat control (the schema is additive-only, so old
-logs must keep parsing) and the v3 additions are covered inline in
-TestSchemaV3WoodDoc.
+real writer.  V4.1 emitted schema_version=3, appending wood= and doc=
+(Woodwork / Doctor perk levels) after fit=.  V5.0 removed barricading and
+emits schema_version=4, which drops wood= again.  The v2 fixtures stay as the
+backward-compat control (old logs must keep parsing) and the v3/v4 variants
+are covered inline in TestSchemaV3WoodDoc and TestSchemaV4NoWood.
 
 A second fixture (tests/fixtures/run_log_v2_suspicious.log) is a four-session
 log where each session trips exactly one suspicious-pattern detector: a
@@ -127,7 +127,7 @@ class TestParseRunLog(unittest.TestCase):
         self.assertEqual(skipped, 0)
 
 
-# ── Schema v3 (V4.1) wood/doc tolerance tests ─────────────────────────────────
+# ── Schema v3/v4 wood/doc tolerance tests ─────────────────────────────────────
 
 V3_LINE = (
     "schema_version=3,player=0,mode=autopilot,ff=normal,run_tick={tick},"
@@ -136,11 +136,20 @@ V3_LINE = (
     "zombies=0,bleeding=0,str=1,fit=2,wood=4,doc=3"
 )
 
+# V5.0 removed barricading and with it the wood= field: the writer emits
+# schema_version=4 lines ending str,fit,doc.  Same shape otherwise.
+V4_LINE = (
+    "schema_version=4,player=0,mode=autopilot,ff=normal,run_tick={tick},"
+    "action={action},reason=maintenance,class=idle,stage=,fail_reason=,"
+    "retry_count=0,hunger=5,thirst=5,fatigue=5,endurance=90,"
+    "zombies=0,bleeding=0,str=1,fit=2,doc=3"
+)
+
 
 class TestSchemaV3WoodDoc(unittest.TestCase):
     """V4.1 telemetry appends wood=/doc= after fit=; parsing must be tolerant
     in both directions: v3 lines coerce the new ints, v2 lines without them
-    still parse (additive-only schema)."""
+    still parse."""
 
     def test_v3_line_parses_wood_doc_as_ints(self) -> None:
         with tempfile.TemporaryDirectory() as td:
@@ -200,6 +209,65 @@ class TestSchemaV3WoodDoc(unittest.TestCase):
         self.assertEqual(skipped, 0)
         self.assertNotIn("wood", entries[0])
         self.assertEqual(entries[1]["wood"], 4)
+
+
+class TestSchemaV4NoWood(unittest.TestCase):
+    """V5.0 drops wood= (schema_version=4).  This is the first NON-additive
+    telemetry change, so it is the one that needs empirical proof: the user's
+    real ~2.6MB v3 log must keep parsing verbatim alongside new v4 lines.
+
+    The parser is key=value based and requires only action and run_tick, and
+    "wood" is coerced when present but never consumed, which is exactly why
+    dropping the field is safe rather than merely convenient."""
+
+    def test_v4_line_parses_without_wood(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            log = _write_log(td, [
+                V4_LINE.format(tick=1, action="exercise"),
+                V4_LINE.format(tick=2, action="bandage"),
+            ])
+            entries, skipped = tr.parse_run_log(log)
+
+        self.assertEqual(len(entries), 2)
+        self.assertEqual(skipped, 0)
+        e = entries[0]
+        self.assertEqual(e["schema_version"], 4)
+        self.assertNotIn("wood", e)
+        self.assertEqual(e["doc"], 3)
+        self.assertEqual(e["fit"], 2)
+
+    def test_v3_with_wood_and_v4_without_both_parse(self) -> None:
+        """The upgrade boundary: one file, a v3 line carrying wood= and a v4
+        line without it, both parsed and both counted."""
+        with tempfile.TemporaryDirectory() as td:
+            log = _write_log(td, [
+                V3_LINE.format(tick=1, action="barricade"),
+                V4_LINE.format(tick=2, action="exercise"),
+            ])
+            entries, skipped = tr.parse_run_log(log)
+
+        self.assertEqual(len(entries), 2)
+        self.assertEqual(skipped, 0)
+        self.assertEqual(entries[0]["schema_version"], 3)
+        self.assertEqual(entries[0]["wood"], 4)
+        self.assertIsInstance(entries[0]["wood"], int)
+        self.assertEqual(entries[1]["schema_version"], 4)
+        self.assertNotIn("wood", entries[1])
+
+        summary = tr.summarize(entries, skipped)
+        self.assertEqual(summary.total_ticks, 2)
+        # The retired barricade label still triages as base upkeep, so a
+        # historical log does not silently lose ticks to "idle".
+        self.assertEqual(summary.action_counts.get("barricade"), 1)
+        self.assertEqual(summary.category_counts.get("survival"), 1)
+        self.assertEqual(summary.category_counts.get("training"), 1)
+        self.assertIn("Parsed 2 tick(s)", tr.format_report(summary))
+
+    def test_retired_barricade_label_still_categorized(self) -> None:
+        """triage reads HISTORICAL logs, so ACTION_CATEGORY keeps barricade
+        even though the runtime no longer emits it (unlike benchmark's
+        sync-guarded _ACTION_CLASS_MAP, which had to drop it)."""
+        self.assertEqual(tr.categorize_action("barricade"), "survival")
 
 
 # ── Category mapping tests ────────────────────────────────────────────────────
