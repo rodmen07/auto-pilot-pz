@@ -572,6 +572,66 @@ FitnessExercises = {
     },
 }
 
+-- ── Inventory containers (V4.8) ───────────────────────────────────────────────
+-- Models the real B42 surface the mod's carried-inventory walk relies on:
+--
+--   ItemContainer:getItems()        -> ArrayList with size() / get(i)   (0-based)
+--   InventoryItem:getItemContainer() -> ItemContainer, ONLY on bag items
+--
+-- A plain item deliberately does NOT define getItemContainer, exactly like a
+-- non-container item in-game: the mod's pcall guard reads the missing method
+-- as "not a container".  MockContainer.new doubles as a main-inventory mock
+-- (it carries the same contains / getFirstTypeRecurse / getItemCount surface
+-- the default MockPlayer inventory exposes), so tests can hand it straight to
+-- player.getInventory.
+
+MockContainer = {}
+
+--- An ItemContainer holding `items` (a plain array of item tables).
+function MockContainer.new(items)
+    local arr = items or {}
+    return {
+        _items   = arr,
+        getItems = function(_self)
+            return {
+                size = function(_s) return #arr end,
+                get  = function(_s, i) return arr[i + 1] end,
+            }
+        end,
+        add = function(_self, item)
+            table.insert(arr, item)
+            return item
+        end,
+        -- Recursive lookups the mod already used elsewhere (Barricade, the
+        -- exercise gate).  Defaults model "nothing found".
+        contains            = function(_self, _fullType, _recurse) return false end,
+        getFirstTypeRecurse = function(_self, _itemType) return nil end,
+        getItemCount        = function(_self, _fullType, _recurse) return 0 end,
+    }
+end
+
+--- A bag ITEM: an inventory item that itself carries a container.
+--- `contents` is an array of items placed inside it.
+function MockContainer.bag(name, contents)
+    local inner = MockContainer.new(contents or {})
+    return {
+        _container       = inner,
+        getType          = function(_self) return name end,
+        getName          = function(_self) return name end,
+        -- Bags are not food/weapons/bandages; selectors must skip them.
+        isFood           = function(_self) return false end,
+        isRotten         = function(_self) return false end,
+        isCanBandage     = function(_self) return false end,
+        getItemContainer = function(_self) return inner end,
+    }
+end
+
+--- Use `container` as the player's main inventory.  Returns the player.
+function MockContainer.attach(player, container)
+    player.getInventory = function(_self) return container end
+    return player
+end
+
 -- ── MockPlayer builder ────────────────────────────────────────────────────────
 -- Creates a lightweight mock IsoPlayer with configurable state.
 --

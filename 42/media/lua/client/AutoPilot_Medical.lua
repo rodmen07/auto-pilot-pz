@@ -29,36 +29,47 @@ local function safeCall(bodyPart, method)
     return false
 end
 
--- Returns the best bandage item from inventory, or nil.
+-- Returns the best bandage item the player is carrying, or nil.
+--
+-- V4.8: searches the WHOLE carried inventory tree, so a bandage stashed in a
+-- backpack or fanny pack counts.  Before V4.8 this scanned only the top-level
+-- items of the main inventory, so a bandage in a bag was invisible and the
+-- character never treated a wound it had correctly detected.
+--
+-- Ranking (unchanged in intent, corrected in effect): isCanBandage() decides
+-- eligibility, then any item in BANDAGE_PRIORITY beats any unlisted item, and
+-- among listed items the lowest index wins.  The old loop set the unlisted
+-- fallback INSIDE the scan, so the first eligible item seen could lock itself
+-- in as the result and outrank a better bandage found later; the fallback is
+-- now kept separate and only used when nothing listed was found at all.
 local function findBandage(player)
-    local inv = player:getInventory()
-    -- Fast path: use the engine's isCanBandage() check
-    local items = inv:getItems()
-    local bestIdx = 999
-    local bestItem = nil
+    local bestIdx      = math.huge
+    local bestItem     = nil
+    local fallbackItem = nil
 
-    for i = 0, items:size() - 1 do
-        local item = items:get(i)
-        if item then
-            local ok, canBandage = pcall(function() return item:isCanBandage() end)
-            if ok and canBandage then
-                -- Rank by our priority list
-                local itemType = item:getType()
-                for idx, pType in ipairs(BANDAGE_PRIORITY) do
-                    if itemType == pType and idx < bestIdx then
-                        bestIdx = idx
+    AutoPilot_Utils.iteratePlayerItems(player, function(item)
+        local ok, canBandage = pcall(function() return item:isCanBandage() end)
+        if not ok or not canBandage then return false end
+
+        local okType, itemType = pcall(function() return item:getType() end)
+        if okType and itemType then
+            for idx, pType in ipairs(BANDAGE_PRIORITY) do
+                if itemType == pType then
+                    if idx < bestIdx then
+                        bestIdx  = idx
                         bestItem = item
-                        break
                     end
-                end
-                -- If not in our list but isCanBandage(), still use as fallback
-                if bestItem == nil then
-                    bestItem = item
+                    return false
                 end
             end
         end
-    end
-    return bestItem
+
+        -- Eligible but not in the priority list: last-resort fallback only.
+        if fallbackItem == nil then fallbackItem = item end
+        return false
+    end)
+
+    return bestItem or fallbackItem
 end
 
 -- Scan nearby containers for bandage-type items and loot the first one found.
