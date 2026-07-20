@@ -147,8 +147,8 @@ So AutoPilot is fully local and rule-based by design.
 
 ## Versioning and Release Notes
 
-- Current modversion: 3.3 (root mod.info and 42/mod.info)
-- Major release label style: V3.3
+- Current modversion: 4.8 (root mod.info and 42/mod.info, which must always match)
+- Major release label style: V4.8
 - Workshop publish assets/checklist live in WORKSHOP.md and TESTING.md
 
 ## Telemetry
