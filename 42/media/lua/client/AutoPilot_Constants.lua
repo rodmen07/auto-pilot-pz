@@ -31,7 +31,7 @@ AutoPilot_Constants = {}
 --
 -- NOT a tunable: never written by AutoPilot_Options, never read by any
 -- decision path.  Presentation only.
-AutoPilot_Constants.VERSION = "5.1"
+AutoPilot_Constants.VERSION = "5.3"
 
 -- Search radii (in tiles) --------------------------------------------------
 
