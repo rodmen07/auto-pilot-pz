@@ -212,7 +212,9 @@ def parse_run_log(log_path: str | os.PathLike[str]) -> tuple[list[dict[str, Any]
     are kept as empty strings.  A non-empty line is counted as skipped when it
     does not yield both an ``action`` label and an integer ``run_tick`` - this
     tolerates garbage, truncated writes, and rotation artifacts without
-    aborting the whole file.  A missing file parses as an empty log.
+    aborting the whole file.  Lines beginning with ``#`` are Lua-side
+    diagnostics (V5.5) and are ignored entirely, neither parsed nor skipped.
+    A missing file parses as an empty log.
     """
     path = Path(log_path)
     if not path.exists():
@@ -225,6 +227,12 @@ def parse_run_log(log_path: str | os.PathLike[str]) -> tuple[list[dict[str, Any]
         for raw_line in fh:
             line = raw_line.strip()
             if not line:
+                continue
+            # V5.5: the Lua side writes occasional "#"-prefixed diagnostic
+            # lines into this same log (e.g. "mod options never registered").
+            # They are comments, not damaged telemetry, so they must not
+            # inflate the skipped counter that signals a corrupt log.
+            if line.startswith("#"):
                 continue
             kv: dict[str, Any] = _parse_kv_line(line)
             for key in _INT_FIELDS:

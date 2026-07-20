@@ -2,6 +2,91 @@
 
 All notable changes to AutoPilot are documented here.
 
+## [V5.5] - 2026-07-20 - THE OPTIONS PAGE NEVER EXISTED
+
+User report: "Also, I don't see where the settings are configurable in-game"
+
+The settings were not hidden. They were never registered, so there was no
+menu path that could have found them.
+
+`AutoPilot_Options.lua` registered its `PZAPI.ModOptions` page as a bare
+file-load side effect, guarded by
+`if not (PZAPI and PZAPI.ModOptions and PZAPI.ModOptions.create) then return end`,
+above a comment asserting "at load; PZAPI is vanilla client lua, loads before
+mods". On a real 42.19 client that assumption is false. Four pieces of
+evidence, all from the reporting machine:
+
+1. `~/Zomboid/console.txt` carries `WARN : Lua ... require("pzapi/ui/ui") failed`.
+2. `~/Zomboid/Lua/ModOptions.ini` is **0 bytes**.
+3. `~/Zomboid/Lua/mods_options.ini` has sections for other installed mods
+   (`[P4AlarmSyndrome]`, `[LazoloTraits]`, `[P4HasBeenRead]`, `[ToadTraits]`)
+   and **no `[AutoPilot]` section at all**.
+4. The failure was silent by construction: this file shadows `print` with a
+   noop near the top (`local print = _apNoop`), so the one diagnostic that
+   mattered, `"[Options] PZAPI.ModOptions unavailable"`, never reached
+   `console.txt`.
+
+So every mod option this project has ever shipped was inert in game: the V4.3
+training-program selector, the V4.4 HUD toggle, the V4.5 training backoff, the
+V4.6 daily exercise cap, the V4.7 hunger and thirst thresholds, the three
+brand-new V5.4 rest sliders, and both rebindable keys (`armKey`, `panelKey`,
+which is why F10/F11 were always the hard fallbacks).
+
+### Registration is now retried on events
+
+The page builder is unchanged, byte for byte, in what it registers. Only
+*when* it runs changed:
+
+- Attempt 1 is still at file load, which costs nothing and is correct on a
+  client where PZAPI really did load first.
+- If that fails, the retry is wired to `Events.OnMainMenuEnter` (already a
+  verified surface in this mod, and the moment the client's vanilla Lua is
+  fully up, which is before a player can open the options screen) and to
+  `Events.OnTick` (the only event that still fires for a mod loaded into an
+  **already-running** game, i.e. the 42.19 MP server-connect Lua reload, where
+  the main menu is long gone and never fires again). Both are existence
+  checked before `.Add`, per the standing rule.
+- `OnGameStart` is deliberately not used: it is not in this project's verified
+  42.19 record and is not modelled in the mocks.
+
+Everything funnels through one `_register()` behind a single `_registered`
+flag, so `PZAPI.ModOptions:create` runs at most once per Lua load however many
+retries fire. No duplicate page, no duplicate sliders, no duplicate keybinds.
+The retry never gives up, so a very late PZAPI is still picked up.
+
+### The failure is loud now
+
+Replacing the swallowed `print`, a single line is appended to the telemetry run
+log (`~/Zomboid/Lua/auto_pilot_run.log`) once the grace window closes, naming
+`PZAPI.ModOptions`, saying the page did not register, and saying that every
+option is on its compiled-in default. It is written with a leading `#` and
+`triage_run_log.py` now treats `#` lines as comments rather than counting them
+as damaged telemetry.
+
+The F11 panel gained `mod options unavailable (using defaults)`, drawn **only**
+in the failed state. When registration succeeds the panel is exactly as it was
+in V5.4.
+
+`AutoPilot_Options.isRegistered()` exposes the state programmatically.
+
+### Testing
+
+`tests/test_options_mapping.lua` was fully green throughout: it puts `PZAPI`
+into `_G` before its `dofile`, so it could only ever exercise the happy path.
+The new `tests/test_options_registration.lua` models PZAPI as **absent at load
+and appearing later**, the state no suite could previously express, and covers
+idempotence under repeated retries, the never-arrives case, the one-shot
+diagnostic (append-only, never truncating the run log), late arrival after the
+complaint, the panel line in both states, and that every control built through
+the retry path is identical to the one the load path builds.
+
+Negative control: the retry scenario run against the pre-fix source reports
+`ModOptions:create calls: 0` and 0 event handlers wired; against the fix it
+reports 1 and 1.
+
+No default value, slider range, step or DEFS entry changed. This release is
+purely about registration reaching the game.
+
 ## [V5.4] - 2026-07-20 - ENDURANCE RECOVERY
 
 User report: "the PC does not rest for long enough or utilize things like

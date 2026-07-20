@@ -36,7 +36,12 @@ This guide is for a technical user who wants to:
   armed, but it can only act on the mod's own actions; the one exception is
   fight/flee, which still clears the queue when zombies actually engage.
 - Death learning: context snapshots on death + bounded threshold self-tuning
-- Configurable: sliders and rebindable keys under Options > Mods
+- Configurable: sliders and rebindable keys under Options > Mods, listed as
+  "AutoPilot Leveler". V5.5 fixed the registration bug that made this page
+  fail to appear at all on some clients; if it is still missing, the F11
+  panel now says "mod options unavailable (using defaults)" and a `#` line
+  naming `PZAPI.ModOptions` is appended to `~/Zomboid/Lua/auto_pilot_run.log`,
+  so a missing page is visible instead of silent.
 - Off by default; splitscreen not supported; MP-safe (client-side only)
 
 Control keys (rebindable in mod options):

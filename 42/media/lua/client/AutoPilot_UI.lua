@@ -114,6 +114,33 @@ function AutoPilot_UI.formatTitle(version)
     return "AutoPilot Leveler  v" .. version
 end
 
+--- V5.5: the panel's honest answer to "where are the settings?".
+---
+--- Returns nil in the normal case so the panel gains no clutter, and a single
+--- line when AutoPilot_Options could not register its page with
+--- PZAPI.ModOptions, in which case there IS no in-game settings entry to find
+--- and every option is on its compiled-in default.  Pure string formatting,
+--- factored out like formatTitle so it can be unit-tested without live ISUI
+--- widgets.
+--- @param registered boolean|nil  AutoPilot_Options.isRegistered()
+--- @return string|nil
+function AutoPilot_UI.optionsWarningLine(registered)
+    if registered then return nil end
+    return "mod options unavailable (using defaults)"
+end
+
+--- Resolve the registration state defensively: a missing AutoPilot_Options
+--- (its file failed to load) is itself a "no settings page" state, and must
+--- report as such rather than erroring inside render().
+local function _optionsRegistered()
+    if not (AutoPilot_Options
+            and type(AutoPilot_Options.isRegistered) == "function") then
+        return false
+    end
+    local ok, v = pcall(AutoPilot_Options.isRegistered)
+    return ok and v or false
+end
+
 local function _fmtHours(h)
     if not h then return "?" end
     if h < 1 then return string.format("%d min", math.max(1, math.floor(h * 60))) end
@@ -157,6 +184,16 @@ function AutoPilot_UI:render()
         local def = AutoPilot_Leveler.getSkillDef(id)
         local base = def and def.name or id
         btn:setTitle(id == target and ("> " .. base) or base)
+    end
+
+    -- V5.5: only drawn when the mod options page failed to register.  In the
+    -- normal case optionsWarningLine returns nil and the panel looks exactly
+    -- as it did in V5.4.  Drawn before the no-player early-out so the answer
+    -- is visible whenever the panel is open at all.
+    local optWarn = AutoPilot_UI.optionsWarningLine(_optionsRegistered())
+    if optWarn then
+        self:drawText(optWarn, PAD, y, 1, 0.5, 0.4, 1, UIFont.Small)
+        y = y + ROW_H
     end
 
     if not player then
