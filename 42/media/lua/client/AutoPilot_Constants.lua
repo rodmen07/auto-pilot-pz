@@ -170,8 +170,15 @@ AutoPilot_Constants.EXERCISE_EQUIP_SEARCH_RADIUS = 80  -- tiles (capped for scan
 AutoPilot_Constants.EXERCISE_ENDURANCE_MIN    = 0.30    -- skip exercise below this
 AutoPilot_Constants.EXERCISE_ENDURANCE_RESUME = 0.70    -- resume exercise above this
 
--- Phase 2: Daily exercise cap (sets per in-game day)
-AutoPilot_Constants.EXERCISE_DAILY_CAP = 20
+-- V4.6: optional hard ceiling on exercise sets per in-game day.
+-- 0 (the default) means UNLIMITED: training is limited by XP PRODUCTIVITY
+-- instead, via the per-exercise diminishing-returns detector above
+-- (EXERCISE_MIN_XP_PER_SET / EXERCISE_FATIGUE_RECOVERY_MS), plus the
+-- endurance gates, the training program's rest days and the intervention
+-- backoff.  A counted ceiling cannot tell a productive set from a wasted
+-- one, so it is no longer the thing that stops training; it is kept only
+-- as an opt-in safety valve.  Any value > 0 restores a hard daily ceiling.
+AutoPilot_Constants.EXERCISE_DAILY_CAP = 0
 
 -- Phase 3: Weight management thresholds (in-game weight units)
 AutoPilot_Constants.WEIGHT_UNDERWEIGHT = 65    -- below this: prioritize high-calorie food

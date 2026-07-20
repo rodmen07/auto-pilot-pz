@@ -44,7 +44,7 @@ validates it.
 | `ENDURANCE_REST_MIN` | 0.30 | Needs.doRest | test_priority_logic #17 |
 | `ENDURANCE_EXERCISE_MIN` | 0.50 | Needs.doExercise | test_priority_logic #11 |
 | `EXERCISE_MINUTES` | 20 | Needs.doExercise | — |
-| `EXERCISE_DAILY_CAP` | 20 | Needs.doExercise | — |
+| `EXERCISE_DAILY_CAP` | 0 (unlimited; V4.6) | Needs.doExercise | test_priority_logic #38/#39/#41 |
 | `PAIN_SLEEP_THRESHOLD` | 30 | Needs.doSleep | test_priority_logic #15/#16 |
 | `FLEE_MOODLE_LIMIT` | 2 | Threat.check | test_threat_logic #6/#7 |
 | `DETECTION_RADIUS` | 10 | Threat.getNearbyZombies | test_threat_logic #2/#3 |

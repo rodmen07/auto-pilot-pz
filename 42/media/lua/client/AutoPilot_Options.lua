@@ -25,8 +25,11 @@ local _appliedOnce = false
 
 -- Slider definitions: option value * scale -> AutoPilot_Constants[key].
 local DEFS = {
-    { id = "dailyCap",     name = "Daily exercise set cap",
-      min = 5,  max = 50, step = 1, key = "EXERCISE_DAILY_CAP" },
+    -- V4.6: 0 (the default) = unlimited.  XP gain is the real limiter:
+    -- training stops when an exercise stops paying XP (see the XP-fatigue
+    -- recovery slider below), so this is only an opt-in hard ceiling.
+    { id = "dailyCap",     name = "Daily exercise set cap (0 = unlimited; XP gain is the real limiter)",
+      min = 0,  max = 50, step = 1, key = "EXERCISE_DAILY_CAP" },
     { id = "endMin",       name = "Min endurance to start a set (%)",
       min = 10, max = 90, step = 5, key = "EXERCISE_ENDURANCE_MIN", scale = 0.01 },
     { id = "fatigueRec",   name = "Exercise XP-fatigue recovery (game hours)",
