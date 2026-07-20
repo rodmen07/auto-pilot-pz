@@ -92,13 +92,23 @@ AutoPilot_Utils.PLAYER_ITEM_MAX_DEPTH = 3
 -- is not a container.
 --
 -- Verified-surface note: getItemContainer() is the B42 accessor for an
--- InventoryContainer item's contents.  It has NO precedent anywhere in this
--- mod or its mocks (the mod only ever called getContainer() on world objects),
--- so the call is pcall-guarded and any failure reads as "not a container".  On
--- a build where the method is absent this degrades exactly to the pre-V4.8
--- behavior (top-level items only) instead of raising.
+-- InventoryContainer item's contents, and it exists ONLY on container items.
+--
+-- V5.1 (hotfix): the item must be type-checked with instanceof FIRST.  V4.8
+-- called getItemContainer() on every carried item behind a pcall, reasoning
+-- that a missing method would read as "not a container".  Functionally that
+-- held, but on a real 42.19 client the call raises a JAVA-level exception on
+-- every ordinary item, and pcall does NOT stop PZ logging it: the console
+-- filled with "Exception thrown" stack traces and the in-game ERROR badge
+-- climbed on every tick of the survival cycle.
+--
+-- This is the same lesson already recorded at AutoPilot_Inventory getBestWeapon
+-- ("B42: instanceof avoids Java-level exceptions that pcall(isWeapon) still
+-- logs"), so this now follows that established precedent.  instanceof is a
+-- verified PZ global (declared in .luacheckrc, used by getBestWeapon).
 local function _subContainer(item)
     if not item then return nil end
+    if not instanceof(item, "InventoryContainer") then return nil end
     local ok, cont = pcall(function() return item:getItemContainer() end)
     if ok and cont then return cont end
     return nil

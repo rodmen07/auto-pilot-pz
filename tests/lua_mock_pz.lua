@@ -117,8 +117,12 @@
 --          both session-end registrations with existence checks
 --   [S]  Keyboard.KEY_F10 / KEY_F11   test_main_logic
 --   [S]  getPlayer()   test_main_logic (Main's fallback resolver only)
---   [G]  instanceof(item, className)   only getBestWeapon uses it and no
---          suite drives that with items; absence fails loudly, as intended
+--   [S]  instanceof(item, className)   V5.1: now modelled, because the carried
+--          -inventory walk type-checks with it before probing a container.
+--          Models "InventoryContainer" (bag items) and "HandWeapon".  The
+--          gap it replaced is exactly why V4.8's error spam reached a live
+--          client: a mock CAN NOT reproduce PZ logging a Java exception that
+--          pcall swallows, so the type check has to be asserted directly
 --   [G]  luautils.walkAdj(character, square, keepActions)
 --          suite-local stubs exist in test_home_map and
 --          test_resource_economy but no suite reaches the calls at runtime;
@@ -419,6 +423,27 @@ AdjacentFreeTileFinder = {
         return false
     end,
 }
+
+-- ── instanceof (V5.1) ─────────────────────────────────────────────────────────
+-- The real PZ global performs a Java-level type check.  It matters here for
+-- the reason V5.1 exists: calling a container-only method on an ordinary item
+-- raises a Java exception that pcall does NOT stop PZ from logging, so
+-- production code must type-check FIRST.  This mock models the two classes the
+-- mod actually asks about:
+--   "InventoryContainer"  true for MockContainer.bag items (they carry _container)
+--   "HandWeapon"          true for items a suite marks with _isHandWeapon
+-- Anything else is false, so a test that relies on an unmodelled class fails
+-- loudly rather than silently passing.
+function instanceof(item, className)
+    if type(item) ~= "table" then return false end
+    if className == "InventoryContainer" then
+        return item._container ~= nil
+    end
+    if className == "HandWeapon" then
+        return item._isHandWeapon == true
+    end
+    return false
+end
 
 -- ── Splitscreen player registry ───────────────────────────────────────────────
 -- getSpecificPlayer(n) is the real B42 accessor (getPlayer() ignores args and
