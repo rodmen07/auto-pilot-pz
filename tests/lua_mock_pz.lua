@@ -178,7 +178,10 @@
 --   [M]  FitnessExercises.exercisesType   mirrors shared/Definitions/
 --          FitnessExercises.lua including the V3.3 equipment item/prop fields
 --   [G]  Fluid.Water / ItemType.LITERATURE / ItemTag.UNINTERESTING
---          all callsites pcall-guarded
+--          all callsites pcall-guarded.  V4.9: ItemType.LITERATURE and
+--          ItemTag.UNINTERESTING now have a SUITE-LOCAL definition in
+--          test_container_search (the getReadable case needs the guarded
+--          branch to succeed); the gap stands for every other suite.
 --
 -- MockPlayer surface (builder at the bottom of this file): getStats():get
 -- plus the V3.2 engagement counters (getNumChasingZombies /

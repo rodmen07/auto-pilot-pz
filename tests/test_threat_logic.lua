@@ -15,10 +15,16 @@ CharacterStat.PANIC    = "PANIC"
 CharacterStat.SICKNESS = "SICKNESS"
 CharacterStat.STRESS   = "STRESS"
 
--- Additional timed-action stub required by Threat
+-- Additional timed-action stubs required by Threat
 ISEquipWeaponAction = {
     new = function(_, player, weapon, _time, _primary)
         return { type = "equip_weapon", weapon = weapon }
+    end,
+}
+-- V4.9: doFight moves a bagged weapon into the main inventory before equipping.
+ISInventoryTransferAction = {
+    new = function(_, _player, item, from, to)
+        return { type = "transfer", item = item, from = from, to = to }
     end,
 }
 
@@ -47,7 +53,12 @@ AutoPilot_Medical = {
 
 AutoPilot_Inventory = {
     _weapon = nil,
-    getBestWeapon      = function(_player) return AutoPilot_Inventory._weapon end,
+    -- V4.9: the real selector returns (item, holdingContainer); _weaponCont
+    -- stays nil unless a case models a weapon stashed in a bag.
+    _weaponCont = nil,
+    getBestWeapon      = function(_player)
+        return AutoPilot_Inventory._weapon, AutoPilot_Inventory._weaponCont
+    end,
     checkAndSwapWeapon = function(_player) return false end,
 }
 
@@ -76,6 +87,7 @@ local function reset()
     ISTimedActionQueue_calls = {}
     AutoPilot_Medical._bleeding = false
     AutoPilot_Inventory._weapon = nil
+    AutoPilot_Inventory._weaponCont = nil
     AutoPilot_Home._homeSet     = false
 end
 
@@ -283,6 +295,78 @@ do
     local player = MockPlayer.new({})
     local result = AutoPilot_Threat.getNearbyZombies(player)
     assert_eq("dead zombie not counted", #result, 0)
+end
+
+-- ── V4.9: transfer before equipping ───────────────────────────────────────────
+
+-- A weapon in fighting condition: doFight only equips when the condition ratio
+-- clears WEAPON_FIGHT_COND_MIN, so the stub needs condition accessors.
+local function makeUsableWeapon()
+    return {
+        getMaxDamage    = function(self) return 5 end,
+        getCondition    = function(self) return 10 end,
+        getConditionMax = function(self) return 10 end,
+    }
+end
+
+-- Index of the first queued action of a given type, or nil.
+local function indexOfType(t)
+    for i, a in ipairs(ISTimedActionQueue_calls) do
+        if a.type == t then return i end
+    end
+    return nil
+end
+
+-- 13. A weapon found inside a bag (V4.8 scope) must be transferred into the
+-- main inventory BEFORE the equip action is queued.
+print("\n-- Test 13 (V4.9): a bagged weapon transfers before it is equipped")
+do
+    reset()
+    local bagContainer = { _tag = "bag" }
+    AutoPilot_Inventory._weapon     = makeUsableWeapon()
+    AutoPilot_Inventory._weaponCont = bagContainer
+    setZombies({ makeZombie(3, 3) })
+    local player = MockPlayer.new({
+        stats = {
+            HUNGER = 0.05, THIRST = 0.05, FATIGUE = 0.10,
+            PANIC  = 0,    PAIN   = 0,    SICKNESS = 0,
+            STRESS = 0,    SANITY = 0,
+        },
+    })
+    player.getPrimaryHandItem = function(self) return nil end
+
+    assert_true("check() returns true with zombie present",
+        AutoPilot_Threat.check(player))
+    local xfer  = indexOfType("transfer")
+    local equip = indexOfType("equip_weapon")
+    assert_true("a transfer was queued", xfer ~= nil)
+    assert_true("an equip was queued", equip ~= nil)
+    assert_true("the transfer is queued BEFORE the equip",
+        xfer ~= nil and equip ~= nil and xfer < equip)
+    assert_eq("the transfer source is the bag",
+        ISTimedActionQueue_calls[xfer].from, bagContainer)
+end
+
+-- 14. A weapon already in the main inventory must NOT produce a transfer.
+print("\n-- Test 14 (V4.9): a main-inventory weapon queues no transfer")
+do
+    reset()
+    local player = MockPlayer.new({
+        stats = {
+            HUNGER = 0.05, THIRST = 0.05, FATIGUE = 0.10,
+            PANIC  = 0,    PAIN   = 0,    SICKNESS = 0,
+            STRESS = 0,    SANITY = 0,
+        },
+    })
+    player.getPrimaryHandItem = function(self) return nil end
+    AutoPilot_Inventory._weapon     = makeUsableWeapon()
+    AutoPilot_Inventory._weaponCont = player:getInventory()
+    setZombies({ makeZombie(3, 3) })
+
+    assert_true("check() returns true with zombie present",
+        AutoPilot_Threat.check(player))
+    assert_eq("no transfer action queued", indexOfType("transfer"), nil)
+    assert_true("the equip still happens", indexOfType("equip_weapon") ~= nil)
 end
 
 -- ── Summary ───────────────────────────────────────────────────────────────────

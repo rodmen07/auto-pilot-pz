@@ -67,7 +67,12 @@ local function addBandageToInventory(player)
         size = function(self) return #itemsArr end,
         get  = function(self, i) return itemsArr[i + 1] end,
     }
-    player.getInventory = function(self) return { getItems = function() return items end } end
+    -- One STABLE container table: the real player:getInventory() returns the
+    -- same ItemContainer every call, and V4.9 compares the holding container
+    -- against it by identity to decide whether a transfer is needed.  A fresh
+    -- table per call would look like a foreign container and fake a transfer.
+    local inv = { getItems = function() return items end }
+    player.getInventory = function(self) return inv end
     return player
 end
 
@@ -379,6 +384,106 @@ do
     assert_false("no bandage anywhere in the tree queues nothing",
         AutoPilot_Medical.check(player, false))
     assert_eq("no bandage action queued", bandageActions(), 0)
+end
+
+-- ── V4.9: transfer to the main inventory BEFORE bandaging ─────────────────────
+-- User directive: "It should be transfer then bandage".  V4.8 made the bandage
+-- FINDABLE inside a fanny pack; the engine still applies bandages from the MAIN
+-- inventory only, so the move must be queued first and the ISApplyBandage right
+-- behind it (ISTimedActionQueue runs them in that order).
+
+-- Type of the Nth queued action, or nil.
+local function actionTypeAt(n)
+    local a = ISTimedActionQueue_calls[n]
+    return a and a.type or nil
+end
+
+local function countType(t)
+    local n = 0
+    for _, a in ipairs(ISTimedActionQueue_calls) do
+        if a.type == t then n = n + 1 end
+    end
+    return n
+end
+
+-- 22. THE USER'S SCENARIO, END TO END: bandage in a fanny pack must produce a
+-- TRANSFER first, then the bandage action, in that order.
+print("\n-- Test 22 (V4.9): fanny-pack bandage transfers THEN bandages, in order")
+do
+    reset()
+    local player = MockPlayer.new({ scratched = true, bleeding = false })
+    local bandage = bandageItem("Bandage")
+    local mainInv = MockContainer.new({
+        MockContainer.bag("FannyPack", { bandage }),
+    })
+    MockContainer.attach(player, mainInv)
+
+    assert_true("treatment is queued", AutoPilot_Medical.check(player, false))
+    assert_eq("exactly two actions queued", #ISTimedActionQueue_calls, 2)
+    assert_eq("action 1 is the transfer", actionTypeAt(1), "transfer")
+    assert_eq("action 2 is the bandage", actionTypeAt(2), "bandage")
+    assert_eq("the transfer moves the bandage item",
+        ISTimedActionQueue_calls[1].item, bandage)
+    assert_eq("the bandage action uses the same item",
+        ISTimedActionQueue_calls[2].bandage, bandage)
+end
+
+-- 23. No redundant work: a bandage already in the main inventory must NOT
+-- produce a transfer.
+print("\n-- Test 23 (V4.9): a main-inventory bandage queues NO transfer")
+do
+    reset()
+    local player = MockPlayer.new({ scratched = true, bleeding = false })
+    MockContainer.attach(player, MockContainer.new({ bandageItem("Bandage") }))
+
+    assert_true("treatment is queued", AutoPilot_Medical.check(player, false))
+    assert_eq("no transfer action queued", countType("transfer"), 0)
+    assert_eq("exactly one bandage action queued", countType("bandage"), 1)
+    assert_eq("the bandage is the only queued action", #ISTimedActionQueue_calls, 1)
+end
+
+-- 24. Depth 2 still transfers exactly once (the fanny pack inside a backpack:
+-- the bandage moves straight to the main inventory, not one hop per level).
+print("\n-- Test 24 (V4.9): depth-2 bandage transfers once, then bandages")
+do
+    reset()
+    local player = MockPlayer.new({ scratched = true, bleeding = false })
+    local bandage = bandageItem("Bandage")
+    MockContainer.attach(player, MockContainer.new({
+        MockContainer.bag("Backpack", {
+            MockContainer.bag("FannyPack", { bandage }),
+        }),
+    }))
+
+    assert_true("depth-2 bandage is treated", AutoPilot_Medical.check(player, false))
+    assert_eq("exactly one transfer queued", countType("transfer"), 1)
+    assert_eq("action 1 is the transfer", actionTypeAt(1), "transfer")
+    assert_eq("action 2 is the bandage", actionTypeAt(2), "bandage")
+end
+
+-- 25. A refused transfer (the MP-unsafe path) must degrade quietly and must NOT
+-- queue a bandage action on an item the character cannot reach.
+print("\n-- Test 25 (V4.9): a refused transfer queues nothing and does not error")
+do
+    reset()
+    local savedTransfer = ISInventoryTransferAction
+    ISInventoryTransferAction = {
+        new = function() error("PZ refused the transfer") end,
+    }
+
+    local player = MockPlayer.new({ scratched = true, bleeding = false })
+    MockContainer.attach(player, MockContainer.new({
+        MockContainer.bag("FannyPack", { bandageItem("Bandage") }),
+    }))
+
+    local ok, result = pcall(function()
+        return AutoPilot_Medical.check(player, false)
+    end)
+    ISInventoryTransferAction = savedTransfer
+
+    assert_true("a refused transfer does not raise", ok)
+    assert_false("no treatment is reported", result)
+    assert_eq("nothing at all is queued", #ISTimedActionQueue_calls, 0)
 end
 
 -- ── Summary ───────────────────────────────────────────────────────────────────

@@ -42,12 +42,18 @@ end
 -- fallback INSIDE the scan, so the first eligible item seen could lock itself
 -- in as the result and outrank a better bandage found later; the fallback is
 -- now kept separate and only used when nothing listed was found at all.
+--
+-- V4.9: also returns the container that actually holds the winning bandage, so
+-- doTreatWound can move it into the main inventory before bandaging.
+-- @return item|nil, container|nil
 local function findBandage(player)
     local bestIdx      = math.huge
     local bestItem     = nil
+    local bestCont     = nil
     local fallbackItem = nil
+    local fallbackCont = nil
 
-    AutoPilot_Utils.iteratePlayerItems(player, function(item)
+    AutoPilot_Utils.iteratePlayerItems(player, function(item, container)
         local ok, canBandage = pcall(function() return item:isCanBandage() end)
         if not ok or not canBandage then return false end
 
@@ -58,6 +64,7 @@ local function findBandage(player)
                     if idx < bestIdx then
                         bestIdx  = idx
                         bestItem = item
+                        bestCont = container
                     end
                     return false
                 end
@@ -65,11 +72,15 @@ local function findBandage(player)
         end
 
         -- Eligible but not in the priority list: last-resort fallback only.
-        if fallbackItem == nil then fallbackItem = item end
+        if fallbackItem == nil then
+            fallbackItem = item
+            fallbackCont = container
+        end
         return false
     end)
 
-    return bestItem or fallbackItem
+    if bestItem then return bestItem, bestCont end
+    return fallbackItem, fallbackCont
 end
 
 -- Scan nearby containers for bandage-type items and loot the first one found.
@@ -126,14 +137,24 @@ end
 
 -- Treat a single wounded body part: find bandage and apply.
 local function doTreatWound(player, bodyPart)
-    local bandage = findBandage(player)
+    local bandage, bandageCont = findBandage(player)
     if not bandage then
         print("[Medical] No bandage in inventory — searching nearby containers.")
         if lootNearbyBandage(player) then
-            bandage = findBandage(player)
+            bandage, bandageCont = findBandage(player)
         end
     end
     if not bandage then return false end
+
+    -- V4.9: a bandage in a fanny pack or backpack is FOUND (V4.8) but cannot be
+    -- APPLIED from there.  Queue the move into the main inventory first; the
+    -- ISApplyBandage below is queued right behind it and runs second.
+    local _, usable = AutoPilot_Utils.queueItemToMainInventory(
+        player, bandage, bandageCont)
+    if not usable then
+        print("[Medical] Bandage transfer refused: skipping treatment this cycle.")
+        return false
+    end
 
     local partName = "unknown"
     pcall(function()

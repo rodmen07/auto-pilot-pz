@@ -96,24 +96,24 @@ end
 local function doEat(player)
     -- Prefer food close to current hunger need to avoid overfeeding.
     local hunger = AutoPilot_Utils.safeStat(player, CharacterStat.HUNGER)
-    local food = nil
+    local food, foodCont = nil, nil
     if AutoPilot_Inventory and AutoPilot_Inventory.getBestFoodForHunger then
-        local ok, selected = pcall(function()
+        local ok, selected, cont = pcall(function()
             return AutoPilot_Inventory.getBestFoodForHunger(player, hunger)
         end)
-        if ok then food = selected end
+        if ok then food, foodCont = selected, cont end
     end
     if not food and AutoPilot_Inventory and AutoPilot_Inventory.selectFoodByWeight then
-        local ok, selected = pcall(function()
+        local ok, selected, cont = pcall(function()
             return AutoPilot_Inventory.selectFoodByWeight(player)
         end)
-        if ok then food = selected end
+        if ok then food, foodCont = selected, cont end
     end
     if not food and AutoPilot_Inventory and AutoPilot_Inventory.getBestFood then
-        local ok, selected = pcall(function()
+        local ok, selected, cont = pcall(function()
             return AutoPilot_Inventory.getBestFood(player)
         end)
-        if ok then food = selected end
+        if ok then food, foodCont = selected, cont end
     end
     if not food then
         print("[Needs] Hungry but no food in inventory — looting nearby.")
@@ -133,6 +133,13 @@ local function doEat(player)
     print("[Needs] Best food: " .. tostring(food:getName())
         .. " (cal=" .. tostring(food:getCalories()) .. ")")
     print("[Needs] Eating: " .. tostring(food:getName()))
+    -- V4.9: food found inside a backpack (V4.8) cannot be eaten from there;
+    -- queue the move to the main inventory first, then the eat behind it.
+    local _, usable = AutoPilot_Utils.queueItemToMainInventory(player, food, foodCont)
+    if not usable then
+        print("[Needs] Food transfer refused: not eating this cycle.")
+        return false
+    end
     AutoPilot_Utils.queueModAction(ISEatFoodAction:new(player, food, 1))
     return true
 end
@@ -159,10 +166,17 @@ local function doDrink(player)
     end
 
     -- Priority 2: Drink from inventory (filled glass/bottle)
-    local drink = AutoPilot_Inventory.getBestDrink(player)
+    local drink, drinkCont = AutoPilot_Inventory.getBestDrink(player)
     if drink then
         _emptyLootCycles = 0
         print("[Needs] Drinking: " .. tostring(drink:getName()))
+        -- V4.9: transfer out of a bag first, then drink (same cycle, in order).
+        local _, usable = AutoPilot_Utils.queueItemToMainInventory(
+            player, drink, drinkCont)
+        if not usable then
+            print("[Needs] Drink transfer refused: not drinking this cycle.")
+            return false
+        end
         AutoPilot_Utils.queueModAction(ISEatFoodAction:new(player, drink, 1))
         drinkCooldownMs = ms + 5000
         return true
@@ -432,7 +446,7 @@ local function doSleep(player)
         -- heuristics).  V4.8: searches worn/carried sub-containers too, so
         -- pills in a backpack or fanny pack are no longer invisible.
         local tookPill = false
-        AutoPilot_Utils.iteratePlayerItems(player, function(item)
+        AutoPilot_Utils.iteratePlayerItems(player, function(item, container)
             if not item then return false end
             local okType, typ = pcall(function() return item:getType() end)
             local okName, name = pcall(function() return item:getName() end)
@@ -440,6 +454,13 @@ local function doSleep(player)
             if okType and typ then lower = lower .. typ:lower() end
             if okName and name then lower = lower .. " " .. name:lower() end
             if lower:find("painkill") or lower:find("aspirin") or lower:find("paracetamol") then
+                -- V4.9: pills in a bag must reach the main inventory first.
+                local _, usable = AutoPilot_Utils.queueItemToMainInventory(
+                    player, item, container)
+                if not usable then
+                    print("[Needs] Painkiller transfer refused: skipping this item.")
+                    return false
+                end
                 local takePill = rawget(_G, "ISTakePillAction")
                 local okUse = pcall(function()
                     if takePill and takePill.new then
@@ -619,7 +640,7 @@ local function doRead(player)
         return false
     end
 
-    local book = AutoPilot_Inventory.getReadable(player)
+    local book, bookCont = AutoPilot_Inventory.getReadable(player)
     if not book then
         -- No readable in inventory — try looting one from nearby containers
         return AutoPilot_Inventory.lootNearbyReadable(player)
@@ -633,6 +654,12 @@ local function doRead(player)
     end
 
     print("[Needs] Reading: " .. tostring(book:getName()))
+    -- V4.9: a book in a bag must reach the main inventory before ISReadABook.
+    local _, usable = AutoPilot_Utils.queueItemToMainInventory(player, book, bookCont)
+    if not usable then
+        print("[Needs] Book transfer refused: not reading this cycle.")
+        return false
+    end
     local readOk, _ = pcall(function()
         AutoPilot_Utils.queueModAction(ISReadABook:new(player, book))
     end)
@@ -1284,13 +1311,19 @@ function AutoPilot_Needs.check(player)
         or unhappyLvl >= AutoPilot_Constants.HAPPINESS_LOW_THRESHOLD then
         -- Phase 3: when unhappy, prefer food that reduces boredom first
         if unhappyLvl >= AutoPilot_Constants.HAPPINESS_LOW_THRESHOLD then
-            local tastyFood = AutoPilot_Inventory.preferTastyFood(player)
+            local tastyFood, tastyCont = AutoPilot_Inventory.preferTastyFood(player)
             if tastyFood then
                 AutoPilot_Telemetry.setDecision("eat", "unhappy")
                 print("[Needs] Unhappy — eating tasty food: "
                     .. tostring(tastyFood:getName()))
-                AutoPilot_Utils.queueModAction(ISEatFoodAction:new(player, tastyFood, 1))
-                return true
+                -- V4.9: transfer out of a bag first, then eat.
+                local _, usable = AutoPilot_Utils.queueItemToMainInventory(
+                    player, tastyFood, tastyCont)
+                if usable then
+                    AutoPilot_Utils.queueModAction(ISEatFoodAction:new(player, tastyFood, 1))
+                    return true
+                end
+                print("[Needs] Tasty-food transfer refused: falling through to reading.")
             end
         end
         AutoPilot_Telemetry.setDecision("read", "boredom")
