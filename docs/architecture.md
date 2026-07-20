@@ -317,7 +317,8 @@ listed in the F11 panel.
 
 `AutoPilot_Options` registers a `PZAPI.ModOptions` page (Options > Mods >
 AutoPilot Leveler) with sliders for the optional daily set cap (0 =
-unlimited), endurance minimum,
+unlimited), the endurance hysteresis pair (V5.7: "Resume training when
+endurance reaches (%)" and "Keep training until endurance falls to (%)"),
 XP-fatigue recovery hours, the hunger and thirst trigger points (V4.7),
 food/drink stockpile minimums, proactive loot
 radius, detection radius, and close-danger radius, plus rebindable arm and
@@ -326,16 +327,35 @@ from `Main`'s tick, BEFORE `Adaptive.init`, so player settings and
 death-learning deltas compose in a stable order; saving the options screen
 re-applies immediately.
 
-V4.3 adds the weekly training-program selector to the page: a dropdown
-where `addComboBox` exists (it is NOT in the mock's verified 42.19 record,
-so the call is existence-checked inside its own pcall and cannot take the
-sliders down with it), with a slider over the 1-based program indices (a
-verified surface) as the fallback. Either control's value is mapped to a
-program id (index or display text; unmappable values leave the constant
-untouched) and written to `AutoPilot_Constants.TRAINING_PROGRAM`, which
-the Leveler reads live at the exercise slot. The program table itself and
-all day resolution live in `AutoPilot_Leveler`, keeping the documented
-no-suite-loads-Options coverage gap exactly as narrow as it was.
+V4.3 adds the weekly training-program selector to the page. V5.7 settled
+what that control is: a slider over the 1-based program indices, with the
+program names carried in the label. It was previously an `addComboBox`
+call with a slider fallback, and it shipped BROKEN — on a real 42.19
+client the method exists and the call succeeds, so the
+`type(...) == "function" and pcall(...)` guard was satisfied and the
+fallback never fired, yet the dropdown rendered with no items in it.
+`addComboBox` is still NOT in the mock's verified 42.19 record and its
+real signature cannot be established from anything this project can
+verify, so the call was removed rather than re-guessed: a working slider
+on a verified surface beats a dropdown that draws empty. The value is
+mapped to a program id (index or display text; unmappable values leave the
+constant untouched) and written to `AutoPilot_Constants.TRAINING_PROGRAM`,
+which the Leveler reads live at the exercise slot. The program table and
+all day resolution live in `AutoPilot_Leveler`.
+
+V5.7 replaces the single endurance gate with a HYSTERESIS PAIR, because one
+threshold cannot answer both "may a run start?" and "must a run stop?" without
+thrashing. A lone gate at X means the character rests to X, starts a set, the
+first rep drops below X, and training stops: one rep per rest, which is what
+the user reported. `EXERCISE_ENDURANCE_RESUME` (0.90) starts a run;
+`EXERCISE_ENDURANCE_MIN` (0.30) is the floor an already-running run continues
+down to. `AutoPilot_Needs` tracks whether a run is active (owner-guarded the
+same way the V4.5 `who` records are) and picks the threshold accordingly;
+every path that ends training clears the flag. The sit branch is run-aware to
+match: near the floor while a run is going, up at the resume gate when none
+is, which leaves no endurance value where the character neither sits nor
+trains. `ENDURANCE_REST_TARGET` (0.95) must stay above the resume gate or a
+finished rest lands back in a refused band.
 
 V4.7 adds "Eat when hunger reaches (%)" and "Drink when thirst reaches
 (%)" to the Survival Fail-Safe group, both percentage sliders (5 to 50 in

@@ -2,6 +2,195 @@
 
 All notable changes to AutoPilot are documented here.
 
+## [V5.7] - 2026-07-20 - THE USER'S OWN SETTINGS, AND TWO BUGS THEY EXPOSED
+
+Four items, all from live play on the options page that V5.5 finally made
+reachable.
+
+### 1. The user's tuned values are now the shipped defaults
+
+> "I adjusted the settings, set these as the defaults" - and for the endurance
+> slider, "I set it to 90, keep it as default".
+
+Hunger and thirst landed exactly as asked: `HUNGER_THRESHOLD` and
+`THIRST_THRESHOLD` both 0.20 -> **0.15**.
+
+The endurance 90 turned out to be the interesting one, and the user worked out
+why during the same session:
+
+> "I see that the minimum endurance default of 90 is too high, but at the same
+> time, I want the character to rest until endurance is nearly full. The old
+> setting of 50 made it so that only a single rep would be completed after a
+> period of resting (I guess the fatigue cap for exercise is just under 50)."
+
+That is a single-threshold thrash, and no value of a single threshold fixes
+it. One number was answering two different questions - "is there enough in the
+tank to START a run?" and "must an already-running run STOP?" - so the
+character rested up to the gate, started a set, the first rep dropped
+endurance under the gate, training stopped, and it rested again. One rep per
+rest. Raising the number makes it strictly worse: at 90 the very first rep
+falls out of the gate.
+
+**The fix is hysteresis: two thresholds with a wide gap between them.**
+
+| Constant | Was | Now | Slider |
+|---|---|---|---|
+| `EXERCISE_ENDURANCE_RESUME` | 0.70, unread | **0.90** | Resume training when endurance reaches (%) |
+| `EXERCISE_ENDURANCE_MIN` | 0.30 (effectively 0.50) | **0.30** | Keep training until endurance falls to (%) |
+| `ENDURANCE_REST_TARGET` | 0.70 | **0.95** | Stay seated until endurance reaches (%) |
+| `ENDURANCE_SIT_MIN` | 0.50 | **0.35** | Sit to recover when endurance falls below (%) |
+| `HUNGER_THRESHOLD` | 0.20 | **0.15** | Eat when hunger reaches (%) |
+| `THIRST_THRESHOLD` | 0.20 | **0.15** | Drink when thirst reaches (%) |
+
+The user's 90 is now the RESUME gate, which is what they actually meant by it;
+it was only ever attached to the wrong question. `ENDURANCE_REST_TARGET` = 0.95
+is "rest until endurance is nearly full", verbatim, and it has to clear RESUME
+or every completed rest would end in a band where training is still refused.
+
+The resulting cycle is the one that was asked for:
+
+```
+rest to 95%  ->  resume at 90%  ->  train down to 30% (many reps)
+   ^                                          |
+   +---------  sit at 35%  <------------------+
+```
+
+Two gates only work if the code knows whether a run is in progress, so
+`AutoPilot_Needs` now tracks that. `_runActive` is set when a set is really
+queued and carries a `_runOwner` guard, the same player-object ownership rule
+as the V4.5 `who` records, so a death or a respawn cannot leave a new
+character believing it is mid-run. It is cleared by **every** path that ends
+training, because a missed clear is the dangerous direction - the character
+would keep training off the low floor when it should be recovering to the
+resume gate:
+
+- endurance falling under the floor, and the severe exertion moodle
+- XP fatigue (all exercises in the pool exhausted)
+- the daily set cap
+- the V4.5 intervention backoff, the F10 panic stop, and an observed manual
+  (foreign) exercise
+- a mod-side clear: urgent-need interrupt, threat response, thrash guard
+- sitting down to recover
+- a training-program rest day (`AutoPilot_Leveler`)
+- a player identity change (new character)
+- `ISFitnessAction` failing to construct
+
+The sit branch became run-aware in the same change, and that is what keeps the
+idle dead zone shut under hysteresis. Mid-run it sits only near the floor, so
+a long run is never cut short at 80%. With **no** run open it raises the sit
+threshold to the RESUME gate, because a character who is not training and
+cannot start has nothing better to do than sit and keep recovering. Since the
+not-mid-run sit threshold *is* the resume gate, there is no endurance value at
+which the character neither sits nor trains, for any combination of sliders.
+
+**Option ids.** The floor got a NEW id (`endFloor`); the resume gate keeps the
+old `endMin`. That is deliberate: an existing `ModOptions.ini` holds a 90 under
+`endMin`, and that 90 must land on RESUME. Had the old id been re-pointed at
+the floor, the upgrade would have rebuilt the single-rep bug out of the user's
+own saved settings.
+
+### 2. The training-program dropdown rendered EMPTY (bug)
+
+The control drew as a combo box with no items in it. The registration called
+`o:addComboBox("program", "Training program", progNames, curIndex)` behind
+`type(o.addComboBox) == "function" and pcall(...)` and treated a successful
+pcall as proof it worked. It is not: on a real 42.19 client the method exists
+and the call succeeds, so the guard passed, the already-written slider
+fallback never fired, and the widget still populated nothing — an items array
+as the third argument is evidently not how that API takes its items.
+
+What the real signature IS cannot be established from anything this project
+can verify (`tests/lua_mock_pz.lua` has always recorded `addComboBox` as
+outside the verified 42.19 surface, and reading the game install is off
+limits). So the call is **removed, not re-guessed**: the program picker is now
+unconditionally the `addSlider` over the 1-based program indices, with the
+program names carried in the label. A working slider beats a broken dropdown.
+
+The suite could never have caught this, because its mock had no `addComboBox`
+at all and therefore always took the fallback path the live client never took.
+It now provides one that accepts the call and populates nothing, and asserts
+the module does not go near it. Same lesson as V5.1: a call that does not
+throw is not a call that works.
+
+### 3. The set counter carried across characters (bug)
+
+> "when starting a new character, the number of sets completed should reset"
+
+A fresh survivor opened the F11 panel on `Sets today: 150 (no cap)`. The count
+reset only on an in-game day rollover, and module state outlives a death and a
+new game inside one Lua session. It now also resets when the player IDENTITY
+changes, using the same player-object comparison as the V4.5 `who` guards on
+`_pendingSet` / `_exSetStart` — a respawn is a new `IsoPlayer` even at the same
+player number, which `getPlayerNum()` alone cannot see. The sync runs at the
+top of `check()` as well as in `doExercise`, so a new character with an urgent
+need does not keep showing the dead one's total until they get around to
+training. Same-character day rollover and same-character mid-day ticks behave
+exactly as before.
+
+`AutoPilot_SessionHistory` was checked and deliberately left alone: it is
+keyed by player number too, but it writes one summary line per SESSION and a
+death already finalizes the open session through `Telemetry.onDeath`, so it
+does not accumulate a stale per-character running total the way this counter
+did.
+
+### 4. Two transposed endurance constants, resolved into the pair
+
+`ENDURANCE_EXERCISE_MIN` (0.50) and `EXERCISE_ENDURANCE_MIN` (0.30) were one
+typo apart and BOTH gated exercise, on consecutive lines of `doExercise`. The
+first was copied into a file-local at load time, so no options save could ever
+move it; the second was live-read and the one the slider wrote. The effective
+gate was therefore `max(0.30, 0.50) = 0.50`: **the untunable constant silently
+floored the tunable one, and the slider's entire 10-50% range did nothing.**
+
+Both use sites asked the same question of the same stat in the same function,
+so they do not survive as two gates. But they do not collapse into one either:
+that single surviving gate would have been the start gate AND the stop gate,
+which is the single-rep bug above. They resolve into the explicit hysteresis
+pair `EXERCISE_ENDURANCE_MIN` (floor) / `EXERCISE_ENDURANCE_RESUME` (start),
+both live-read through functions at their single use site, both slider-backed,
+and both named for the question they answer.
+
+`EXERCISE_ENDURANCE_RESUME` had zero readers before V5.7 and was nearly
+deleted as dead code. Keeping it was right: its absence is precisely how a
+two-gate design had degraded into a one-gate design in the first place. The
+severe exertion-moodle test that rode along with the second gate is kept
+verbatim and stays unconditional - it is a genuinely different signal (moodle
+level, not stat value) and ends a run however that run started.
+
+### Tests
+
+878 -> 1059 Lua assertions across 14 files. New coverage includes:
+
+- **`Test V5.7-4b: A RUN CONTINUES AT 0.80`** - the named regression test for
+  the single-rep report. A run started at 95% must still be training at 80%,
+  60% and 40%, must stop below the 30% floor, must NOT restart at 40% or 85%,
+  and must resume at exactly 90%.
+- The full rest-train-rest cycle driven through `check()`, including the sit
+  branch and the rest hold.
+- Every run-ending hook driven for real, with a CONTROL assertion proving an
+  open run does train at 40% (so the rest cannot pass vacuously).
+- Both halves of the pair live-read in both directions mid-session, with no
+  leakage between the two sliders.
+- The shipped defaults, each inside its slider's range and on a step boundary,
+  plus the ordering invariants
+  `MIN < SIT_MIN < RESUME < REST_TARGET`.
+- The program control being a populated slider while `addComboBox` is
+  available and unused; every program index selecting the right program.
+- The per-character sets reset, with same-character day rollover and
+  same-character mid-day ticks as controls.
+- A sweep of `check()` across 19 endurance points from 29% to 100% asserting
+  the cycle is always claimed by a rest or a training set, never left idle.
+
+Three negative controls were run against pre-fix code, all reproducing the
+reported symptom:
+
+1. Day-only sets reset -> a new character inherits the previous total
+   (`Sets today: 102 (no cap)`), matching the user's screenshot.
+2. Single-gate at 0.90 with the old 0.50/0.70 recovery pair -> every point
+   from 50% to 89% endurance idles with no action queued.
+3. One threshold serving as both start and stop -> a run started at 95% is
+   already refused at 80%. One rep per rest, exactly as reported.
+
 ## [V5.6] - 2026-07-20 - COMBAT SPUN WITHOUT EVER ACTING
 
 User report: "The fight/flee mechanic is not working as expected."

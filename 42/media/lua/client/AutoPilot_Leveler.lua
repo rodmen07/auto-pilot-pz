@@ -230,6 +230,13 @@ function AutoPilot_Leveler.check(player)
     local dayFocus = AutoPilot_Leveler.resolveFocus(
         AutoPilot_Leveler.getProgramId(), AutoPilot_Leveler.getWeekday())
     if dayFocus == "rest" then
+        -- V5.7: a rest day ends any training run that was still open, so the
+        -- character recovers to the RESUME gate rather than resuming off the
+        -- low floor when training comes back tomorrow.  Existence-guarded:
+        -- this module must keep working if Needs is an older build.
+        if AutoPilot_Needs and AutoPilot_Needs.endTrainingRun then
+            pcall(AutoPilot_Needs.endTrainingRun)
+        end
         return false  -- rest day: yield the slot; chores own the cycle
     end
 

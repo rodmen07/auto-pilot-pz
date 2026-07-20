@@ -38,6 +38,27 @@
 -- rest sliders, both keybinds).  Registration now retries on events and the
 -- failure is recorded loudly instead of being swallowed by the debug-print
 -- shadow below.  No default, range or DEFS entry changed.
+--
+-- V5.7 (BUG FIX + RETUNE): with the page finally reachable in game, the user
+-- tuned it during live play and asked for their values as the shipped
+-- defaults: "I adjusted the settings, set these as the defaults", and for the
+-- endurance slider "I set it to 90, keep it as default".  Hunger and thirst
+-- moved 0.20 -> 0.15 exactly as asked.
+--
+-- The endurance 90 turned out to be the interesting one.  It was the only
+-- endurance slider on the page, and it was BOTH the start gate and the stop
+-- gate, which is a design that thrashes at any value: "The old setting of 50
+-- made it so that only a single rep would be completed after a period of
+-- resting."  So the single slider became a PAIR -- "Resume training when
+-- endurance reaches (%)" (high) and "Keep training until endurance falls to
+-- (%)" (low) -- and the user's 90 is now the RESUME value, which is what they
+-- actually meant by it.  See the DEFS entries below for why the resume gate
+-- keeps the old "endMin" id while the floor gets a new one, and
+-- AutoPilot_Needs for the run-state machine that makes two gates possible.
+-- ENDURANCE_SIT_MIN and ENDURANCE_REST_TARGET moved with them (0.35 and 0.95).
+--
+-- Separately, the training-program control stopped being an empty dropdown;
+-- see the long note at its registration below.
 
 AutoPilot_Options = {}
 
@@ -68,8 +89,26 @@ local DEFS = {
     -- recovery slider below), so this is only an opt-in hard ceiling.
     { id = "dailyCap",     name = "Daily exercise set cap (0 = unlimited; XP gain is the real limiter)",
       min = 0,  max = 50, step = 1, key = "EXERCISE_DAILY_CAP" },
-    { id = "endMin",       name = "Min endurance to start a set (%)",
-      min = 10, max = 90, step = 5, key = "EXERCISE_ENDURANCE_MIN", scale = 0.01 },
+    -- V5.7: the endurance HYSTERESIS PAIR, kept adjacent because they only
+    -- make sense read together.  RESUME is the high "start a run" gate; MIN
+    -- is the low "keep the run going until here" floor.  A single threshold
+    -- doing both jobs is what produced the user's one-rep-per-rest loop.
+    --
+    -- The id "endMin" is DELIBERATELY reused for the RESUME gate rather than
+    -- for the floor, even though the name no longer matches.  It is the id
+    -- the user's existing ModOptions.ini already holds a 90 under, and 90 is
+    -- exactly the resume value they wanted -- it was only ever attached to
+    -- the wrong gate.  Re-pointing it means their saved setting lands on the
+    -- gate they meant.  Giving the floor a NEW id ("endFloor") means no saved
+    -- value can be silently reinterpreted under new semantics; anyone
+    -- upgrading gets the shipped 30% floor rather than an inherited 90 that
+    -- would recreate the single-rep bug.
+    { id = "endMin",       name = "Resume training when endurance reaches (%)",
+      min = 10, max = 90, step = 5, key = "EXERCISE_ENDURANCE_RESUME",
+      scale = 0.01 },
+    { id = "endFloor",     name = "Keep training until endurance falls to (%)",
+      min = 5,  max = 60, step = 5, key = "EXERCISE_ENDURANCE_MIN",
+      scale = 0.01 },
     { id = "fatigueRec",   name = "Exercise XP-fatigue recovery (game hours)",
       min = 1,  max = 8,  step = 1, key = "EXERCISE_FATIGUE_RECOVERY_MS",
       scale = 3600000 },
@@ -109,6 +148,11 @@ local DEFS = {
     { id = "restHoldMin",  name = "Max time seated per rest (game minutes)",
       min = 5,  max = 120, step = 5, key = "REST_HOLD_MS", scale = 60000 },
 }
+
+-- How many leading DEFS entries belong to the Training group; the rest are
+-- Survival Fail-Safe.  _buildPage renders the two groups as two loops, so the
+-- boundary lives here rather than as a magic number in each of them.
+local TRAINING_DEFS = 5
 
 -- V4.3 (C3): map the training-program option value to a program id.  The
 -- program table itself lives in AutoPilot_Leveler (pure, unit-tested);
@@ -225,8 +269,10 @@ local function _buildPage()
     local o = PZAPI.ModOptions:create("AutoPilot", "AutoPilot Leveler")
 
     o:addTitle("Training")
-    -- First 4 DEFS are the Training group (V4.5 added backoffMin as #4).
-    for i = 1, 4 do
+    -- The first TRAINING_DEFS entries are the Training group (V4.5 added
+    -- backoffMin, V5.7 added endFloor as the partner of endMin).  Named
+    -- rather than a bare literal because two loops have to agree on it.
+    for i = 1, TRAINING_DEFS do
         local d = DEFS[i]
         local cur = AutoPilot_Constants[d.key] or d.min
         if d.scale then cur = cur / d.scale end
@@ -235,14 +281,37 @@ local function _buildPage()
 
     -- V4.3 (C3): training-program selector.  The program table and every
     -- bit of day-resolution logic live in AutoPilot_Leveler; this block
-    -- only registers the control.  addComboBox is NOT in the mock's
-    -- verified 42.19 record, so it is existence-checked inside its OWN
-    -- pcall (a failure there must not kill the sliders above) and a slider
-    -- over the 1-based program indices (verified surface) is the fallback;
-    -- either way the picked value flows through applyToConstants into the
-    -- live-read AutoPilot_Constants.TRAINING_PROGRAM.  Playtest verifies
-    -- the dropdown itself, same as every control on this page (the whole
-    -- ModOptions surface is a documented coverage gap).
+    -- only registers the control.  The picked value flows through
+    -- applyToConstants into the live-read
+    -- AutoPilot_Constants.TRAINING_PROGRAM.
+    --
+    -- V5.7 (BUG FIX): this control rendered as an EMPTY dropdown in game.
+    -- The pre-V5.7 code called
+    --     o:addComboBox("program", "Training program", progNames, curIndex)
+    -- guarded by `type(o.addComboBox) == "function" and pcall(...)`, and
+    -- treated a successful pcall as proof the control worked.  It is not:
+    -- on a real 42.19 client the method EXISTS and the call SUCCEEDS, so
+    -- the guard was satisfied and the slider fallback never fired, yet the
+    -- combo box drew with no items in it.  A user screenshot of the working
+    -- (V5.5) options page shows the box rendered and empty.  The only
+    -- conclusion that shape of evidence supports is that a items ARRAY as
+    -- the third argument is not how this API takes its items; what the real
+    -- signature IS cannot be established from anything this project can
+    -- verify.  The mod's own coverage record (tests/lua_mock_pz.lua) has
+    -- always said so explicitly: the verified 42.19 ModOptions surface is
+    -- create / addTitle / addSlider / addKeyBind / getOption:getValue /
+    -- apply / load, and "addComboBox is NOT in the verified record".
+    -- Reading client/PZAPI/ModOptions.lua out of the game install is not an
+    -- option here (the phantom-file-read gotcha), and guessing a second
+    -- signature would just be the same bug with different arguments.
+    --
+    -- So the combo call is GONE, not re-guessed.  The program picker is now
+    -- unconditionally the slider that was previously only the fallback: it
+    -- uses addSlider, which is verified, which every other control on this
+    -- page already uses, and which the user has confirmed works in game.  A
+    -- working slider beats a broken dropdown.  If a verified combo signature
+    -- ever turns up, it can come back as an addition -- but it must be
+    -- proven POPULATED, not merely proven not to throw.
     local progNames, curIndex = {}, 1
     if AutoPilot_Leveler and AutoPilot_Leveler.PROGRAMS then
         for i, p in ipairs(AutoPilot_Leveler.PROGRAMS) do
@@ -253,19 +322,19 @@ local function _buildPage()
         end
     end
     if #progNames > 0 then
-        local okCombo = type(o.addComboBox) == "function" and pcall(function()
-            o:addComboBox("program", "Training program", progNames, curIndex)
-        end)
-        if not okCombo then
-            o:addSlider("program",
-                "Training program (1 Balanced, 2 Strength emphasis,"
-                .. " 3 Fitness emphasis, 4 Alternating, 5 Rest-day split)",
-                1, #progNames, 1, curIndex)
+        -- The label carries the legend the dropdown would have shown, so the
+        -- numbers on the slider are not a mystery.
+        local legend = {}
+        for i, name in ipairs(progNames) do
+            legend[i] = i .. " " .. name
         end
+        o:addSlider("program",
+            "Training program (" .. table.concat(legend, ", ") .. ")",
+            1, #progNames, 1, curIndex)
     end
 
     o:addTitle("Survival Fail-Safe")
-    for i = 5, #DEFS do
+    for i = TRAINING_DEFS + 1, #DEFS do
         local d = DEFS[i]
         local cur = AutoPilot_Constants[d.key] or d.min
         if d.scale then cur = cur / d.scale end

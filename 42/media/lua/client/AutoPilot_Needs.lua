@@ -23,9 +23,18 @@ AutoPilot_Needs = {}
 local function _apNoop(...) end
 local print = _apNoop
 
--- Phase 2: daily exercise tracking (resets on day rollover)
+-- Phase 2: daily exercise tracking (resets on day rollover).
+-- V5.7 (BUG FIX): also resets when the PLAYER CHANGES.  The count used to key
+-- off the in-game day alone, so starting a new character in the same Lua
+-- session inherited the dead character's total and the F11 panel opened on
+-- "Sets today: 150 (no cap)" for a survivor who had not done a single set.
+-- Identity is the player OBJECT, the same signal the V4.5 `who` guards use on
+-- _pendingSet / _exSetStart: a respawn is a new IsoPlayer even at the same
+-- player number, which is exactly what an object comparison catches and what
+-- getPlayerNum() alone cannot.
 local _exerciseSetsToday = 0
 local _lastTrackedDay    = -1
+local _setsOwner         = nil   -- the player the count above belongs to
 -- In-game day of the last equipment-fetch attempt (one trip per day).
 local _equipFetchDay     = -1
 
@@ -48,11 +57,71 @@ local drinkCooldownMs = 0
 local FATIGUE_STAT_THRESHOLD = AutoPilot_Constants.FATIGUE_THRESHOLD
 local BOREDOM_STAT_THRESHOLD = AutoPilot_Constants.BOREDOM_THRESHOLD
 local ENDURANCE_REST_MIN     = AutoPilot_Constants.ENDURANCE_REST_MIN
-local ENDURANCE_EXERCISE_MIN = AutoPilot_Constants.ENDURANCE_EXERCISE_MIN
 local EXERCISE_MINUTES       = AutoPilot_Constants.EXERCISE_MINUTES
 local OUTDOOR_SEARCH_DIST    = AutoPilot_Constants.OUTDOOR_SEARCH_DIST
 
 local PAIN_SLEEP_THRESHOLD   = AutoPilot_Constants.PAIN_SLEEP_THRESHOLD
+
+-- ── V5.7: the exercise endurance HYSTERESIS PAIR ────────────────────────────
+--
+-- Until V5.7 there were two constants with transposed names and both gated
+-- exercise inside doExercise, one immediately after the other:
+--   * AutoPilot_Constants.ENDURANCE_EXERCISE_MIN (0.50), copied into a
+--     FILE-LOCAL right here at load time -- so an options change could never
+--     move it, no matter what the slider wrote;
+--   * AutoPilot_Constants.EXERCISE_ENDURANCE_MIN (0.30), live-read, and the
+--     one the endurance slider actually writes.
+-- The effective gate was max(0.30, 0.50) = 0.50, so the untunable constant
+-- silently floored the tunable one and the slider's entire 10-50% range was
+-- inert.  That much was just a bug factory.
+--
+-- The DEEPER problem was that whatever survived was a SINGLE threshold doing
+-- two incompatible jobs: deciding when to start training AND when to stop it.
+-- The user hit the consequence directly: "The old setting of 50 made it so
+-- that only a single rep would be completed after a period of resting."  Rest
+-- to 50, start a set, one rep drops endurance under 50, stop, rest again.
+-- Raising the number makes it worse, not better.
+--
+-- So the resolution is a PAIR, not a merge:
+--   _exerciseEnduranceResume()  START a run at or above this   (high, 0.90)
+--   _exerciseEnduranceFloor()   STOP an active run below this  (low,  0.30)
+-- Which one applies depends on whether a run is currently active, which is
+-- why the module has to track that (see _runActive below).  A stateless
+-- `endurance >= X` test cannot express "keep going until the floor".
+--
+-- Both are functions, not load-time copies, so they re-read their constant at
+-- every call: the V3.3 live-read pattern the options page depends on.
+local function _exerciseEnduranceFloor()
+    return tonumber(AutoPilot_Constants.EXERCISE_ENDURANCE_MIN) or 0.30
+end
+
+local function _exerciseEnduranceResume()
+    return tonumber(AutoPilot_Constants.EXERCISE_ENDURANCE_RESUME) or 0.90
+end
+
+-- Is a training run in progress right now?  Set when a set is actually
+-- queued, cleared by EVERY path that ends training for any reason (see
+-- AutoPilot_Needs.endTrainingRun).  Owner-guarded the same way the _pendingSet /
+-- _exSetStart records are: a run belongs to one character, and a death or a
+-- respawn must never leave the new one believing it is mid-run.
+local _runActive = false
+local _runOwner  = nil
+
+--- End the current training run, if any.  Idempotent and argument-light.
+--- Being generous about calling this is the safe direction: a spurious call
+--- costs one extra rest cycle, whereas a MISSED call leaves the character
+--- believing a run is in progress and training down to the floor when it
+--- should have been recovering to the resume gate.
+function AutoPilot_Needs.endTrainingRun()
+    _runActive = false
+    _runOwner  = nil
+end
+
+--- Is the given player mid-run?  Ownership makes a stale flag from a dead
+--- character read as "not running" for the new one.
+local function _inTrainingRun(player)
+    return _runActive and _runOwner == player
+end
 
 -- ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -1041,15 +1110,53 @@ end
 -- Log cooldown for "waiting for endurance" to prevent spam
 local exerciseWaitLogMs = 0
 
+--- V5.7: bring the daily set counter into agreement with WHO and WHEN.
+---
+--- Two things invalidate the count, and before V5.7 only the first was
+--- checked: the in-game day rolling over, and the count belonging to a
+--- DIFFERENT character.  The second is the user-reported bug ("when starting
+--- a new character, the number of sets completed should reset"): a fresh
+--- survivor opened the F11 panel on the previous character's total because
+--- module state outlives a death and a new game inside one Lua session.
+---
+--- Called from BOTH doExercise and the top of check(), so the reset lands on
+--- the very first evaluation cycle after a respawn even when some other need
+--- (thirst, wounds, a threat) wins that cycle and exercise is never reached.
+--- @param player IsoPlayer
+--- @return number today  the in-game day this counter is now tracking
+local function _syncSetsCounter(player)
+    local gt    = GameTime.getInstance()
+    local today = gt and gt:getDay() or 0
+    if _setsOwner ~= player then
+        -- New character (or the first sync of the session): nothing this
+        -- counter holds belongs to them.  Scope note: _equipFetchDay is keyed
+        -- off the day alone and has the same theoretical staleness, but it is
+        -- deliberately NOT reset here.  The user asked for the SET COUNT to
+        -- reset; a new character being denied one dumbbell-fetch trip until
+        -- the next in-game day is cosmetic, self-healing, and outside what
+        -- was requested.
+        _exerciseSetsToday = 0
+        _lastTrackedDay    = today
+        _setsOwner         = player
+        -- V5.7: a run belongs to a character.  The new one is not mid-run.
+        AutoPilot_Needs.endTrainingRun()
+    elseif today ~= _lastTrackedDay then
+        -- Same character, new day: the original Phase 2 rollover, unchanged.
+        _exerciseSetsToday = 0
+        _lastTrackedDay    = today
+    end
+    return today
+end
+
+--- V5.7: test seam for the per-character reset (no engine surface involved).
+function AutoPilot_Needs.syncSetsCounterForTest(player)
+    return _syncSetsCounter(player)
+end
+
 -- focus: "strength" | "fitness" | nil (nil = auto-balance the lower of the two)
 local function doExercise(player, focus)
-    -- Phase 2: day-rollover reset
-    local _gameTime = GameTime.getInstance()
-    local _today    = _gameTime and _gameTime:getDay() or 0
-    if _today ~= _lastTrackedDay then
-        _exerciseSetsToday = 0
-        _lastTrackedDay    = _today
-    end
+    -- Phase 2 day rollover + V5.7 per-character reset.
+    local _today = _syncSetsCounter(player)
 
     local okMs, nowMs = pcall(function()
         return getGameTime():getCalender():getTimeInMillis()
@@ -1063,6 +1170,9 @@ local function doExercise(player, focus)
         local minsLeft = math.ceil((_backoffUntilMs - nowMs) / 60000)
         _exerciseOutcome = "backing off (player intervened; "
             .. minsLeft .. "m left)"
+        -- V5.7: the run is over.  Whatever resumes after the backoff window
+        -- is a NEW run and must clear the resume gate on its own merits.
+        AutoPilot_Needs.endTrainingRun()
         return false
     end
 
@@ -1076,20 +1186,31 @@ local function doExercise(player, focus)
         print(("[Needs] Daily exercise cap %d reached; resting."):format(
             dailyCap))
         _exerciseOutcome = "resting (daily set cap reached)"
+        AutoPilot_Needs.endTrainingRun()
         return false
     end
-    -- Phase 2: endurance gate
-    local _endurance = AutoPilot_Utils.safeStat(player, CharacterStat.ENDURANCE)
-    if _endurance < AutoPilot_Constants.EXERCISE_ENDURANCE_MIN then
-        print(("[Needs] Endurance %.2f < %.2f — skipping exercise."):format(
-            _endurance, AutoPilot_Constants.EXERCISE_ENDURANCE_MIN))
-        _exerciseOutcome = "resting (endurance recovering)"
-        return false
-    end
-    -- Don't start exercise if endurance is too low — just idle and let it recover
+
+    -- ── V5.7: the endurance HYSTERESIS gate ─────────────────────────────────
+    -- This used to be two consecutive gates built on two transposed constants
+    -- that both asked "is there enough to START?" (see the pair of helpers at
+    -- the top of this file).  Asking only that question is what produced the
+    -- user's single-rep loop: rest to the gate, start a set, the first rep
+    -- drops below the gate, stop, rest again.
+    --
+    -- Now the threshold DEPENDS ON WHETHER A RUN IS ALREADY GOING:
+    --   not running -> must reach the high RESUME gate to start
+    --   running     -> keep going all the way down to the low FLOOR
+    -- so one rest buys a long run of reps instead of one.
+    --
+    -- The severe exertion-moodle test is preserved verbatim and stays
+    -- unconditional: it is a genuinely different signal (moodle level, not
+    -- stat value) and a level 3+ moodle ends a run no matter how it started.
     local endurance = AutoPilot_Utils.safeStat(player, CharacterStat.ENDURANCE)
     local enduranceMoodle = safeMoodleLevel(player, MoodleType.ENDURANCE)
-    if endurance < ENDURANCE_EXERCISE_MIN or enduranceMoodle > 2 then
+    local inRun     = _inTrainingRun(player)
+    local endGate   = inRun and _exerciseEnduranceFloor()
+                            or _exerciseEnduranceResume()
+    if endurance < endGate or enduranceMoodle > 2 then
         -- Log once every 30s of game time, not every tick
         local ok, now = pcall(function()
             return getGameTime():getCalender():getTimeInMillis()
@@ -1097,12 +1218,18 @@ local function doExercise(player, focus)
         local ms = ok and now or 0
         if ms >= exerciseWaitLogMs then
             print(string.format(
-                "[Needs] Waiting for endurance to recover (%.0f%%) before exercising.",
-                endurance * 100))
+                "[Needs] Endurance %.0f%% under the %s gate %.0f%%;"
+                .. " %s.",
+                endurance * 100, inRun and "floor" or "resume",
+                endGate * 100,
+                inRun and "ending the training run" or "still recovering"))
             exerciseWaitLogMs = ms + 30000
         end
+        -- Whether the run just ended on the floor or never started, the next
+        -- attempt has to clear the RESUME gate: that is the hysteresis.
+        AutoPilot_Needs.endTrainingRun()
         _exerciseOutcome = "resting (endurance recovering)"
-        return false  -- no action queued; endurance recovers passively while idle
+        return false  -- no action queued; the sit branch in check() recovers
     end
 
     -- Once per day (strength/auto focus): fetch a dumbbell/barbell from home
@@ -1135,6 +1262,10 @@ local function doExercise(player, focus)
         print("[Needs] All exercises for focus '" .. tostring(focus or "auto")
             .. "' are XP-fatigued — pausing training while they recover.")
         _exerciseOutcome = "resting (exercises fatigued)"
+        -- V5.7: XP fatigue ends the run too.  Without this the character
+        -- would keep "being mid-run" while queueing nothing, and would then
+        -- resume off the low floor instead of recovering to the resume gate.
+        AutoPilot_Needs.endTrainingRun()
         return false
     end
     print("[Needs] Exercise — focus: " .. tostring(focus or "auto")
@@ -1183,6 +1314,11 @@ local function doExercise(player, focus)
             ms  = nowMs,
             who = player,
         }
+        -- V5.7: a set is really queued, so a training RUN is now in progress.
+        -- From here the low floor applies instead of the high resume gate,
+        -- which is what lets the run keep going rep after rep off one rest.
+        _runActive = true
+        _runOwner  = player
         -- The counter keeps running even when uncapped: the F11 panel and
         -- the logs report it, it just no longer halts training on its own.
         _exerciseSetsToday = _exerciseSetsToday + 1
@@ -1198,6 +1334,7 @@ local function doExercise(player, focus)
     else
         print("[Needs] ISFitnessAction failed for: " .. exType .. " — " .. tostring(action))
         _exerciseOutcome = "error: could not start " .. tostring(exType)
+        AutoPilot_Needs.endTrainingRun()
         return false
     end
 end
@@ -1246,6 +1383,8 @@ function AutoPilot_Needs.noteForeignExercise(_player)
     if windowMs <= 0 then return end
     _backoffUntilMs = nowMs + windowMs
     _exerciseOutcome = "waiting (manual exercise in progress)"
+    -- V5.7: the player is training by hand; our run is over.
+    AutoPilot_Needs.endTrainingRun()
 end
 
 --- The MOD itself cleared its own queued exercise (urgent-need interrupt,
@@ -1253,6 +1392,12 @@ end
 --- vanish is NOT misread as a player cancel (no backoff: training may
 --- resume as soon as the interrupting condition is handled).
 function AutoPilot_Needs.noteModExerciseCleared()
+    -- V5.7: end the run FIRST, and unconditionally.  An urgent need, a threat
+    -- response or the thrash guard all mean training stopped, whether or not
+    -- there was still a pending record to consume.  Training may resume as
+    -- soon as the interrupting condition is handled -- but as a NEW run, off
+    -- the resume gate, not off the floor.
+    AutoPilot_Needs.endTrainingRun()
     local ps = _pendingSet
     if not ps then return end
     _pendingSet = nil
@@ -1264,6 +1409,8 @@ end
 --- window immediately, so even a just-armed trainer cannot re-queue an
 --- exercise right after the player asked for it to stop.
 function AutoPilot_Needs.notePanicStop()
+    -- V5.7: the player asked for training to STOP; the run ends here.
+    AutoPilot_Needs.endTrainingRun()
     local ps = _pendingSet
     if ps then
         _pendingSet = nil
@@ -1283,6 +1430,7 @@ function AutoPilot_Needs.resetInterventionForTest()
     end
     _pendingSet     = nil
     _backoffUntilMs = 0
+    AutoPilot_Needs.endTrainingRun()
 end
 
 --- Returns true if an urgent need should interrupt the current action (e.g. exercise).
@@ -1309,6 +1457,12 @@ end
 
 --- Main survival needs check.
 function AutoPilot_Needs.check(player)
+    -- V5.7: keep the daily set counter honest about WHO it belongs to before
+    -- anything can return early.  doExercise syncs too, but it is at the
+    -- bottom of the chain and a new character with an urgent need would show
+    -- the dead character's set total in the F11 panel until they got there.
+    _syncSetsCounter(player)
+
     -- 1. Bleeding — treat immediately (fatal if untreated)
     if AutoPilot_Medical.hasCriticalWound(player) then
         AutoPilot_Telemetry.setDecision("bandage", "bleeding")
@@ -1440,8 +1594,8 @@ function AutoPilot_Needs.check(player)
     end
 
     -- 7b. V5.4: SIT TO RECOVER, closing the endurance dead zone.
-    -- Training is gated at ENDURANCE_EXERCISE_MIN (50%) and the critical rest
-    -- above at ENDURANCE_REST_MIN (30%).  Between those two numbers the old
+    -- Training is gated at the exercise endurance minimum and the critical
+    -- rest above at ENDURANCE_REST_MIN (30%).  Between those two numbers the old
     -- chain did neither: doExercise returned false with the comment "no action
     -- queued; endurance recovers passively while idle", and the cycle fell
     -- through to scavenging or to nothing.  A live run log showed the result:
@@ -1453,9 +1607,37 @@ function AutoPilot_Needs.check(player)
     -- replaces the idle that the exercise endurance gate was producing, and
     -- yields to anything more urgent.  sitOnly=true keeps beds (and therefore
     -- sleep) out of this path.
-    local sitMin = tonumber(AutoPilot_Constants.ENDURANCE_SIT_MIN)
-        or ENDURANCE_EXERCISE_MIN
+    --
+    -- V5.7: the sit threshold is RUN-AWARE, and that is what keeps the dead
+    -- zone shut under hysteresis.  The dead zone is not a property of any one
+    -- number: it is the band between "will not sit" and "will not train", so
+    -- it opens wherever those two disagree.
+    --
+    --   MID-RUN: sit only near the floor (ENDURANCE_SIT_MIN, 0.35).  Training
+    --     is still allowed all the way down to EXERCISE_ENDURANCE_MIN (0.30),
+    --     and sitting at 80% would cut short exactly the long productive run
+    --     the hysteresis exists to produce.  The small gap above the floor is
+    --     deliberate: the character goes and sits down rather than first
+    --     dipping under the floor and ending the run on the stat.
+    --
+    --   NOT MID-RUN: sit all the way up to the RESUME gate.  A character who
+    --     is not training and is below the resume gate has nothing else to
+    --     do; standing there idle is strictly worse than sitting, which
+    --     recovers endurance faster and moves it toward
+    --     ENDURANCE_REST_TARGET.  This is the branch that catches the whole
+    --     band the old single-gate code left idle, including a rest that hit
+    --     its maximum hold before endurance recovered.
+    --
+    -- Because the not-mid-run threshold IS the resume gate, there is no value
+    -- of endurance at which the character neither sits nor trains, for ANY
+    -- combination of these sliders.
+    local sitMin = tonumber(AutoPilot_Constants.ENDURANCE_SIT_MIN) or 0.35
+    if not _inTrainingRun(player) then
+        sitMin = math.max(sitMin, _exerciseEnduranceResume())
+    end
     if endurance < sitMin then
+        -- Sitting down is the end of any run that was still nominally open.
+        AutoPilot_Needs.endTrainingRun()
         AutoPilot_Telemetry.setDecision("rest", "sit_recover")
         print(string.format(
             "[Needs] Endurance %.0f%% below sit threshold %.0f%%; sitting to recover.",

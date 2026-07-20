@@ -50,6 +50,16 @@ AutoPilot_Needs = {
         table.insert(AutoPilot_Needs._trainCalls, focus or false)
         return true
     end,
+    -- V5.7: the endurance hysteresis seam.  A training RUN spans many sets and
+    -- keeps going down to the LOW floor rather than stopping at the HIGH
+    -- resume gate, so every path that ends training has to say so -- otherwise
+    -- the first cycle after the ending resumes off the floor with a
+    -- barely-recovered character.  The Leveler owns exactly one of those
+    -- endings: the program rest day.
+    _endRunCalls = 0,
+    endTrainingRun = function()
+        AutoPilot_Needs._endRunCalls = AutoPilot_Needs._endRunCalls + 1
+    end,
 }
 
 -- ── Load modules under test ──────────────────────────────────────────────────
@@ -559,10 +569,17 @@ do
 
     AutoPilot_Constants.TRAINING_PROGRAM = "restsplit"
     MockTime.set(SUNDAY)
+    AutoPilot_Needs._endRunCalls = 0
     assert_false("rest day: check yields (returns false)",
         AutoPilot_Leveler.check(p))
     assert_eq("rest day: trainExercise never called",
         #AutoPilot_Needs._trainCalls, 0)
+    -- V5.7: yielding the slot is not enough.  Leaving the run open would keep
+    -- the endurance gate on the LOW floor, so the first cycle after the rest
+    -- day would train a barely-recovered character instead of waiting for the
+    -- resume gate.
+    assert_eq("rest day: the training run is ENDED, not merely skipped",
+        AutoPilot_Needs._endRunCalls, 1)
     -- The yield skips training ONLY: metrics still sample, so the panel
     -- stays fresh through rest days.
     local m = AutoPilot_Leveler.getMetricsFor(p, "strength")
@@ -571,8 +588,11 @@ do
     -- The same Sunday under the default program trains as always: the
     -- yield belongs to the opt-in program, not to the weekday.
     AutoPilot_Constants.TRAINING_PROGRAM = "balanced"
+    AutoPilot_Needs._endRunCalls = 0
     assert_true("same day, balanced program: trains",
         AutoPilot_Leveler.check(p))
+    assert_eq("a training day does NOT end the run",
+        AutoPilot_Needs._endRunCalls, 0)
     assert_eq("balanced Sunday dispatches into the seam",
         #AutoPilot_Needs._trainCalls, 1)
 
