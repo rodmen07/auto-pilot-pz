@@ -46,7 +46,12 @@
 --          call at line 217); verified against the RUNNING game's stack
 --          trace after the phantom-file mixup (V3.2).
 --   [MA] ISRestAction:new(character, bed, useAnimations)
---          exactly 3 args (shared/TimedActions/ISRestAction.lua:245, V3.2)
+--          exactly 3 args (shared/TimedActions/ISRestAction.lua:245, V3.2).
+--          V5.8: no longer the furniture rest path's action -- it does no
+--          pathing, and behind pathToSitOnFurniture it was a second action
+--          queued on top of a sit.  It survives as the fallback for when
+--          the seat action is unavailable, and useAnimations is now `true`
+--          (nil is falsy, i.e. a rest with the sitting animation disabled).
 --   [MA] ISApplyBandage:new(character, patient, bandage, bodyPart, ...)
 --          as shipped through the V2.1 and V3.2 live verification sweeps.
 --          Pre-audit, this mock had the args in the wrong slots (patient
@@ -55,7 +60,11 @@
 --          PZ uses this for drinks and the painkiller fallback too
 --   [M]  ISSitOnGround:new(character, square)
 --   [M]  ISWalkToTimedAction:new(character, square) + :setOnComplete(fn, ...)
---   [M]  ISPathFindAction:pathToSitOnFurniture(character, furniture, cb)
+--   [MA] ISPathFindAction:pathToSitOnFurniture(character, furniture, cb)
+--          walks the character to the furniture AND seats them; since V5.8
+--          it is the ONLY action the furniture rest path queues (see the
+--          stub below and doRest's comment for why queueing a rest action
+--          behind it defeated the sit)
 --   [M]  ISReadABook:new(character, book)   unexercised: doRead's literacy
 --          gate fails in the suites (see Perks.Literacy below)
 --   [S]  ISEquipWeaponAction:new(character, item, time, primary)
@@ -202,11 +211,14 @@
 --   [G]  ISCollapsableWindow / ISButton / UIFont / require("ISUI/...")
 --          The F11 panel's widgets are vanilla ISUI and stay playtest-only:
 --          nothing here instantiates or draws the panel.  DOCUMENTED GAP.
---          Two suites do dofile AutoPilot_UI with suite-local [S] stubs for
---          its LOAD-time surface only (require("ISUI/...") plus
+--          Three suites do dofile AutoPilot_UI with suite-local [S] stubs
+--          for its LOAD-time surface only (require("ISUI/...") plus
 --          ISCollapsableWindow:derive), so its pure string helpers can be
---          tested for real: test_version_constant (V5.3 formatTitle) and
---          test_options_registration (V5.5 optionsWarningLine).
+--          tested for real: test_version_constant (V5.3 formatTitle),
+--          test_options_registration (V5.5 optionsWarningLine) and
+--          test_main_logic (V5.8 statusText/statusLine/trainedExerciseFrom,
+--          asserted against the real AutoPilot.getActionIntention so the
+--          F11 panel and the V4.4 action HUD are proved to agree).
 --
 -- Enums and definition tables:
 --   [M]  CharacterStat   HUNGER/THIRST/FATIGUE/ENDURANCE/PAIN/BOREDOM/SANITY;
@@ -442,10 +454,15 @@ ISApplyBandage = {
     end,
 }
 
+-- pathToSitOnFurniture(character, furniture, cb) walks the character to the
+-- furniture AND seats them: it is the one recorded call that produces a
+-- SEATED character, which is why V5.8 made it the furniture rest path's only
+-- action.  The stub records the furniture it was handed (V5.8) so tests can
+-- assert WHICH seat was chosen, and its type says "seated", not "walked".
 ISPathFindAction = {
     pathToSitOnFurniture = function(_, player, furniture, _)
-        -- Return a stub path action; callbacks are ignored in tests.
-        local action = { type = "pathfind" }
+        -- Return a stub path-to-seat action; callbacks are ignored in tests.
+        local action = { type = "sit_furniture", target = furniture }
         action.setOnComplete = function(self, ...) end
         action.setOnFail     = function(self, ...) end
         action.addAfter      = function(self, _) return nil end
@@ -457,14 +474,19 @@ ISPathFindAction = {
 -- ISRestAction:new(character, bed, useAnimations): exactly 3 args (the V2.1
 -- phantom pass wrongly changed this; V3.2 restored the 3-arg form).  The mock
 -- asserts the arity so a regrown 4th argument fails loudly here.
+-- V5.8: the useAnimations argument is RECORDED on the returned stub.  The mod
+-- passed nil for it through V5.7, i.e. a rest with its animations suppressed,
+-- which is a rest performed standing up; tests assert on the value now rather
+-- than only on the arity.
 ISRestAction = {
-    new = function(_, player, bed, _useAnimations, ...)
+    new = function(_, player, bed, useAnimations, ...)
         assert(type(player) == "table",
             "ISRestAction:new expects the character as 1st arg, got " .. type(player))
         assert(bed ~= nil, "ISRestAction:new expects a furniture object as 2nd arg")
         assert(select("#", ...) == 0,
             "ISRestAction:new takes exactly 3 args (character, bed, useAnimations)")
-        return { type = "rest_furniture", target = bed }
+        return { type = "rest_furniture", target = bed,
+                 useAnimations = useAnimations }
     end,
 }
 

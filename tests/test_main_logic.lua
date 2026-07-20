@@ -854,6 +854,136 @@ do
     disarm()
 end
 
+-- ── V5.8: the F11 panel and the on-screen action HUD cannot disagree ─────────
+--
+-- The reported defect was a screenshot showing both at once: the panel on
+-- "Status: training: burpees" and the HUD on "Action: Resting", with the
+-- character standing next to an empty chair.  Two renderings of the mod's
+-- state, drawn from two fields, one of which the rest path never wrote.
+--
+-- AutoPilot_UI is loaded here the same way tests/test_version_constant.lua
+-- and tests/test_options_registration.lua load it: suite-local [S] stubs for
+-- its two LOAD-time widget calls only.  Nothing is instantiated and no
+-- drawing function runs, so no new engine surface is claimed; the pure
+-- string functions the panel composes its status row from are exercised for
+-- real.
+do
+    local _realRequire = require
+    require = function(name)
+        if type(name) == "string" and name:match("^ISUI/") then return true end
+        return _realRequire(name)
+    end
+    ISCollapsableWindow = {
+        derive = function(self, _name)
+            local t = {}
+            t.__index = t
+            setmetatable(t, { __index = self })
+            return t
+        end,
+    }
+    dofile("42/media/lua/client/AutoPilot_UI.lua")
+    require = _realRequire
+end
+
+print("\n-- Test 27 (V5.8): panel and HUD agree while resting (the user's screenshot)")
+do
+    reset()
+    local player = makePlayer(0)
+    _mockPlayers[0] = player
+    arm()
+    tickN(AutoPilot_Constants.ACTION_COOLDOWN_CYCLES)  -- drain residual cooldown
+
+    -- The exact reported state: the survival chain decided to REST, and the
+    -- trainer status still carries the last training line.  Post-V5.8 the
+    -- real AutoPilot_Needs no longer leaves it stale (covered in
+    -- test_priority_logic); this case proves the PANEL is safe even so,
+    -- because it renders the same string the HUD does.
+    AutoPilot_Needs._returnVal = true
+    AutoPilot_Telemetry._pendingLabel = "rest"
+    AutoPilot_Needs.getExerciseStatus = function()
+        return { outcome = "training: burpees", setsToday = 8, cap = 0,
+                 setsLine = "Sets today: 8 (no cap)" }
+    end
+    tickN(1)
+
+    local intention = AutoPilot.getActionIntention(player)
+    local status    = AutoPilot_Needs.getExerciseStatus()
+    assert_eq("the HUD reads Resting, as it did in the report",
+        lastActionLine(), "Action: Resting")
+    assert_eq("the panel now reads the SAME state, not the stale training line",
+        AutoPilot_UI.statusLine(intention, status),
+        "Status: Resting   Sets today: 8 (no cap)")
+    assert_eq("the panel status text is literally the HUD's",
+        AutoPilot_UI.statusText(intention, status), intention)
+    assert_eq("no regularity row is drawn for a resting character",
+        AutoPilot_UI.trainedExerciseFrom(
+            AutoPilot_UI.statusText(intention, status)), nil)
+
+    -- The pre-V5.8 panel composed its row from status.outcome alone:
+    --   string.format("Status: %s   %s", status.outcome, sets)
+    -- Given this exact status table that is the screenshot verbatim:
+    -- "Status: training: burpees" drawn under "Action: Resting".  Pinning
+    -- the old formula here keeps the difference visible, so a revert to it
+    -- cannot pass this test.
+    local preV58 = string.format("Status: %s   %s",
+        status.outcome, status.setsLine)
+    assert_eq("(the pre-V5.8 formula is the reported contradiction)",
+        preV58, "Status: training: burpees   Sets today: 8 (no cap)")
+    assert_true("the panel line is no longer that formula",
+        preV58 ~= AutoPilot_UI.statusLine(intention, status))
+    disarm()
+end
+
+print("\n-- Test 28 (V5.8): training still reports fully in both places")
+do
+    reset()
+    local player = makePlayer(0)
+    _mockPlayers[0] = player
+    arm()
+    tickN(AutoPilot_Constants.ACTION_COOLDOWN_CYCLES)
+    AutoPilot_Needs._returnVal = true
+    AutoPilot_Telemetry._pendingLabel = "exercise"
+    AutoPilot_Needs.getExerciseStatus = function()
+        return { outcome = "training: barbellcurl", setsToday = 3, cap = 0,
+                 setsLine = "Sets today: 3 (no cap)" }
+    end
+    tickN(1)
+
+    local intention = AutoPilot.getActionIntention(player)
+    local status    = AutoPilot_Needs.getExerciseStatus()
+    assert_eq("the V4.4 HUD is unchanged by V5.8",
+        lastActionLine(), "Action: Training: barbellcurl")
+    assert_eq("the panel carries the same enriched line",
+        AutoPilot_UI.statusLine(intention, status),
+        "Status: Training: barbellcurl   Sets today: 3 (no cap)")
+    assert_eq("the regularity row still resolves the exercise name",
+        AutoPilot_UI.trainedExerciseFrom(
+            AutoPilot_UI.statusText(intention, status)), "barbellcurl")
+    disarm()
+end
+
+print("\n-- Test 29 (V5.8): the panel degrades to the trainer status, never to nothing")
+do
+    -- Main unavailable (the MP Lua-reload case the mod hardens against):
+    -- the panel falls back to exactly what it printed before V5.8.
+    local status = { outcome = "resting (seated on furniture)", setsToday = 8,
+                     cap = 0, setsLine = "Sets today: 8 (no cap)" }
+    assert_eq("a nil intention falls back to the data-layer outcome",
+        AutoPilot_UI.statusLine(nil, status),
+        "Status: resting (seated on furniture)   Sets today: 8 (no cap)")
+    assert_eq("the raw-number sets fallback still works",
+        AutoPilot_UI.statusLine(nil, { outcome = "idle", setsToday = 4 }),
+        "Status: idle   Sets today: 4")
+    assert_eq("no status at all still renders a line",
+        AutoPilot_UI.statusLine(nil, nil), "Status: idle   Sets today: 0")
+    assert_eq("the lowercase data-layer form still parses for regularity",
+        AutoPilot_UI.trainedExerciseFrom("training: squats"), "squats")
+    assert_eq("a resting line yields no exercise",
+        AutoPilot_UI.trainedExerciseFrom("resting (seated on furniture)"), nil)
+    assert_eq("a non-string yields no exercise",
+        AutoPilot_UI.trainedExerciseFrom(nil), nil)
+end
+
 -- ── Summary ───────────────────────────────────────────────────────────────────
 print(("\n=== Results: %d passed, %d failed ==="):format(PASS, FAIL))
 if FAIL > 0 then
