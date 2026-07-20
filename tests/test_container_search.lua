@@ -32,7 +32,25 @@ ISTakeWaterAction = {
         return { type = "take_water", container = container }
     end,
 }
+-- V4.9: adjustClothing and checkAndSwapWeapon queue these behind a transfer.
+ISWearClothing = {
+    new = function(_, _player, item, _time)
+        return { type = "wear", item = item }
+    end,
+}
+ISEquipWeaponAction = {
+    new = function(_, _player, item, _time, _primary)
+        return { type = "equip_weapon", item = item }
+    end,
+}
 luautils = { walkAdj = function(_player, _sq, _) end }
+
+-- Suite-local enums: the shared mock records these as a documented gap because
+-- every production callsite is pcall-guarded.  The V4.9 readable case needs the
+-- guarded branch to actually SUCCEED, so the two keys the mod reads are defined
+-- here (and nowhere else, keeping the gap intact for the other suites).
+ItemType = { LITERATURE = "LITERATURE" }
+ItemTag  = { UNINTERESTING = "UNINTERESTING" }
 
 dofile("42/media/lua/client/AutoPilot_Inventory.lua")
 
@@ -388,6 +406,217 @@ do
     assert_true("selectors survive a nil inventory", ok)
     assert_false("iteratePlayerItems reports no early stop",
         AutoPilot_Utils.iteratePlayerItems(p, function() return true end))
+end
+
+-- ── V4.9: queueItemToMainInventory + selectors reporting their container ──────
+-- Finding an item is not the same as being able to use it: PZ acts on the MAIN
+-- inventory, so an item still nested in a bag must be moved there first.
+
+local function queuedTypes()
+    local t = {}
+    for _, a in ipairs(ISTimedActionQueue_calls) do table.insert(t, a.type) end
+    return t
+end
+
+local function resetQueue() ISTimedActionQueue_calls = {} end
+
+-- 21. Nothing to do when the item is already in the main inventory.
+print("\n=== V4.9 Test 21: an item already in the main inventory is not moved ===")
+do
+    resetQueue()
+    local item = makeItem({ name = "Bandage" })
+    local mainInv = MockContainer.new({ item })
+    local p = MockContainer.attach(player(), mainInv)
+
+    local queued, usable = AutoPilot_Utils.queueItemToMainInventory(p, item, mainInv)
+    assert_false("no transfer is reported", queued)
+    assert_true("the item is usable as-is", usable)
+    assert_eq("nothing was queued", #ISTimedActionQueue_calls, 0)
+end
+
+-- 22. An item in a bag is moved into the main inventory.
+print("\n=== V4.9 Test 22: an item in a bag is transferred to the main inventory ===")
+do
+    resetQueue()
+    local item = makeItem({ name = "Bandage" })
+    local bag  = MockContainer.bag("FannyPack", { item })
+    local mainInv = MockContainer.new({ bag })
+    local p = MockContainer.attach(player(), mainInv)
+
+    local queued, usable = AutoPilot_Utils.queueItemToMainInventory(
+        p, item, bag:getItemContainer())
+    assert_true("a transfer is reported", queued)
+    assert_true("the item is usable behind the transfer", usable)
+    assert_eq("exactly one action queued", #ISTimedActionQueue_calls, 1)
+    assert_eq("the queued action is a transfer", queuedTypes()[1], "transfer")
+    assert_eq("the transfer moves the right item",
+        ISTimedActionQueue_calls[1].item, item)
+    assert_eq("the transfer source is the bag's container",
+        ISTimedActionQueue_calls[1].from, bag:getItemContainer())
+    assert_eq("the transfer destination is the main inventory",
+        ISTimedActionQueue_calls[1].to, mainInv)
+end
+
+-- 23. An unknown container (nil) is the pre-V4.9 path: no transfer, still usable.
+print("\n=== V4.9 Test 23: a nil holding container queues nothing ===")
+do
+    resetQueue()
+    local p = MockContainer.attach(player(), MockContainer.new({}))
+    local queued, usable = AutoPilot_Utils.queueItemToMainInventory(
+        p, makeItem({ name = "X" }), nil)
+    assert_false("no transfer is reported", queued)
+    assert_true("the caller may still act on the item", usable)
+    assert_eq("nothing was queued", #ISTimedActionQueue_calls, 0)
+end
+
+-- 24. A refused transfer degrades quietly and marks the item unusable.
+print("\n=== V4.9 Test 24: a refused transfer reports the item unusable ===")
+do
+    resetQueue()
+    local saved = ISInventoryTransferAction
+    ISInventoryTransferAction = { new = function() error("PZ refused") end }
+
+    local item = makeItem({ name = "Bandage" })
+    local bag  = MockContainer.bag("FannyPack", { item })
+    local p = MockContainer.attach(player(), MockContainer.new({ bag }))
+
+    local ok, queued, usable = pcall(function()
+        return AutoPilot_Utils.queueItemToMainInventory(p, item, bag:getItemContainer())
+    end)
+    ISInventoryTransferAction = saved
+
+    assert_true("a refused transfer does not raise", ok)
+    assert_false("no transfer is reported", queued)
+    assert_false("the item is reported unusable", usable)
+    assert_eq("nothing was queued", #ISTimedActionQueue_calls, 0)
+end
+
+-- 25. Nil player / nil item are no-ops.
+print("\n=== V4.9 Test 25: nil player or item is a no-op ===")
+do
+    resetQueue()
+    local _, usableNoPlayer = AutoPilot_Utils.queueItemToMainInventory(
+        nil, makeItem({}), MockContainer.new({}))
+    local _, usableNoItem = AutoPilot_Utils.queueItemToMainInventory(
+        player(), nil, MockContainer.new({}))
+    assert_true("nil player degrades to usable", usableNoPlayer)
+    assert_true("nil item degrades to usable", usableNoItem)
+    assert_eq("nothing was queued", #ISTimedActionQueue_calls, 0)
+end
+
+-- 26. Selectors report the container that actually holds the winner.
+print("\n=== V4.9 Test 26: selectors return the holding container ===")
+do
+    local bagFood  = makeItem({ name = "Chips",  isFood = true, calories = 300 })
+    local bagDrink = makeItem({ name = "Bottle", isFood = true, thirstChange = -20 })
+    local tasty    = makeItem({ name = "Cake",   isFood = true, boredom = -10, calories = 100 })
+    local bag = MockContainer.bag("Backpack", { bagFood, bagDrink, tasty })
+    local inner = bag:getItemContainer()
+    local mainInv = MockContainer.new({ bag })
+    local p = MockContainer.attach(player(), mainInv)
+
+    local food, foodCont = AutoPilot_Inventory.getBestFood(p)
+    assert_eq("getBestFood returns the bagged food", food, bagFood)
+    assert_eq("getBestFood reports the bag's container", foodCont, inner)
+
+    local drink, drinkCont = AutoPilot_Inventory.getBestDrink(p)
+    assert_eq("getBestDrink returns the bagged drink", drink, bagDrink)
+    assert_eq("getBestDrink reports the bag's container", drinkCont, inner)
+
+    local best, bestCont = AutoPilot_Inventory.getBestFoodForHunger(p, 0.30)
+    assert_true("getBestFoodForHunger returns a bagged item", best ~= nil)
+    assert_eq("getBestFoodForHunger reports the bag's container", bestCont, inner)
+
+    local weighted, weightedCont = AutoPilot_Inventory.selectFoodByWeight(p)
+    assert_true("selectFoodByWeight returns a bagged item", weighted ~= nil)
+    assert_eq("selectFoodByWeight reports the bag's container", weightedCont, inner)
+
+    local mood, moodCont = AutoPilot_Inventory.preferTastyFood(p)
+    assert_eq("preferTastyFood returns the bagged cake", mood, tasty)
+    assert_eq("preferTastyFood reports the bag's container", moodCont, inner)
+end
+
+-- 27. A top-level winner reports the MAIN inventory, so no transfer follows.
+print("\n=== V4.9 Test 27: a top-level winner reports the main inventory ===")
+do
+    local topFood = makeItem({ name = "Steak", isFood = true, calories = 900 })
+    local mainInv = MockContainer.new({
+        topFood,
+        MockContainer.bag("Backpack", {
+            makeItem({ name = "Chips", isFood = true, calories = 100 }),
+        }),
+    })
+    local p = MockContainer.attach(player(), mainInv)
+
+    local food, cont = AutoPilot_Inventory.getBestFood(p)
+    assert_eq("the top-level food wins", food, topFood)
+    assert_eq("the reported container is the main inventory", cont, mainInv)
+
+    resetQueue()
+    local queued = AutoPilot_Utils.queueItemToMainInventory(p, food, cont)
+    assert_false("no transfer is queued for a main-inventory item", queued)
+    assert_eq("nothing was queued", #ISTimedActionQueue_calls, 0)
+end
+
+-- 28. adjustClothing: wear a bagged garment only after moving it.
+print("\n=== V4.9 Test 28: bagged clothing transfers THEN is worn ===")
+do
+    resetQueue()
+    local coat = makeItem({ name = "Coat" })
+    coat.getInsulation = function(_self) return 0.9 end
+    local bag = MockContainer.bag("Backpack", { coat })
+    local p = MockContainer.attach(player(), MockContainer.new({ bag }))
+
+    local savedTemp = AutoPilot_Inventory.bodyTemperature
+    AutoPilot_Inventory.bodyTemperature = function(_p) return -50 end
+    local worn = AutoPilot_Inventory.adjustClothing(p)
+    AutoPilot_Inventory.bodyTemperature = savedTemp
+
+    assert_true("adjustClothing reports an action", worn)
+    assert_eq("exactly two actions queued", #ISTimedActionQueue_calls, 2)
+    assert_eq("action 1 is the transfer", queuedTypes()[1], "transfer")
+    assert_eq("action 2 is the wear", queuedTypes()[2], "wear")
+end
+
+-- 29. checkAndSwapWeapon: swap to a bagged weapon only after moving it.
+print("\n=== V4.9 Test 29: a bagged weapon transfers THEN is equipped ===")
+do
+    resetQueue()
+    local axe = makeItem({ name = "Axe" })
+    axe.isWeapon        = function(_self) return true end
+    axe.getCondition    = function(_self) return 10 end
+    axe.getConditionMax = function(_self) return 10 end
+    axe.getMaxDamage    = function(_self) return 5 end
+    local bag = MockContainer.bag("Backpack", { axe })
+    local p = MockContainer.attach(player(), MockContainer.new({ bag }))
+
+    local savedCond = AutoPilot_Inventory.equippedWeaponCondition
+    AutoPilot_Inventory.equippedWeaponCondition = function(_p) return 0.05 end
+    local swapped = AutoPilot_Inventory.checkAndSwapWeapon(p)
+    AutoPilot_Inventory.equippedWeaponCondition = savedCond
+
+    assert_true("checkAndSwapWeapon reports a swap", swapped)
+    assert_eq("exactly two actions queued", #ISTimedActionQueue_calls, 2)
+    assert_eq("action 1 is the transfer", queuedTypes()[1], "transfer")
+    assert_eq("action 2 is the equip", queuedTypes()[2], "equip_weapon")
+end
+
+-- 30. getReadable reports its container too (doRead moves the book first).
+print("\n=== V4.9 Test 30: getReadable reports the holding container ===")
+do
+    local book = makeItem({ name = "Novel" })
+    book.getScriptItem        = function(_self)
+        return { isItemType = function(_s, t) return t == ItemType.LITERATURE end }
+    end
+    book.hasTag               = function(_self, _t) return false end
+    book.getNumberOfPages     = function(_self) return 100 end
+    book.getAlreadyReadPages  = function(_self) return 0 end
+    local bag = MockContainer.bag("Backpack", { book })
+    local p = MockContainer.attach(player(), MockContainer.new({ bag }))
+
+    local found, cont = AutoPilot_Inventory.getReadable(p)
+    assert_eq("the bagged book is found", found, book)
+    assert_eq("the bag's container is reported", cont, bag:getItemContainer())
 end
 
 -- ── Summary ───────────────────────────────────────────────────────────────────

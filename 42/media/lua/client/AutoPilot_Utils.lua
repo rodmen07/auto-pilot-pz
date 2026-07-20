@@ -172,6 +172,59 @@ function AutoPilot_Utils.findPlayerItem(player, predicate)
     return found, foundContainer
 end
 
+-- ── Transfer before use (V4.9) ────────────────────────────────────────────────
+-- V4.8 taught every selector to see items inside worn and carried
+-- sub-containers, but FINDING an item is not the same as being able to USE it.
+-- Project Zomboid actions (bandage, eat, drink, take pill, read, equip, wear)
+-- act on the MAIN inventory: an item still nested in a backpack is selected and
+-- then quietly does nothing.  Vanilla solves this in the inventory UI by
+-- queueing an ISInventoryTransferAction into the main inventory and then
+-- queueing the use action right behind it, letting ISTimedActionQueue run the
+-- pair in order (the same shape this mod already uses for walk-then-transfer in
+-- AutoPilot_Inventory._queueTransfer / placeItem and equip-then-walk in
+-- AutoPilot_Threat).  This helper is the transfer half.
+--
+-- Verified surface: ISInventoryTransferAction:new(character, item,
+-- sourceContainer, destContainer) is already called in exactly this argument
+-- order in AutoPilot_Inventory (_queueTransfer, placeItem, bulkLoot) and
+-- AutoPilot_Medical.lootNearbyBandage.
+
+--- Move `item` from `holdingContainer` into the player's main inventory, when
+--- (and only when) it is not already there.  Nothing is queued for an item that
+--- already sits in the main inventory, so no redundant action is created.
+---
+--- The engine call is pcall-guarded exactly like the existing transfer sites:
+--- a refused transfer (the MP-unsafe path) must never raise out of the survival
+--- cycle, and it must not leave the caller acting on an item it cannot reach.
+---
+--- @param player           IsoPlayer
+--- @param item             InventoryItem selected from the player's own tree
+--- @param holdingContainer ItemContainer|nil  container reported by the V4.8
+---                         helpers; nil means "caller does not know", which is
+---                         treated as "already usable" (pre-V4.9 behavior).
+--- @return boolean queued  true when a transfer action was queued.
+--- @return boolean usable  true when the item can be acted on after this call
+---                         (already in the main inventory, or a transfer is now
+---                         queued ahead of the use action).  false ONLY when the
+---                         transfer was needed and the engine refused it: the
+---                         caller must then skip the use action.
+function AutoPilot_Utils.queueItemToMainInventory(player, item, holdingContainer)
+    if not player or not item or not holdingContainer then return false, true end
+
+    local okInv, inv = pcall(function() return player:getInventory() end)
+    if not okInv or not inv then return false, true end
+    if holdingContainer == inv then return false, true end
+
+    local okXfer = pcall(function()
+        AutoPilot_Utils.queueModAction(ISInventoryTransferAction:new(
+            player, item, holdingContainer, inv))
+    end)
+    if not okXfer then
+        return false, false
+    end
+    return true, true
+end
+
 -- ── Square iterators ──────────────────────────────────────────────────────────
 
 --- Iterate all squares within `radius` tiles of (cx, cy, cz) in a flat

@@ -17,6 +17,13 @@ dofile("42/media/lua/client/AutoPilot_Constants.lua")
 -- These modules are used by AutoPilot_Needs.lua. We replace them with minimal
 -- stubs that the tests can reconfigure per case.
 
+-- V4.9: Needs moves an item out of a sub-container before using it.
+ISInventoryTransferAction = {
+    new = function(_, _player, item, from, to)
+        return { type = "transfer", item = item, from = from, to = to }
+    end,
+}
+
 -- Internal state flag; tests flip _bleeding to simulate wounds.
 AutoPilot_Medical = {
     _bleeding = false,
@@ -1124,6 +1131,135 @@ do
         AutoPilot_Needs.shouldInterrupt(thirsty25))
 
     AutoPilot_Constants.THIRST_THRESHOLD = baseThirst
+end
+
+-- ── V4.9: transfer to the main inventory before eating/drinking/reading ───────
+-- V4.8 let the selectors see items inside worn and carried containers; PZ still
+-- consumes items from the MAIN inventory only, so a transfer is queued first
+-- and the use action right behind it, in the same cycle and in that order.
+
+-- The suite's Inventory stub returns items with no holding container by
+-- default, which is the "already usable" case.  These cases hand back a
+-- (item, container) pair, exactly like the real selectors now do.
+local BAG = { _tag = "bagContainer" }
+
+local function typeAt(n)
+    local a = ISTimedActionQueue_calls[n]
+    return a and a.type or nil
+end
+
+local function hungryPlayer()
+    return MockPlayer.new({
+        stats = { HUNGER = 0.25, THIRST = 0.05, FATIGUE = 0.05, ENDURANCE = 0.90 },
+    })
+end
+
+local function thirstyPlayer()
+    return MockPlayer.new({
+        stats = { THIRST = 0.30, HUNGER = 0.05, FATIGUE = 0.05, ENDURANCE = 0.90 },
+    })
+end
+
+-- Food in a backpack: transfer, then eat.
+print("\n-- Test 28 (V4.9): food in a backpack transfers THEN eats")
+do
+    reset()
+    local foodItem = {
+        getName     = function() return "Chips" end,
+        getCalories = function() return 200 end,
+    }
+    AutoPilot_Inventory.getBestFood = function(_player) return foodItem, BAG end
+
+    assert_true("check() returns true when hungry", AutoPilot_Needs.check(hungryPlayer()))
+    assert_eq("exactly two actions queued", #ISTimedActionQueue_calls, 2)
+    assert_eq("action 1 is the transfer", typeAt(1), "transfer")
+    assert_eq("action 2 is the eat", typeAt(2), "eat")
+    assert_eq("the transfer carries the food", ISTimedActionQueue_calls[1].item, foodItem)
+end
+
+-- Food already in the main inventory: no transfer at all.
+print("\n-- Test 29 (V4.9): food in the main inventory queues NO transfer")
+do
+    reset()
+    local player = hungryPlayer()
+    local foodItem = {
+        getName     = function() return "Chips" end,
+        getCalories = function() return 200 end,
+    }
+    AutoPilot_Inventory.getBestFood = function(_p) return foodItem, player:getInventory() end
+
+    assert_true("check() returns true when hungry", AutoPilot_Needs.check(player))
+    assert_eq("no transfer queued", count_action_type("transfer"), 0)
+    assert_eq("the eat is the only queued action", #ISTimedActionQueue_calls, 1)
+    assert_eq("action 1 is the eat", typeAt(1), "eat")
+end
+
+-- Drink in a backpack: transfer, then drink (ISEatFoodAction).
+print("\n-- Test 30 (V4.9): a drink in a bag transfers THEN drinks")
+do
+    reset()
+    local drinkItem = { getName = function() return "WaterBottle" end }
+    AutoPilot_Inventory.getBestDrink = function(_player) return drinkItem, BAG end
+
+    assert_true("check() returns true when thirsty",
+        AutoPilot_Needs.check(thirstyPlayer()))
+    assert_eq("exactly two actions queued", #ISTimedActionQueue_calls, 2)
+    assert_eq("action 1 is the transfer", typeAt(1), "transfer")
+    assert_eq("action 2 is the drink (ISEatFoodAction)", typeAt(2), "eat")
+    assert_eq("the transfer carries the drink",
+        ISTimedActionQueue_calls[1].item, drinkItem)
+end
+
+-- A refused transfer must not leave a use action queued on an unreachable item.
+print("\n-- Test 31 (V4.9): a refused transfer queues no eat and does not error")
+do
+    reset()
+    local savedTransfer = ISInventoryTransferAction
+    ISInventoryTransferAction = { new = function() error("PZ refused the transfer") end }
+
+    local foodItem = {
+        getName     = function() return "Chips" end,
+        getCalories = function() return 200 end,
+    }
+    AutoPilot_Inventory.getBestFood = function(_player) return foodItem, BAG end
+
+    local ok = pcall(function() return AutoPilot_Needs.check(hungryPlayer()) end)
+    ISInventoryTransferAction = savedTransfer
+
+    assert_true("a refused transfer does not raise", ok)
+    assert_eq("no eat action queued", count_action_type("eat"), 0)
+    assert_eq("no transfer action queued", count_action_type("transfer"), 0)
+end
+
+-- Painkillers in a bag: the pain-blocked sleep path takes its container
+-- straight from the V4.8 iterator, so it must transfer before taking the pill.
+print("\n-- Test 32 (V4.9): bagged painkillers transfer THEN are taken")
+do
+    reset()
+    local pills = {
+        getType = function() return "Painkillers" end,
+        getName = function() return "Painkillers" end,
+    }
+    local player = MockPlayer.new({
+        stats = {
+            FATIGUE   = 0.80,   -- above FATIGUE_THRESHOLD: sleep is attempted
+            PAIN      = 100,    -- blocks sleep, routes to pain relief
+            HUNGER    = 0.05,
+            THIRST    = 0.05,
+            ENDURANCE = 0.90,
+        },
+    })
+    MockContainer.attach(player, MockContainer.new({
+        MockContainer.bag("FannyPack", { pills }),
+    }))
+
+    assert_true("check() returns true when pain relief is queued",
+        AutoPilot_Needs.check(player))
+    assert_eq("exactly two actions queued", #ISTimedActionQueue_calls, 2)
+    assert_eq("action 1 is the transfer", typeAt(1), "transfer")
+    assert_eq("action 2 is the pill (ISEatFoodAction fallback)", typeAt(2), "eat")
+    assert_eq("the transfer carries the painkillers",
+        ISTimedActionQueue_calls[1].item, pills)
 end
 
 -- ── Summary ───────────────────────────────────────────────────────────────────

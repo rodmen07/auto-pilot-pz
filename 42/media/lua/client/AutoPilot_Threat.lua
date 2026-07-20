@@ -232,7 +232,7 @@ local function doFight(player, zombies, escDx, escDy)
     end)
     local target = zombies[1]
 
-    local weapon       = AutoPilot_Inventory.getBestWeapon(player)
+    local weapon, weaponCont = AutoPilot_Inventory.getBestWeapon(player)
     local weaponUsable = weapon and getWeaponCondition(weapon) >= WEAPON_FIGHT_COND_MIN
 
     local okPrimary, primary = pcall(function() return player:getPrimaryHandItem() end)
@@ -253,7 +253,13 @@ local function doFight(player, zombies, escDx, escDy)
     end
 
     if shouldEquip then
-        AutoPilot_Utils.queueModAction(ISEquipWeaponAction:new(player, weapon, 50, true))
+        -- V4.9: a weapon found in a backpack (V4.8) cannot be equipped from
+        -- there; queue the move into the main inventory ahead of the equip.
+        local _, usable = AutoPilot_Utils.queueItemToMainInventory(
+            player, weapon, weaponCont)
+        if usable then
+            AutoPilot_Utils.queueModAction(ISEquipWeaponAction:new(player, weapon, 50, true))
+        end
     end
 
     local targetSq = target:getSquare()

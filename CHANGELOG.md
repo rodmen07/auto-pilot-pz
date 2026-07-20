@@ -2,6 +2,78 @@
 
 All notable changes to AutoPilot are documented here.
 
+## [V4.9] - 2026-07-19 - TRANSFER, THEN USE
+
+User directive: "It should be transfer then bandage".
+
+### Fixed - a found item was still not a usable item
+
+V4.8 fixed the search SCOPE: a bandage in a fanny pack is now found. It
+did not fix reachability. Project Zomboid actions (bandage, eat, drink,
+take pill, read, equip, wear) act on the character's MAIN inventory, so
+an item still nested in a backpack was selected and then quietly did
+nothing. This was the open risk V4.8 flagged, and it applied to the whole
+class of consumables, not just bandages.
+
+- Every use site now queues an `ISInventoryTransferAction` moving the
+  selected item into the main inventory FIRST, then queues the use action
+  right behind it. `ISTimedActionQueue` runs them in that order, so the
+  fix completes within a single cycle. This mirrors the vanilla inventory
+  UI, and it is the same chaining shape the mod already used for
+  walk-then-transfer (`AutoPilot_Inventory._queueTransfer`, `placeItem`)
+  and equip-then-walk (`AutoPilot_Threat.doFight`).
+- An item already in the main inventory queues NO transfer, so nothing
+  redundant is added to the queue.
+- If the engine refuses the transfer (the MP-unsafe path), the use action
+  is skipped instead of firing on an unreachable item, matching the
+  existing degradation in `AutoPilot_Medical.lootNearbyBandage`.
+
+### Added - `AutoPilot_Utils.queueItemToMainInventory`
+
+`queueItemToMainInventory(player, item, holdingContainer)` returns
+`queued, usable`: whether a transfer was queued, and whether the caller
+may now act on the item. A nil container (caller does not know) and a
+container that IS the main inventory both mean "already usable, queue
+nothing". The engine call is pcall-guarded.
+
+### Changed - selectors report their holding container
+
+These selectors now return `item, container` (an additive second return
+value; callers that want only the item are unaffected):
+`AutoPilot_Inventory.getBestFood`, `getBestFoodForHunger`,
+`selectFoodByWeight`, `getBestDrink`, `getBestWeapon`, `getReadable`,
+`preferTastyFood`, `bestMeleeWeapon`, `findClothing`, and
+`AutoPilot_Medical.findBandage` (module-local).
+
+### Converted use sites
+
+`AutoPilot_Medical.doTreatWound` (ISApplyBandage), `AutoPilot_Needs`
+doEat / doDrink / the painkiller path in doSleep / doRead / the unhappy
+tasty-food path, `AutoPilot_Inventory.checkAndSwapWeapon`
+(ISEquipWeaponAction) and `adjustClothing` (ISWearClothing), and
+`AutoPilot_Threat.doFight` (ISEquipWeaponAction).
+
+Not converted, deliberately: `refillWaterContainer` fills a bottle in
+place and vanilla does not transfer for it, and world-container looting
+already transfers into the main inventory by construction.
+
+### Unchanged
+
+Selection semantics, thresholds and priority order are untouched, as are
+the V4.5 ownership registry / intervention backoff / F10 panic stop, the
+V4.6 XP-gated cap and the V4.7 configurable thresholds. Every transfer is
+queued through `AutoPilot_Utils.queueModAction`, so it is tagged as
+mod-owned like every other action this mod queues.
+
+### Tests
+
+Lua assertions 575 -> 666. New V4.9 coverage: the user's exact scenario
+(a fanny-pack bandage produces a transfer and THEN the bandage action, in
+that order), depth-2 nesting, a main-inventory item queueing no transfer,
+food and drink and painkillers in a bag, a bagged weapon and a bagged
+garment, and a refused transfer degrading with no use action queued. All
+new cases verified failing against the pre-fix code.
+
 ## [V4.8] - 2026-07-19 - CARRIED CONTAINERS ARE SEARCHED (BANDAGE FIX)
 
 User-reported (HIGH): "I see the problem with healing as well. I was
