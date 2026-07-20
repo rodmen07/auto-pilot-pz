@@ -201,7 +201,8 @@ program's day focus when it names one, otherwise the persisted selection
    action.
 3. Builds the focus's ordered candidate pool (Strength: dumbbell press,
    biceps curl, barbell curl, push-ups; Fitness: squats, or sit-ups while
-   any leg part is too stiff; Auto: burpees first) and picks the first
+   any leg part is too stiff; Auto (V5.2): the same equipment lifts first,
+   then burpees, then squats, push-ups, sit-ups) and picks the first
    candidate whose required item is carried (the vanilla
    `inventory:contains` gate) and that is not XP-fatigued.
 4. Queues `ISFitnessAction` via `ISTimedActionQueue.addGetUpAndThen`
