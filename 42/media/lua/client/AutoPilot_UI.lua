@@ -143,8 +143,14 @@ function AutoPilot_UI:render()
     local status = nil
     pcall(function() status = AutoPilot_Needs.getExerciseStatus() end)
     if status then
-        local line = string.format("Status: %s   Sets today: %d/%d",
-            status.outcome or "idle", status.setsToday or 0, status.cap or 0)
+        -- V4.6: the sets fragment is pre-formatted by AutoPilot_Needs (it
+        -- knows whether a daily cap is set at all), so an uncapped session
+        -- reads "Sets today: 12 (no cap)" instead of a misleading "12/0".
+        -- The raw-number fallback covers an older/partial status table.
+        local sets = status.setsLine
+            or string.format("Sets today: %d", status.setsToday or 0)
+        local line = string.format("Status: %s   %s",
+            status.outcome or "idle", sets)
         self:drawText(line, PAD, y, 1, 0.9, 0.5, 1, UIFont.Small)
         y = y + ROW_H
         -- Long-term regularity of the exercise currently being trained.

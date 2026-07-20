@@ -2,6 +2,65 @@
 
 All notable changes to AutoPilot are documented here.
 
+## [V4.6] - 2026-07-19 - XP GAIN GATES TRAINING; DAILY SET CAP IS OPT-IN
+
+User-requested: the daily set cap was too restrictive because it counted
+every exercise of the day against one shared budget, so training stopped
+at an arbitrary number regardless of whether the sets were still paying
+XP. Asked how it should be restructured, the user answered: "Exercise
+should be capped by experience gain. Meaning only should stop when stop
+gaining xp from doing a given exercise."
+
+### Changed - XP productivity is now the primary limiter
+
+- `AutoPilot_Constants.EXERCISE_DAILY_CAP` default 20 -> **0, and 0 now
+  means UNLIMITED**. Any value > 0 still enforces a hard ceiling, so the
+  old behavior remains available as an opt-in safety valve.
+- `AutoPilot_Needs.doExercise` applies the daily-count gate only when the
+  cap is > 0. With the default cap, training continues until something
+  that actually knows the training is worthless stops it: the per-exercise
+  XP-fatigue detector (a full-length set gaining under
+  `EXERCISE_MIN_XP_PER_SET` fatigues that exercise for
+  `EXERCISE_FATIGUE_RECOVERY_MS`, and a fully fatigued pool pauses
+  training), the endurance gates, the V4.3 program rest day, or the V4.5
+  intervention backoff. None of those were touched or weakened.
+- The `_exerciseSetsToday` counter still runs and still resets on day
+  rollover: it is useful information for the panel and the logs, it simply
+  no longer halts training by itself. `getExerciseSetsToday` is unchanged.
+
+### Changed - honest reporting with no cap
+
+- `AutoPilot_Needs.getExerciseStatus` gains a pre-formatted `setsLine`
+  field ("Sets today: 12 (no cap)" uncapped, "Sets today: 12/20" capped),
+  following the same data-layer-formats-it convention as the V4.3 program
+  line; `setsToday` and `cap` still carry the raw numbers.
+- `AutoPilot_UI` (F11 panel) draws `setsLine` verbatim instead of building
+  "%d/%d" itself, so an uncapped session can never render "12/0". A
+  raw-count fallback covers an older/partial status table.
+- The per-set console log reads "Exercise set 12 queued (no daily cap)."
+  when uncapped and keeps the "12/20" form when a cap is set.
+
+### Changed - Options
+
+- The Training slider is now "Daily exercise set cap (0 = unlimited; XP
+  gain is the real limiter)" with `min` 5 -> 0, so the new default is
+  reachable from the options UI and a player who wants a ceiling can still
+  dial one in (and back out to 0).
+
+### Testing
+
+- `test_priority_logic`: 83 -> 102 assertions. New V4.6 section: 50
+  productive sets in a single in-game day all queue with the default cap
+  (nothing blocked by a count, counter still increments); a configured cap
+  > 0 still refuses the set at the ceiling with the "resting (daily set
+  cap reached)" status and releases again when the ceiling is raised; with
+  no cap an unproductive exercise still halts training with "resting
+  (exercises fatigued)" and still recovers after the fatigue window
+  (proving the new primary limiter was not broken); `getExerciseStatus`
+  reports honestly in both modes. The V4.5 section now pins the cap to 0
+  instead of 100. Total Lua assertions 460 -> 479; luacheck stays 0
+  warnings / 0 errors across 18 modules; no telemetry schema change.
+
 ## [V4.4] - 2026-07-19 - ON-SCREEN ACTION/INTENTION DISPLAY
 
 User-requested after the V4.3 smoke test: a way to see what the mod is

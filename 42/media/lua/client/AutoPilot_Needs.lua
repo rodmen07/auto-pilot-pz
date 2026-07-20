@@ -945,10 +945,15 @@ local function doExercise(player, focus)
         return false
     end
 
-    -- Phase 2: daily cap gate
-    if _exerciseSetsToday >= AutoPilot_Constants.EXERCISE_DAILY_CAP then
-        print(("[Needs] Daily exercise cap %d reached — resting."):format(
-            AutoPilot_Constants.EXERCISE_DAILY_CAP))
+    -- V4.6: optional daily-cap gate.  The PRIMARY limiter is XP
+    -- productivity (_exerciseStillProductive, below): training stops when an
+    -- exercise stops paying XP, not at an arbitrary set count.  A cap of 0
+    -- (the default) means unlimited, so this gate is skipped entirely; only
+    -- a user-configured cap > 0 enforces a hard ceiling.
+    local dailyCap = tonumber(AutoPilot_Constants.EXERCISE_DAILY_CAP) or 0
+    if dailyCap > 0 and _exerciseSetsToday >= dailyCap then
+        print(("[Needs] Daily exercise cap %d reached; resting."):format(
+            dailyCap))
         _exerciseOutcome = "resting (daily set cap reached)"
         return false
     end
@@ -1057,10 +1062,17 @@ local function doExercise(player, focus)
             ms  = nowMs,
             who = player,
         }
+        -- The counter keeps running even when uncapped: the F11 panel and
+        -- the logs report it, it just no longer halts training on its own.
         _exerciseSetsToday = _exerciseSetsToday + 1
         _exerciseOutcome = "training: " .. exType
-        print(("[Needs] Exercise set %d/%d queued."):format(
-            _exerciseSetsToday, AutoPilot_Constants.EXERCISE_DAILY_CAP))
+        if dailyCap > 0 then
+            print(("[Needs] Exercise set %d/%d queued."):format(
+                _exerciseSetsToday, dailyCap))
+        else
+            print(("[Needs] Exercise set %d queued (no daily cap)."):format(
+                _exerciseSetsToday))
+        end
         return true
     else
         print("[Needs] ISFitnessAction failed for: " .. exType .. " — " .. tostring(action))
@@ -1073,12 +1085,25 @@ end
 
 --- Trainer status for the F11 panel.
 --- Returns { outcome = "training: squats" | "resting (...)" | "idle",
----           setsToday, cap }.
+---           setsToday, cap, setsLine }.
+--- V4.6: `cap` is 0 when training is uncapped (XP productivity is the
+--- limiter), so the panel must never print "12/0".  `setsLine` is the
+--- pre-formatted, honest rendering of the count and is what the UI draws
+--- verbatim (same data-layer-formats-it convention as the program line);
+--- `setsToday` and `cap` stay for callers that want the raw numbers.
 function AutoPilot_Needs.getExerciseStatus()
+    local cap = tonumber(AutoPilot_Constants.EXERCISE_DAILY_CAP) or 0
+    local setsLine
+    if cap > 0 then
+        setsLine = ("Sets today: %d/%d"):format(_exerciseSetsToday, cap)
+    else
+        setsLine = ("Sets today: %d (no cap)"):format(_exerciseSetsToday)
+    end
     return {
         outcome   = _exerciseOutcome,
         setsToday = _exerciseSetsToday,
-        cap       = AutoPilot_Constants.EXERCISE_DAILY_CAP,
+        cap       = cap,
+        setsLine  = setsLine,
     }
 end
 

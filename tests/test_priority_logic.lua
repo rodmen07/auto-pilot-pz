@@ -764,9 +764,10 @@ end
 
 -- ── V4.5: intervention backoff + mod-action ownership lifecycle ──────────────
 -- The mock's in-game day never rolls over, so _exerciseSetsToday accumulates
--- across the whole suite; raise the cap so the daily-cap gate cannot shadow
--- what these tests actually assert.
-AutoPilot_Constants.EXERCISE_DAILY_CAP = 100
+-- across the whole suite.  V4.6 made 0 (unlimited) the default, so the
+-- daily-count gate cannot shadow what these tests assert; pin it anyway so
+-- the intent survives a future default change.
+AutoPilot_Constants.EXERCISE_DAILY_CAP = 0
 
 print("\n-- Test 30: mod-queued sets are tagged; consuming the record untags")
 do
@@ -916,6 +917,115 @@ do
         AutoPilot_Needs.trainExercise(p, "fitness"))
     AutoPilot_Constants.EXERCISE_BACKOFF_MINUTES = savedBackoff
     AutoPilot_Needs.resetInterventionForTest()
+end
+
+-- ── V4.6: XP gain is the limiter; the daily set cap is an opt-in ceiling ─────
+-- User request: "Exercise should be capped by experience gain.  Meaning only
+-- should stop when stop gaining xp from doing a given exercise."  So a cap of
+-- 0 means unlimited and the XP-productivity detector is what halts training;
+-- a cap > 0 stays available as a hard safety ceiling.
+
+--- Run one productive set: a full-length set that actually gained XP, which
+--- is what the XP-productivity gate wants to see before allowing the next.
+local function productiveSet(p, gain)
+    MockTime.advance(FULL_SET_MS)
+    p._xp.Fitness = (p._xp.Fitness or 0) + (gain or 12)
+    return AutoPilot_Needs.trainExercise(p, "fitness")
+end
+
+print("\n-- Test 38 (V4.6): cap 0 never halts training, at any set count")
+do
+    ISTimedActionQueue_calls = {}
+    MockTime.advance(24 * 60 * 60000)
+    AutoPilot_Needs.resetInterventionForTest()
+    AutoPilot_Constants.EXERCISE_DAILY_CAP = 0
+    local p = exercisePlayer()
+    local startCount = AutoPilot_Needs.getExerciseSetsToday()
+    assert_true("first set queues", AutoPilot_Needs.trainExercise(p, "fitness"))
+    local blockedAt = nil
+    for i = 2, 50 do
+        if not productiveSet(p) then
+            blockedAt = i
+            break
+        end
+    end
+    assert_eq("50 productive sets in one day, none blocked by a count",
+        blockedAt, nil)
+    assert_eq("every one of the 50 sets was really queued",
+        #ISTimedActionQueue_calls, 50)
+    assert_eq("the counter still ran while uncapped",
+        AutoPilot_Needs.getExerciseSetsToday(), startCount + 50)
+    assert_eq("status is training, not resting", AutoPilot_Needs
+        .getExerciseStatus().outcome, "training: squats")
+end
+
+print("\n-- Test 39 (V4.6): a cap > 0 is still a hard ceiling (safety valve)")
+do
+    ISTimedActionQueue_calls = {}
+    MockTime.advance(24 * 60 * 60000)
+    AutoPilot_Needs.resetInterventionForTest()
+    local p = exercisePlayer()
+    -- Pin the ceiling exactly at the sets already done: the next attempt is
+    -- the one that must be refused.
+    AutoPilot_Constants.EXERCISE_DAILY_CAP =
+        AutoPilot_Needs.getExerciseSetsToday()
+    local before = #ISTimedActionQueue_calls
+    assert_false("training stops at a configured ceiling",
+        AutoPilot_Needs.trainExercise(p, "fitness"))
+    assert_eq("nothing queued once the ceiling is hit",
+        #ISTimedActionQueue_calls, before)
+    assert_eq("panel reports the cap as the reason",
+        AutoPilot_Needs.getExerciseStatus().outcome,
+        "resting (daily set cap reached)")
+    -- Raising the ceiling releases training again on the very next cycle.
+    AutoPilot_Constants.EXERCISE_DAILY_CAP =
+        AutoPilot_Needs.getExerciseSetsToday() + 5
+    assert_true("a raised ceiling releases training",
+        AutoPilot_Needs.trainExercise(p, "fitness"))
+    AutoPilot_Constants.EXERCISE_DAILY_CAP = 0
+end
+
+print("\n-- Test 40 (V4.6): with no cap, zero-XP sets are what stop training")
+do
+    ISTimedActionQueue_calls = {}
+    MockTime.advance(24 * 60 * 60000)
+    AutoPilot_Needs.resetInterventionForTest()
+    AutoPilot_Constants.EXERCISE_DAILY_CAP = 0
+    local p = exercisePlayer()
+    -- Strength without equipment is a single-exercise pool (push-ups), so
+    -- one unproductive set exhausts the whole pool.
+    assert_true("push-up set queues", AutoPilot_Needs.trainExercise(p, "strength"))
+    MockTime.advance(FULL_SET_MS)   -- full set, and NO XP gained
+    local before = #ISTimedActionQueue_calls
+    assert_false("an unproductive exercise halts training even uncapped",
+        AutoPilot_Needs.trainExercise(p, "strength"))
+    assert_eq("nothing queued while XP-fatigued",
+        #ISTimedActionQueue_calls, before)
+    assert_eq("panel names XP fatigue, not the cap",
+        AutoPilot_Needs.getExerciseStatus().outcome,
+        "resting (exercises fatigued)")
+    -- ...and the recovery window still returns it to service.
+    MockTime.advance(AutoPilot_Constants.EXERCISE_FATIGUE_RECOVERY_MS + 60000)
+    assert_true("push-ups retried after the recovery window",
+        AutoPilot_Needs.trainExercise(p, "strength"))
+end
+
+print("\n-- Test 41 (V4.6): getExerciseStatus reads honestly in both modes")
+do
+    AutoPilot_Constants.EXERCISE_DAILY_CAP = 0
+    local st = AutoPilot_Needs.getExerciseStatus()
+    local sets = st.setsToday
+    assert_eq("uncapped: cap reads 0", st.cap, 0)
+    assert_eq("uncapped: the panel line says so, never 'n/0'",
+        st.setsLine, ("Sets today: %d (no cap)"):format(sets))
+    AutoPilot_Constants.EXERCISE_DAILY_CAP = 25
+    st = AutoPilot_Needs.getExerciseStatus()
+    assert_eq("capped: cap is reported", st.cap, 25)
+    assert_eq("capped: the panel line shows count out of cap",
+        st.setsLine, ("Sets today: %d/25"):format(sets))
+    assert_eq("the raw count is unchanged by the cap setting",
+        st.setsToday, sets)
+    AutoPilot_Constants.EXERCISE_DAILY_CAP = 0
 end
 
 -- ── Summary ───────────────────────────────────────────────────────────────────

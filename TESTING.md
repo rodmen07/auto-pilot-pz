@@ -29,10 +29,15 @@ verified. A fresh character starts with no skills and no home base.
 - [ ] Panel shows BOTH perk blocks; metrics update: XP rises, XP/hour appears
       after ~1 min, ETA shown; focused perk is highlighted
 - [ ] F11 panel: shows live status line ("training: squats", "resting (...)"),
-      sets today N/cap, regularity of the current exercise, arm/disarm button
+      "Sets today: N (no cap)" by default (V4.6) or "Sets today: N/cap" once a
+      cap is set, regularity of the current exercise, arm/disarm button
       works, panel position is remembered after reopening
+- [ ] V4.6: with the default cap of 0 the character keeps training past 20+
+      sets in one in-game day and only pauses for XP fatigue, endurance, a
+      program rest day, or an intervention backoff (never "daily set cap")
 - [ ] Options > Mods > AutoPilot Leveler: sliders apply in-game after Save
-      (e.g. lower daily cap and watch training stop at it); F10/F11 rebind works
+      (e.g. set the daily cap to a low number and watch training stop at it,
+      then back to 0 for unlimited); F10/F11 rebind works
 - [ ] Focus survives save/quit/reload (ModData)
 - [ ] MP: error counter stays at 0 after joining a server (Lua-reload fix)
 - [ ] Zombies wandering OUTSIDE the walls do not interrupt training (HUD may

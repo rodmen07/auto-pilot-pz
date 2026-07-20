@@ -46,7 +46,7 @@ both `AutoPilot_Options` (player sliders) and `AutoPilot_Adaptive`
 
 | Module | Responsibility | Key interactions |
 |---|---|---|
-| `AutoPilot_Needs` | Priority state machine for survival needs plus the exercise slot: eat/drink/sleep/rest, shelter, clothing, wound treatment dispatch, boredom relief, proactive scavenging, base maintenance, and `doExercise` (endurance gates, daily set cap, equipment preference, XP-fatigue rotation, and the V4.5 player-intervention backoff: a mod-queued set that vanishes uncompleted without a mod-initiated clear, an observed manual exercise, or an F10 panic stop holds training off for `EXERCISE_BACKOFF_MINUTES` game minutes instead of re-queuing over the player). | Called by `Main` (`check`, `shouldInterrupt`, and the V4.5 notifications `noteForeignExercise`/`noteModExerciseCleared`/`notePanicStop`). Calls `Medical.check`/`hasCriticalWound`, many `Inventory` helpers, `Home` bounds checks, `Barricade.checkMaintenance`, `Leveler.check`, and `Telemetry.setDecision` for every decision. Exposes `trainExercise` (the Leveler's seam) and `getExerciseStatus` (the panel's status line). |
+| `AutoPilot_Needs` | Priority state machine for survival needs plus the exercise slot: eat/drink/sleep/rest, shelter, clothing, wound treatment dispatch, boredom relief, proactive scavenging, base maintenance, and `doExercise` (endurance gates, optional daily set cap (V4.6: 0 = unlimited by default), equipment preference, XP-fatigue rotation, and the V4.5 player-intervention backoff: a mod-queued set that vanishes uncompleted without a mod-initiated clear, an observed manual exercise, or an F10 panic stop holds training off for `EXERCISE_BACKOFF_MINUTES` game minutes instead of re-queuing over the player). | Called by `Main` (`check`, `shouldInterrupt`, and the V4.5 notifications `noteForeignExercise`/`noteModExerciseCleared`/`notePanicStop`). Calls `Medical.check`/`hasCriticalWound`, many `Inventory` helpers, `Home` bounds checks, `Barricade.checkMaintenance`, `Leveler.check`, and `Telemetry.setDecision` for every decision. Exposes `trainExercise` (the Leveler's seam) and `getExerciseStatus` (the panel's status line). |
 | `AutoPilot_Threat` | Zombie detection (same z-level, cached per cycle) and the fight/flee decision, including the V3.2 engagement gate, directional spread analysis, encirclement handling, and flee stutter prevention. | Called by `Main` (`beginCycle`, `check`). `getNearbyZombies` is also read by `Main`'s HUD, `Telemetry`, and `DeathLog`. Calls `Medical.hasCriticalWound` (bleeding forces flee), `Inventory.checkAndSwapWeapon`/`getBestWeapon` (pre-equip before the engage decision), and `Home` (flee redirects toward home when set). |
 | `AutoPilot_Inventory` | Item selection and looting: safe-food/drink choice, weapon selection and swap, bandage-loot support, supply counts, supply runs, water sourcing and refill, clothing adjustment, and exercise-equipment checks plus the daily gear fetch. | Called by `Needs` and `Threat`. Reads `Home` bounds to keep loot trips inside the containment circle and reads/writes `Map` depletion so empty containers are not revisited. |
 | `AutoPilot_Medical` | Wound detection and treatment: bleeding first, then deep wounds, bites, scratches, burns; bandage selection by quality with a rip-sheets fallback. | `check(player, bleedingOnly)` is called from `Needs`; `hasCriticalWound` from `Needs` and `Threat`; `getWoundSnapshot` from `Telemetry` and `DeathLog`. V4.1: a queued treatment samples the Doctor perk via `AutoPilot_XP.sample` (visibility only). |
@@ -189,9 +189,11 @@ to `Needs.trainExercise(player, focus)` with the day's focus: the
 program's day focus when it names one, otherwise the persisted selection
 (`nil` for Auto, which balances the lower of STR/FIT). `doExercise` then:
 
-1. Resets the sets-per-day counter on day rollover and enforces the daily
-   set cap and the endurance gates (skipping a set is reported to the
-   panel as a "resting" status, not silence).
+1. Resets the sets-per-day counter on day rollover, applies the daily set
+   cap only when one is configured (V4.6: `EXERCISE_DAILY_CAP` defaults to
+   0 = unlimited, so XP productivity is the real limiter and the count is
+   an opt-in ceiling), and enforces the endurance gates (skipping a set is
+   reported to the panel as a "resting" status, not silence).
 2. Once per day (Strength/Auto focus, no gear carried): queues a fetch
    trip that pulls a dumbbell/barbell from home containers, unlocking the
    higher-xpMod equipment exercises. The fetch is itself that cycle's
@@ -211,7 +213,12 @@ the engine does not expose to Lua: a completed set (at least 80 percent of
 its duration) that gained under `EXERCISE_MIN_XP_PER_SET` marks that
 exercise fatigued for `EXERCISE_FATIGUE_RECOVERY_MS` (3 in-game hours) and
 the pool rotates to the next candidate. A fully fatigued pool PAUSES
-training rather than burning food and endurance for zero XP. Snapshots are
+training rather than burning food and endurance for zero XP. Since V4.6
+this is the PRIMARY limiter on how much the trainer does in a day (user
+direction: "Exercise should be capped by experience gain"): a set count
+cannot tell a productive set from a wasted one, so `EXERCISE_DAILY_CAP`
+defaults to 0 (unlimited) and only enforces a ceiling when a player sets
+one. Snapshots are
 guarded by character identity so a death/respawn can never false-fatigue an
 exercise against the old character's XP.
 
@@ -306,7 +313,8 @@ listed in the F11 panel.
 ## Runtime Tuning: ModOptions and Live-Read Constants
 
 `AutoPilot_Options` registers a `PZAPI.ModOptions` page (Options > Mods >
-AutoPilot Leveler) with sliders for the daily set cap, endurance minimum,
+AutoPilot Leveler) with sliders for the optional daily set cap (0 =
+unlimited), endurance minimum,
 XP-fatigue recovery hours, food/drink stockpile minimums, proactive loot
 radius, detection radius, and close-danger radius, plus rebindable arm and
 panel keys. Values are copied into `AutoPilot_Constants` once per session
