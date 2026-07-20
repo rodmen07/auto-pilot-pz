@@ -2,6 +2,92 @@
 
 All notable changes to AutoPilot are documented here.
 
+## [V4.7] - 2026-07-19 - CONFIGURABLE HUNGER AND THIRST TRIGGERS
+
+User-reported: "eating and healing don't appear to work", and separately
+that "the character is able to retrieve food but doesn't eat it".
+
+Investigation of roughly 11,900 ticks in `auto_pilot_run.log` found no
+defect. `HUNGER_THRESHOLD` is 0.20 and the character's hunger never
+exceeded 18% anywhere in that log, so the eat branch was correctly never
+entered: there was nothing to eat about. The food in inventory came from
+the separate proactive stockpile scavenge, which is supposed to stock up
+BEFORE hunger bites. The eat mechanism itself is provably intact because
+drinking runs the identical code path
+(`AutoPilot_Utils.queueModAction(ISEatFoodAction:new(player, item, 1))`)
+and fired 4 times in the same log once thirst crossed its own 20%
+threshold. Healing showed zero bandage events for the same reason:
+`bleeding` was 0 for nearly the whole log, so there was no wound to treat.
+
+The real gap was that the trigger point was not adjustable in game, so a
+player seeing "it never eats" had no way to test that theory. V4.7 makes
+it adjustable.
+
+### Added - Options
+
+- Two sliders in the **Survival Fail-Safe** group of Options > Mods >
+  AutoPilot Leveler:
+  - "Eat when hunger reaches (%)" -> `HUNGER_THRESHOLD`
+  - "Drink when thirst reaches (%)" -> `THIRST_THRESHOLD`
+- Both are 5 to 50 in steps of 5, mapping through `scale = 0.01` exactly
+  like the existing "Min endurance to start a set (%)" slider. Thirst is
+  included because it is the same branch with the same pattern; making one
+  tunable and not the other would be arbitrary.
+
+### Unchanged - the defaults
+
+- `HUNGER_THRESHOLD` and `THIRST_THRESHOLD` **remain 0.20**. Nothing about
+  the shipped behavior changes for a player who never opens the options
+  screen. The user did not ask for a retune and the telemetry did not
+  justify one, so none was applied; the sliders exist so the player can
+  make that call themselves.
+- No V4.5 safety guarantee (ownership registry, intervention backoff, F10
+  panic stop) and no V4.6 XP-gated cap semantics were touched.
+
+### Notes - why no reload is needed
+
+`AutoPilot_Needs.check` re-reads `AutoPilot_Constants.THIRST_THRESHOLD`
+and `.HUNGER_THRESHOLD` at every decision (`AutoPilot_Needs.lua:1219` and
+`:1245`, and `shouldInterrupt` at `:1175` and `:1179`), which is the V3.3
+live-read pattern. `Options.applyToConstants` writes those same fields on
+options-save, so a change applies on the very next cycle: no reload, no
+re-init. Once-per-session application still happens BEFORE `Adaptive.init`,
+so a player setting and a death-learning delta still compose in the same
+stable order as before.
+
+### Testing
+
+- `test_priority_logic`: 102 -> 116 assertions. Two new cases drive
+  `check()` with a mock player parked at 25% hunger (and 25% thirst) while
+  the threshold is moved above and below him, proving the value is honored
+  live rather than hardcoded: no eat action at a raised threshold, an eat
+  action at a lowered one, the `>=` boundary inclusive, and
+  `shouldInterrupt` following the same constant. Both cases assert the
+  shipped default is still 0.20.
+- New suite `test_options_mapping`: 33 assertions. First suite to load
+  `AutoPilot_Options`, against a suite-local mock of only the already
+  verified `PZAPI.ModOptions` calls. It asserts both new sliders register
+  with the right name, range and step, land in the Survival Fail-Safe group
+  rather than Training, open seeded at 20 (the unchanged default), and map
+  a saved value through the 0.01 scale (15 -> 0.15, 35 -> 0.35, floor and
+  ceiling, and back). An unscaled neighbour (`foodMin`, `drinkMin`,
+  `detRadius`) is checked to stay a raw count so a scale cannot leak across
+  entries, and a no-op re-save is verified to change nothing.
+- Lua suite total: 479 -> 526 assertions across 11 files, 0 failures.
+- `tests/lua_mock_pz.lua`: the `PZAPI.ModOptions` coverage record moves
+  from `[G]` DOCUMENTED GAP to `[S]` PARTIAL GAP. The widgets themselves
+  are still playtest-only; a mock cannot prove the real page draws.
+- The stale note in `test_priority_logic` claiming `check()` takes a
+  `skipExercise` argument was corrected: production `check(player)` takes
+  the player only, so a case proving a need branch did NOT fire must assert
+  on that branch's action type, not on an empty queue.
+
+### In-game verification still required
+
+Every control on the ModOptions page is playtest-only by design. Set "Eat
+when hunger reaches (%)" to 5, Save, and confirm the bot eats on the next
+cycle without a reload; see the new TESTING.md items under Survival Needs.
+
 ## [V4.6] - 2026-07-19 - XP GAIN GATES TRAINING; DAILY SET CAP IS OPT-IN
 
 User-requested: the daily set cap was too restrictive because it counted

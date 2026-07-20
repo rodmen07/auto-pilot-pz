@@ -103,9 +103,15 @@ AutoPilot_Constants.WEAPON_FIGHT_CONDITION_MIN = 0.15
 
 -- Trigger eating when hunger >= 20%.  Gives enough lead time to find food before
 -- the moodle escalates from "Hungry" to "Very Hungry".
+-- V4.7: player-tunable ("Eat when hunger reaches (%)", Survival Fail-Safe group).
+-- Live-read constant (V3.3 pattern: AutoPilot_Needs.check re-reads it at every
+-- decision, so an options-save applies on the very next cycle).  A character who
+-- never crosses 20% simply never triggers the eat branch: lower this to eat
+-- sooner.  Default deliberately unchanged.
 AutoPilot_Constants.HUNGER_THRESHOLD = 0.20
 
 -- Matched to hunger sensitivity; thirst escalates faster but same logic applies.
+-- V4.7: player-tunable ("Drink when thirst reaches (%)"); same live-read seam.
 AutoPilot_Constants.THIRST_THRESHOLD = 0.20
 
 -- Trigger sleep at 70% fatigue -- early enough to reach a bed before the

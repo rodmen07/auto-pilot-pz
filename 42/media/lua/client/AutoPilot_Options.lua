@@ -14,6 +14,12 @@
 -- V4.4: also registers the on-screen action/intention HUD toggle, landing
 -- in AutoPilot_Constants.HUD_SHOW_ACTION (read live by AutoPilot_Main's
 -- status-HUD line; default on).
+--
+-- V4.7: the hunger and thirst trigger points join the Survival Fail-Safe
+-- group as percentage sliders (same scale = 0.01 style as the endurance
+-- minimum).  Both write constants AutoPilot_Needs.check re-reads at every
+-- decision, so an options-save retunes eating and drinking mid-session with
+-- no reload.  Defaults stay at 20%.
 
 AutoPilot_Options = {}
 
@@ -39,6 +45,15 @@ local DEFS = {
     -- exercise (manual cancel, manual training, F10 panic stop).  0 = off.
     { id = "backoffMin",   name = "Training backoff after manual cancel (game minutes)",
       min = 0,  max = 60, step = 5, key = "EXERCISE_BACKOFF_MINUTES" },
+    -- V4.7: when the survival fail-safe decides it is time to eat or drink.
+    -- Both land in constants AutoPilot_Needs.check re-reads at every decision
+    -- (the V3.3 live-read pattern), so a save takes effect on the next cycle.
+    -- Defaults are unchanged at 20%: the sliders exist so a player who never
+    -- sees the bot eat can lower the trigger instead of assuming it is broken.
+    { id = "hungerPct",    name = "Eat when hunger reaches (%)",
+      min = 5,  max = 50, step = 5, key = "HUNGER_THRESHOLD", scale = 0.01 },
+    { id = "thirstPct",    name = "Drink when thirst reaches (%)",
+      min = 5,  max = 50, step = 5, key = "THIRST_THRESHOLD", scale = 0.01 },
     { id = "foodMin",      name = "Food stockpile minimum",
       min = 0,  max = 8,  step = 1, key = "SUPPLY_FOOD_MIN" },
     { id = "drinkMin",     name = "Drink stockpile minimum",

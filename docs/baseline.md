@@ -36,8 +36,8 @@ validates it.
 
 | Constant | Value | Owning behavior | Validation |
 |---|---|---|---|
-| `HUNGER_THRESHOLD` | 0.20 | Needs.doHunger | test_priority_logic #3 |
-| `THIRST_THRESHOLD` | 0.20 | Needs.doThirst | test_priority_logic #2 |
+| `HUNGER_THRESHOLD` | 0.20 (slider; V4.7) | Needs.doHunger | test_priority_logic #3/#42, test_options_mapping #2/#4/#5 |
+| `THIRST_THRESHOLD` | 0.20 (slider; V4.7) | Needs.doThirst | test_priority_logic #2/#43, test_options_mapping #3/#4/#5 |
 | `FATIGUE_THRESHOLD` | 0.70 | Needs.doSleep | test_priority_logic #4 |
 | `BOREDOM_THRESHOLD` | 30 | Needs.doBoredom | — |
 | `SADNESS_THRESHOLD` | 20 | Needs.doBoredom | — |
@@ -59,6 +59,11 @@ validates it.
 | `TEMP_TOO_HOT` | 20 | Needs.adjustClothing | — |
 | `DEPLETED_CAP` | 500 | Map.markDepleted | test_home_map_barricade Map#3 |
 | `BARRICADE_SEARCH_RADIUS` | 15 | Barricade.doBarricade | test_home_map_barricade Bar#3 |
+
+Values marked "slider" are also player-tunable in Options > Mods > AutoPilot
+Leveler; the value above is the compiled-in default, which an options save
+overrides for that session. V4.7 exposed the hunger and thirst triggers
+without changing either default.
 
 ---
 

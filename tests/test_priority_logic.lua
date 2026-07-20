@@ -127,11 +127,12 @@ local function last_action_type()
 end
 
 -- ── Test cases ────────────────────────────────────────────────────────────────
--- Note: most tests pass skipExercise=true to AutoPilot_Needs.check() so that
--- exercise does not become the terminal action when all other needs are met.
--- The skipExercise parameter only controls the final idle→exercise step (step 8);
--- it has no effect when an earlier priority (bleeding, thirst, etc.) triggers
--- first.  Tests 6 and 11 explicitly verify skipExercise=false and =true behaviour.
+-- Note: AutoPilot_Needs.check(player) takes the player ONLY.  An extra second
+-- argument some older cases still pass (a since-removed "skipExercise" flag) is
+-- ignored by production, so check() always falls through to the idle→exercise
+-- step when no earlier priority triggers (tests 6 and 11 assert exactly that).
+-- A case proving a need branch did NOT fire must therefore assert on that
+-- branch's action type, not on an empty queue (see count_action_type below).
 
 print("=== AutoPilot_Needs Priority Logic Tests ===")
 
@@ -1026,6 +1027,103 @@ do
     assert_eq("the raw count is unchanged by the cap setting",
         st.setsToday, sets)
     AutoPilot_Constants.EXERCISE_DAILY_CAP = 0
+end
+
+-- V4.7: the hunger and thirst trigger points became options sliders.  The
+-- seam that makes that work is the live read in check(): the thresholds are
+-- NOT captured at load time, so whatever Options.applyToConstants last wrote
+-- decides the very next cycle.  These tests drive check() with a mock player
+-- parked just under and just over a CUSTOM threshold, which a hardcoded 0.20
+-- could not satisfy in either direction.
+-- Count queued actions of a given type.  check() falls through to exercise
+-- when no need triggers, so "the eat branch did not fire" has to be asserted
+-- on the eat actions specifically, not on an empty queue.
+local function count_action_type(t)
+    local n = 0
+    for _, c in ipairs(ISTimedActionQueue_calls) do
+        if c.type == t then n = n + 1 end
+    end
+    return n
+end
+
+print("\n-- Test 42 (V4.7): the eat branch honors the configured hunger threshold")
+do
+    local foodItem = {
+        getName     = function() return "Chips" end,
+        getCalories = function() return 200 end,
+    }
+    local baseHunger = AutoPilot_Constants.HUNGER_THRESHOLD
+    assert_eq("shipped default is unchanged at 20%", baseHunger, 0.20)
+
+    -- Raised trigger: 25% hunger no longer eats, though it did at the default.
+    reset()
+    AutoPilot_Inventory.getBestFood = function(_player) return foodItem end
+    AutoPilot_Constants.HUNGER_THRESHOLD = 0.40
+    local hungry25 = MockPlayer.new({
+        stats = { HUNGER = 0.25, THIRST = 0.05, FATIGUE = 0.05, ENDURANCE = 0.90 },
+    })
+    AutoPilot_Needs.check(hungry25)
+    assert_eq("below a raised threshold: no eat queued", count_action_type("eat"), 0)
+
+    -- Same player, same tick, threshold lowered under him: he eats now.
+    reset()
+    AutoPilot_Inventory.getBestFood = function(_player) return foodItem end
+    AutoPilot_Constants.HUNGER_THRESHOLD = 0.15
+    assert_true("above a lowered threshold: check() acts",
+        AutoPilot_Needs.check(hungry25))
+    assert_eq("lowered threshold queues the eat", last_action_type(), "eat")
+
+    -- Exactly at the configured value still fires (the use site is >=).
+    reset()
+    AutoPilot_Inventory.getBestFood = function(_player) return foodItem end
+    AutoPilot_Constants.HUNGER_THRESHOLD = 0.25
+    assert_true("hunger exactly at the threshold still eats",
+        AutoPilot_Needs.check(hungry25))
+    assert_eq("boundary is inclusive", last_action_type(), "eat")
+
+    -- shouldInterrupt reads the same live constant, so exercise yields too.
+    AutoPilot_Constants.HUNGER_THRESHOLD = 0.15
+    assert_true("shouldInterrupt honors a lowered hunger threshold",
+        AutoPilot_Needs.shouldInterrupt(hungry25))
+    AutoPilot_Constants.HUNGER_THRESHOLD = 0.40
+    assert_false("shouldInterrupt honors a raised hunger threshold",
+        AutoPilot_Needs.shouldInterrupt(hungry25))
+
+    AutoPilot_Constants.HUNGER_THRESHOLD = baseHunger
+end
+
+print("\n-- Test 43 (V4.7): the drink branch honors the configured thirst threshold")
+do
+    local drinkItem = { getName = function() return "WaterBottle" end }
+    local baseThirst = AutoPilot_Constants.THIRST_THRESHOLD
+    assert_eq("shipped default is unchanged at 20%", baseThirst, 0.20)
+
+    reset()
+    AutoPilot_Inventory.getBestDrink = function(_player) return drinkItem end
+    AutoPilot_Constants.THIRST_THRESHOLD = 0.40
+    local thirsty25 = MockPlayer.new({
+        stats = { THIRST = 0.25, HUNGER = 0.05, FATIGUE = 0.05, ENDURANCE = 0.90 },
+    })
+    AutoPilot_Needs.check(thirsty25)
+    assert_eq("below a raised threshold: no drink queued", count_action_type("eat"), 0)
+
+    reset()
+    AutoPilot_Inventory.getBestDrink = function(_player) return drinkItem end
+    AutoPilot_Constants.THIRST_THRESHOLD = 0.15
+    assert_true("above a lowered threshold: check() acts",
+        AutoPilot_Needs.check(thirsty25))
+    -- doDrink queues an ISEatFoodAction (PZ uses this for liquids too), which
+    -- is exactly why the eat mechanism is proven working whenever this passes.
+    assert_eq("lowered threshold queues the drink", last_action_type(), "eat")
+
+    AutoPilot_Constants.THIRST_THRESHOLD = 0.25
+    assert_true("shouldInterrupt honors a thirst threshold at the boundary",
+        AutoPilot_Needs.shouldInterrupt(thirsty25))
+    AutoPilot_Constants.THIRST_THRESHOLD = 0.40
+    assert_false("shouldInterrupt honors a raised thirst threshold",
+        AutoPilot_Needs.shouldInterrupt(thirsty25))
+
+    AutoPilot_Constants.THIRST_THRESHOLD = baseThirst
 end
 
 -- ── Summary ───────────────────────────────────────────────────────────────────
