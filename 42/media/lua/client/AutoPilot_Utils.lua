@@ -73,6 +73,105 @@ function AutoPilot_Utils.queueModAction(action)
     ISTimedActionQueue.add(action)
 end
 
+-- ── Carried-inventory iteration (V4.8) ────────────────────────────────────────
+-- player:getInventory():getItems() returns ONLY the top-level items of the main
+-- inventory; it does not descend into worn or carried sub-containers.  Every
+-- selector that scanned that flat list was therefore blind to anything stashed
+-- in a backpack, fanny pack, holster or bag-in-a-bag, which is why a bandage in
+-- a fanny pack never got used.  These helpers walk the whole carried tree.
+-- (The mod already relied on recursive lookups elsewhere: Barricade uses
+-- inv:getFirstTypeRecurse / inv:getItemCount(type, true) and the exercise gate
+-- uses inv:contains(fullType, true).  This is the same idea, generalised.)
+
+-- Deepest sub-container nesting walked by iteratePlayerItems.  Depth 0 is the
+-- main inventory, so 3 covers a bag inside a bag inside a bag.  The bound keeps
+-- the walk cheap on the survival cycle and guarantees termination even if the
+-- engine ever hands back a cyclic container graph.
+AutoPilot_Utils.PLAYER_ITEM_MAX_DEPTH = 3
+
+-- Returns the container an inventory item itself carries, or nil when the item
+-- is not a container.
+--
+-- Verified-surface note: getItemContainer() is the B42 accessor for an
+-- InventoryContainer item's contents.  It has NO precedent anywhere in this
+-- mod or its mocks (the mod only ever called getContainer() on world objects),
+-- so the call is pcall-guarded and any failure reads as "not a container".  On
+-- a build where the method is absent this degrades exactly to the pre-V4.8
+-- behavior (top-level items only) instead of raising.
+local function _subContainer(item)
+    if not item then return nil end
+    local ok, cont = pcall(function() return item:getItemContainer() end)
+    if ok and cont then return cont end
+    return nil
+end
+
+--- Iterate every item the player is carrying, including items inside worn or
+--- carried sub-containers.  Depth-first, main inventory first, so top-level
+--- items are still visited before anything nested (selectors that keep the
+--- FIRST match therefore keep their old preference for a top-level item).
+---
+--- Only the player's own inventory tree is walked: no world scan, no square
+--- iteration.  Every engine call is pcall-guarded so a single hostile item
+--- cannot break the survival cycle.
+---
+--- @param player    IsoPlayer
+--- @param callback  function(item, container, depth) -> boolean?
+---                  Return true to stop iteration early.
+--- @return boolean  true when the callback stopped iteration early.
+function AutoPilot_Utils.iteratePlayerItems(player, callback)
+    if not player or type(callback) ~= "function" then return false end
+    local okInv, inv = pcall(function() return player:getInventory() end)
+    if not okInv or not inv then return false end
+
+    local seen    = {}     -- identity guard: a self-referential bag visits once
+    local stopped = false
+
+    local function walk(container, depth)
+        if stopped or not container or seen[container] then return end
+        seen[container] = true
+
+        local okItems, items = pcall(function() return container:getItems() end)
+        if not okItems or not items then return end
+        local okSize, size = pcall(function() return items:size() end)
+        if not okSize or type(size) ~= "number" then return end
+
+        for i = 0, size - 1 do
+            if stopped then return end
+            local okGet, item = pcall(function() return items:get(i) end)
+            if okGet and item then
+                if callback(item, container, depth) then
+                    stopped = true
+                    return
+                end
+                if depth < AutoPilot_Utils.PLAYER_ITEM_MAX_DEPTH then
+                    local sub = _subContainer(item)
+                    if sub then walk(sub, depth + 1) end
+                end
+            end
+        end
+    end
+
+    walk(inv, 0)
+    return stopped
+end
+
+--- First carried item (at any container depth) for which predicate(item) is
+--- true.  Predicate errors are swallowed and read as "no match".
+--- @return item|nil, container|nil  the item and the container holding it.
+function AutoPilot_Utils.findPlayerItem(player, predicate)
+    if type(predicate) ~= "function" then return nil, nil end
+    local found, foundContainer = nil, nil
+    AutoPilot_Utils.iteratePlayerItems(player, function(item, container)
+        local ok, match = pcall(predicate, item)
+        if ok and match then
+            found, foundContainer = item, container
+            return true
+        end
+        return false
+    end)
+    return found, foundContainer
+end
+
 -- ── Square iterators ──────────────────────────────────────────────────────────
 
 --- Iterate all squares within `radius` tiles of (cx, cy, cz) in a flat

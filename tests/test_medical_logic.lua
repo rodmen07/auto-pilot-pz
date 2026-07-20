@@ -227,6 +227,160 @@ do
     assert_eq("failed treatment records no sample", #AutoPilot_XP._samples, 0)
 end
 
+-- ── V4.8: bandages inside worn/carried containers ─────────────────────────────
+-- User report: "I was scratched but not bleeding. Character should still
+-- attempt to bandage with something in inventory (including fannypacks,
+-- backpacks, or containers)."  Wound DETECTION was already correct; the bug
+-- was search SCOPE, since getInventory():getItems() lists only top-level items.
+
+-- Build a bandage-capable item of a given type.
+local function bandageItem(itemType)
+    return {
+        getType      = function(self) return itemType end,
+        getName      = function(self) return itemType end,
+        isCanBandage = function(self) return true end,
+    }
+end
+
+-- Count queued bandage actions.
+local function bandageActions()
+    local n = 0
+    for _, a in ipairs(ISTimedActionQueue_calls) do
+        if a.type == "bandage" then n = n + 1 end
+    end
+    return n
+end
+
+-- 15. THE USER'S EXACT SCENARIO: scratched (not bleeding), and the only
+-- bandage in the world is inside a worn backpack.
+print("\n-- Test 15 (V4.8): scratched + bandage ONLY in a worn backpack")
+do
+    reset()
+    local player = MockPlayer.new({ scratched = true, bleeding = false })
+    MockContainer.attach(player, MockContainer.new({
+        MockContainer.bag("Backpack", { bandageItem("Bandage") }),
+    }))
+
+    local result = AutoPilot_Medical.check(player, false)
+    assert_true("scratch is treated with a bandage stashed in a backpack", result)
+    assert_eq("exactly one bandage action queued", bandageActions(), 1)
+end
+
+-- 16. Depth 2: fanny pack nested inside a backpack (the user named fanny packs
+-- specifically, and PZ lets a bag sit inside another bag).
+print("\n-- Test 16 (V4.8): bandage in a fanny pack nested inside a backpack")
+do
+    reset()
+    local player = MockPlayer.new({ scratched = true, bleeding = false })
+    local fannyPack = MockContainer.bag("FannyPack", { bandageItem("Bandage") })
+    MockContainer.attach(player, MockContainer.new({
+        MockContainer.bag("Backpack", { fannyPack }),
+    }))
+
+    assert_true("depth-2 bandage is found and applied",
+        AutoPilot_Medical.check(player, false))
+    assert_eq("exactly one bandage action queued", bandageActions(), 1)
+end
+
+-- 17. Scope and ranking compose: an AlcoholBandage (priority 1) buried in a
+-- nested bag must still beat RippedSheets (priority 4) sitting in the main
+-- inventory.  Pre-V4.8 the deep item was invisible AND the flat fallback could
+-- lock in whichever eligible item was seen first.
+print("\n-- Test 17 (V4.8): deep AlcoholBandage outranks top-level RippedSheets")
+do
+    reset()
+    local player = MockPlayer.new({ scratched = true, bleeding = false })
+    MockContainer.attach(player, MockContainer.new({
+        bandageItem("RippedSheets"),
+        MockContainer.bag("Backpack", {
+            MockContainer.bag("FannyPack", { bandageItem("AlcoholBandage") }),
+        }),
+    }))
+
+    assert_true("treatment queued", AutoPilot_Medical.check(player, false))
+    local used = nil
+    for _, a in ipairs(ISTimedActionQueue_calls) do
+        if a.type == "bandage" then used = a.bandage end
+    end
+    assert_eq("the higher-priority AlcoholBandage is chosen",
+        used and used:getType(), "AlcoholBandage")
+end
+
+-- 18. Ranking bug regression (scope-independent): a listed bandage must beat an
+-- unlisted eligible item even when the unlisted one is encountered FIRST.  The
+-- pre-V4.8 loop set the unlisted fallback inside the scan, so the first
+-- eligible item could win over a better one found later.
+print("\n-- Test 18 (V4.8): listed bandage beats an unlisted item seen first")
+do
+    reset()
+    local player = MockPlayer.new({ scratched = true, bleeding = false })
+    MockContainer.attach(player, MockContainer.new({
+        bandageItem("ImprovisedRag"),   -- eligible, NOT in BANDAGE_PRIORITY
+        bandageItem("Bandage"),         -- priority 2, seen second
+    }))
+
+    assert_true("treatment queued", AutoPilot_Medical.check(player, false))
+    local used = nil
+    for _, a in ipairs(ISTimedActionQueue_calls) do
+        if a.type == "bandage" then used = a.bandage end
+    end
+    assert_eq("listed Bandage wins over the unlisted item seen first",
+        used and used:getType(), "Bandage")
+end
+
+-- 19. Priority order among listed items is still lowest-index-wins regardless
+-- of encounter order (BandageDirty seen before AlcoholBandage).
+print("\n-- Test 19 (V4.8): lowest priority index wins among listed bandages")
+do
+    reset()
+    local player = MockPlayer.new({ scratched = true, bleeding = false })
+    MockContainer.attach(player, MockContainer.new({
+        bandageItem("BandageDirty"),     -- priority 3
+        bandageItem("AlcoholBandage"),   -- priority 1
+        bandageItem("RippedSheetsDirty") -- priority 5
+    }))
+
+    assert_true("treatment queued", AutoPilot_Medical.check(player, false))
+    local used = nil
+    for _, a in ipairs(ISTimedActionQueue_calls) do
+        if a.type == "bandage" then used = a.bandage end
+    end
+    assert_eq("AlcoholBandage (index 1) wins", used and used:getType(), "AlcoholBandage")
+end
+
+-- 20. An unlisted-but-eligible item is still used when nothing listed exists
+-- (the fallback must survive the ranking fix).
+print("\n-- Test 20 (V4.8): unlisted eligible item still used as fallback")
+do
+    reset()
+    local player = MockPlayer.new({ scratched = true, bleeding = false })
+    MockContainer.attach(player, MockContainer.new({
+        MockContainer.bag("Backpack", { bandageItem("ImprovisedRag") }),
+    }))
+
+    assert_true("unlisted eligible bandage in a bag is still used",
+        AutoPilot_Medical.check(player, false))
+end
+
+-- 21. Scope change must not invent treatment: a bag holding no bandage still
+-- yields no action (guards against the walk matching everything).
+print("\n-- Test 21 (V4.8): bag with no bandage queues nothing")
+do
+    reset()
+    local player = MockPlayer.new({ scratched = true, bleeding = false })
+    MockContainer.attach(player, MockContainer.new({
+        MockContainer.bag("Backpack", {
+            { getType = function() return "Rock" end,
+              getName = function() return "Rock" end,
+              isCanBandage = function() return false end },
+        }),
+    }))
+
+    assert_false("no bandage anywhere in the tree queues nothing",
+        AutoPilot_Medical.check(player, false))
+    assert_eq("no bandage action queued", bandageActions(), 0)
+end
+
 -- ── Summary ───────────────────────────────────────────────────────────────────
 print(("\n=== Results: %d passed, %d failed ==="):format(PASS, FAIL))
 if FAIL > 0 then os.exit(1) end

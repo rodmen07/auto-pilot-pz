@@ -34,14 +34,12 @@ local function isFoodSafe(item)
 end
 
 -- Returns the best safe-to-eat food item by calorie count.
+-- V4.8: searches worn/carried sub-containers too (see AutoPilot_Utils).
 function AutoPilot_Inventory.getBestFood(player)
-    local inv = player:getInventory()
-    local items = inv:getItems()
     local best = nil
     local bestCal = -999
 
-    for i = 0, items:size() - 1 do
-        local item = items:get(i)
+    AutoPilot_Utils.iteratePlayerItems(player, function(item)
         if isFoodSafe(item) then
             local cal = item:getCalories() or 0
             if cal > bestCal then
@@ -49,20 +47,18 @@ function AutoPilot_Inventory.getBestFood(player)
                 best = item
             end
         end
-    end
+        return false
+    end)
     return best
 end
 
 --- Choose best food item for current hunger level to avoid large overeating.
 function AutoPilot_Inventory.getBestFoodForHunger(player, currentHunger)
     local target = (currentHunger or 0) * 100
-    local inv = player:getInventory()
-    local items = inv:getItems()
     local best = nil
     local bestDelta = math.huge
 
-    for i = 0, items:size() - 1 do
-        local item = items:get(i)
+    AutoPilot_Utils.iteratePlayerItems(player, function(item)
         if isFoodSafe(item) then
             local hungerChange = 0
             pcall(function() hungerChange = math.abs(item:getHungerChange() or 0) end)
@@ -76,7 +72,8 @@ function AutoPilot_Inventory.getBestFoodForHunger(player, currentHunger)
                 end
             end
         end
-    end
+        return false
+    end)
 
     if best then
         return best
@@ -96,11 +93,9 @@ function AutoPilot_Inventory.selectFoodByWeight(player)
         if nutrition then weight = nutrition:getWeight() or 75 end
     end)
 
-    local inv    = player:getInventory()
     local best, bestScore = nil, nil
 
-    for i = 0, inv:getItems():size() - 1 do
-        local item = inv:getItems():get(i)
+    AutoPilot_Utils.iteratePlayerItems(player, function(item)
         if isFoodSafe(item) then
             local calories = 0
             pcall(function() calories = item:getCalories() or 0 end)
@@ -120,37 +115,37 @@ function AutoPilot_Inventory.selectFoodByWeight(player)
                 best, bestScore = item, score
             end
         end
-    end
+        return false
+    end)
     return best
 end
 
 -- Returns the best drink item (negative thirst change = hydrating).
+-- V4.8: searches worn/carried sub-containers too.  Main-inventory items are
+-- still visited first, so the previously-chosen item still wins when present.
 function AutoPilot_Inventory.getBestDrink(player)
-    local inv = player:getInventory()
-    local items = inv:getItems()
+    local found = nil
 
-    for i = 0, items:size() - 1 do
-        local item = items:get(i)
+    AutoPilot_Utils.iteratePlayerItems(player, function(item)
         if item and item:isFood() and not item:isRotten() then
             local thirstChange = item:getThirstChange()
             if thirstChange and thirstChange < 0 then
-                return item
+                found = item
+                return true  -- first hydrating item wins
             end
         end
-    end
-    return nil
+        return false
+    end)
+    return found
 end
 
 -- Returns the highest-damage melee weapon in inventory.
 -- B42: instanceof avoids Java-level exceptions that pcall(isWeapon) still logs.
 function AutoPilot_Inventory.getBestWeapon(player)
-    local inv = player:getInventory()
-    local items = inv:getItems()
     local best = nil
     local bestDmg = 0
 
-    for i = 0, items:size() - 1 do
-        local item = items:get(i)
+    AutoPilot_Utils.iteratePlayerItems(player, function(item)
         if item and instanceof(item, "HandWeapon") then
             local dmg = item:getMaxDamage() or 0
             if dmg > bestDmg then
@@ -158,7 +153,8 @@ function AutoPilot_Inventory.getBestWeapon(player)
                 best = item
             end
         end
-    end
+        return false
+    end)
     return best
 end
 
@@ -166,10 +162,9 @@ end
 -- B42: ItemType.LITERATURE covers all books, magazines, newspapers, comics, novels.
 -- Skips uninteresting items (blank notebooks) and already-read items with no pages left.
 function AutoPilot_Inventory.getReadable(player)
-    local inv = player:getInventory()
-    local items = inv:getItems()
-    for i = 0, items:size() - 1 do
-        local item = items:get(i)
+    local found = nil
+
+    AutoPilot_Utils.iteratePlayerItems(player, function(item)
         if item then
             local ok, isLit = pcall(function()
                 return item:getScriptItem():isItemType(ItemType.LITERATURE)
@@ -199,14 +194,16 @@ function AutoPilot_Inventory.getReadable(player)
                             readPages = item:getAlreadyReadPages()
                         end)
                         if pages > 0 and readPages < pages then
-                            return item
+                            found = item
+                            return true  -- first readable wins
                         end
                     end
                 end
             end
         end
-    end
-    return nil
+        return false
+    end)
+    return found
 end
 
 -- ── Container iteration helpers ───────────────────────────────────────────────
@@ -411,13 +408,10 @@ end
 
 -- Counts how many food/drink items are available.
 function AutoPilot_Inventory.getSupplyCounts(player)
-    local inv = player:getInventory()
-    local items = inv:getItems()
     local foodCount = 0
     local drinkCount = 0
 
-    for i = 0, items:size() - 1 do
-        local item = items:get(i)
+    AutoPilot_Utils.iteratePlayerItems(player, function(item)
         if item and item:isFood() and not item:isRotten() then
             local thirst = item:getThirstChange()
             if thirst and thirst < 0 then
@@ -429,7 +423,8 @@ function AutoPilot_Inventory.getSupplyCounts(player)
                 end
             end
         end
-    end
+        return false
+    end)
     return foodCount, drinkCount
 end
 
@@ -495,12 +490,9 @@ end
 function AutoPilot_Inventory.refillWaterContainer(player, waterObj)
     if not waterObj then return false end
 
-    local inv = player:getInventory()
-    local items = inv:getItems()
     local container = nil
 
-    for i = 0, items:size() - 1 do
-        local item = items:get(i)
+    AutoPilot_Utils.iteratePlayerItems(player, function(item)
         if item then
             -- Check for FluidContainer-based items (B42 fluid system)
             local ok, fc = pcall(function() return item:getFluidContainer() end)
@@ -509,24 +501,23 @@ function AutoPilot_Inventory.refillWaterContainer(player, waterObj)
                 local ok2, canAddWater = pcall(function() return fc:canAddFluid(Fluid.Water) end)
                 if ok1 and isNotFull and ok2 and canAddWater then
                     container = item
-                    break
+                    return true
                 end
             end
             -- Fallback: legacy canStoreWater items
-            if not container then
-                local ok2, canStore = pcall(function() return item:canStoreWater() end)
-                if ok2 and canStore then
-                    local ok3, isFull = pcall(function()
-                        return item:isWaterSource() and item:getCurrentUsesFloat() >= 1.0
-                    end)
-                    if ok3 and not isFull then
-                        container = item
-                        break
-                    end
+            local ok2, canStore = pcall(function() return item:canStoreWater() end)
+            if ok2 and canStore then
+                local ok3, isFull = pcall(function()
+                    return item:isWaterSource() and item:getCurrentUsesFloat() >= 1.0
+                end)
+                if ok3 and not isFull then
+                    container = item
+                    return true
                 end
             end
         end
-    end
+        return false
+    end)
 
     if not container then return false end
 
@@ -642,22 +633,18 @@ function AutoPilot_Inventory.placeItem(player, keyword)
         return false
     end
 
-    -- Find matching item in player inventory
+    -- Find matching item anywhere the player is carrying it (V4.8), and keep
+    -- the container that actually holds it: the transfer source must be that
+    -- container, not the main inventory, or moving an item out of a backpack
+    -- would name the wrong source.
     local inv = player:getInventory()
-    local items = inv:getItems()
-    local target = nil
     local kw = keyword:lower()
 
-    for i = 0, items:size() - 1 do
-        local item = items:get(i)
-        if item then
-            local ok, name = pcall(function() return item:getName() end)
-            if ok and name and name:lower():find(kw, 1, true) then
-                target = item
-                break
-            end
-        end
-    end
+    local target, targetContainer = AutoPilot_Utils.findPlayerItem(player, function(item)
+        local name = item:getName()
+        return name ~= nil and name:lower():find(kw, 1, true) ~= nil
+    end)
+    targetContainer = targetContainer or inv
 
     if not target then
         print("[Inventory] placeItem: '"
@@ -710,7 +697,7 @@ function AutoPilot_Inventory.placeItem(player, keyword)
 
     local ok, err = pcall(function()
         AutoPilot_Utils.queueModAction(ISInventoryTransferAction:new(
-            player, target, inv, bestContainer))
+            player, target, targetContainer, bestContainer))
     end)
     if not ok then
             print("[Inventory] ISInventoryTransferAction failed for placeItem: "
@@ -788,12 +775,9 @@ end
 --- Prefers items with the most negative getBoredomChange() (reduces boredom most).
 --- Returns an item, or nil if no boredom-reducing food is in inventory.
 function AutoPilot_Inventory.preferTastyFood(player)
-    local inv   = player:getInventory()
-    local items = inv:getItems()
     local best, bestBoredom = nil, 0  -- want most negative (most reducing)
 
-    for i = 0, items:size() - 1 do
-        local item = items:get(i)
+    AutoPilot_Utils.iteratePlayerItems(player, function(item)
         if item and item:isFood() and not item:isRotten() then
             local boring = 0
             pcall(function() boring = item:getBoredomChange() or 0 end)
@@ -802,7 +786,8 @@ function AutoPilot_Inventory.preferTastyFood(player)
                 best = item
             end
         end
-    end
+        return false
+    end)
     return best
 end
 
@@ -866,10 +851,8 @@ end
 --- Find the best melee weapon in inventory (highest condition × damage score).
 --- Returns the item or nil.
 function AutoPilot_Inventory.bestMeleeWeapon(player)
-    local inv  = player:getInventory()
     local best, bestScore = nil, -1
-    for i = 0, inv:getItems():size() - 1 do
-        local item = inv:getItems():get(i)
+    AutoPilot_Utils.iteratePlayerItems(player, function(item)
         local ok, score = pcall(function()
             if not item:isWeapon() then return -1 end
             local max = item:getConditionMax()
@@ -881,7 +864,8 @@ function AutoPilot_Inventory.bestMeleeWeapon(player)
         if ok and score > bestScore then
             best, bestScore = item, score
         end
-    end
+        return false
+    end)
     return best
 end
 
@@ -924,11 +908,10 @@ end
 --- or lowest insulation (hot) depending on need. Returns item or nil.
 --- @param wantWarm boolean  true = find warm clothing, false = find cool clothing
 function AutoPilot_Inventory.findClothing(player, wantWarm)
-    local inv     = player:getInventory()
     local best, bestVal = nil, nil
-    -- Check inventory first
-    for i = 0, inv:getItems():size() - 1 do
-        local item = inv:getItems():get(i)
+    -- Check the whole carried inventory tree (V4.8: spare clothing normally
+    -- lives in a bag, which the old top-level-only scan could never see).
+    AutoPilot_Utils.iteratePlayerItems(player, function(item)
         local ok, insulation = pcall(function()
             return (item.getInsulation and item:getInsulation()) or nil
         end)
@@ -938,7 +921,8 @@ function AutoPilot_Inventory.findClothing(player, wantWarm)
                 best, bestVal = item, score
             end
         end
-    end
+        return false
+    end)
     return best
 end
 
@@ -973,13 +957,10 @@ end
 
 -- Returns a summary of the player's inventory (item names, max 20).
 function AutoPilot_Inventory.getInventorySummary(player)
-    local inv = player:getInventory()
-    local items = inv:getItems()
     local names = {}
     local seen = {}
 
-    for i = 0, items:size() - 1 do
-        local item = items:get(i)
+    AutoPilot_Utils.iteratePlayerItems(player, function(item)
         if item then
             local ok, name = pcall(function() return item:getName() end)
             if ok and name then
@@ -989,7 +970,8 @@ function AutoPilot_Inventory.getInventorySummary(player)
                 seen[name] = seen[name] + 1
             end
         end
-    end
+        return false
+    end)
 
     for name, count in pairs(seen) do
         if count > 1 then

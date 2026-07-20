@@ -428,36 +428,36 @@ local function doSleep(player)
             return true
         end
 
-        -- Try to find painkillers in inventory (match type/name heuristics)
-        local inv = player:getInventory()
-        local items = inv and inv:getItems()
-        if items then
-            for i = 0, items:size() - 1 do
-                local item = items:get(i)
-                if item then
-                    local okType, typ = pcall(function() return item:getType() end)
-                    local okName, name = pcall(function() return item:getName() end)
-                    local lower = ""
-                    if okType and typ then lower = lower .. typ:lower() end
-                    if okName and name then lower = lower .. " " .. name:lower() end
-                    if lower:find("painkill") or lower:find("aspirin") or lower:find("paracetamol") then
-                        local takePill = rawget(_G, "ISTakePillAction")
-                        local okUse = pcall(function()
-                            if takePill and takePill.new then
-                                AutoPilot_Utils.queueModAction(takePill:new(player, item))
-                            else
-                                AutoPilot_Utils.queueModAction(ISEatFoodAction:new(player, item, 1))
-                            end
-                        end)
-                        if okUse then
-                            local pname = (okName and name) or typ
-                            print("[Needs] Taking painkiller: " .. tostring(pname))
-                            return true
-                        end
+        -- Try to find painkillers the player is carrying (match type/name
+        -- heuristics).  V4.8: searches worn/carried sub-containers too, so
+        -- pills in a backpack or fanny pack are no longer invisible.
+        local tookPill = false
+        AutoPilot_Utils.iteratePlayerItems(player, function(item)
+            if not item then return false end
+            local okType, typ = pcall(function() return item:getType() end)
+            local okName, name = pcall(function() return item:getName() end)
+            local lower = ""
+            if okType and typ then lower = lower .. typ:lower() end
+            if okName and name then lower = lower .. " " .. name:lower() end
+            if lower:find("painkill") or lower:find("aspirin") or lower:find("paracetamol") then
+                local takePill = rawget(_G, "ISTakePillAction")
+                local okUse = pcall(function()
+                    if takePill and takePill.new then
+                        AutoPilot_Utils.queueModAction(takePill:new(player, item))
+                    else
+                        AutoPilot_Utils.queueModAction(ISEatFoodAction:new(player, item, 1))
                     end
+                end)
+                if okUse then
+                    local pname = (okName and name) or typ
+                    print("[Needs] Taking painkiller: " .. tostring(pname))
+                    tookPill = true
+                    return true
                 end
             end
-        end
+            return false
+        end)
+        if tookPill then return true end
 
         -- No treatment available; delay sleep attempts to avoid a busy loop.
         sleepCooldownMs = ms + 60000

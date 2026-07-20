@@ -2,6 +2,74 @@
 
 All notable changes to AutoPilot are documented here.
 
+## [V4.8] - 2026-07-19 - CARRIED CONTAINERS ARE SEARCHED (BANDAGE FIX)
+
+User-reported (HIGH): "I see the problem with healing as well. I was
+scratched but not bleeding. Character should still attempt to bandage
+with something in inventory (including fannypacks, backpacks, or
+containers)."
+
+### Fixed - item search scope, not wound detection
+
+Wound detection was already correct: `AutoPilot_Medical.check(player,
+false)` collects `scratched()` parts and `AutoPilot_Needs` calls it at
+priority 4 for non-bleeding wounds. The bug was where the mod LOOKED for
+the bandage.
+
+- `player:getInventory():getItems()` returns only the TOP-LEVEL items of
+  the main inventory; it does not descend into worn or carried
+  sub-containers. A bandage in a fanny pack was therefore invisible,
+  `findBandage` returned nil, and the character never treated a wound it
+  had correctly detected.
+- This was never bandage-specific. Every selector that scanned that flat
+  list had the same blind spot, so food, drink, weapons, clothing, water
+  containers and painkillers stashed in a bag were equally unreachable.
+
+### Added - `AutoPilot_Utils.iteratePlayerItems` / `findPlayerItem`
+
+- One shared walk over the player's carried inventory tree, depth-first
+  with the main inventory visited first (so first-match selectors keep
+  their old preference for a top-level item).
+- Sub-containers are detected via `item:getItemContainer()`, pcall-guarded:
+  on a build without that surface the walk degrades to exactly the old
+  top-level-only behavior instead of erroring.
+- Bounded by `PLAYER_ITEM_MAX_DEPTH` (3) plus a visited-container identity
+  guard, so nested and even self-referential bags terminate.
+- Player inventory only: no world scan, no square iteration.
+
+### Fixed - bandage ranking
+
+`findBandage` set its unlisted-item fallback INSIDE the scan loop, so the
+first `isCanBandage()` item seen could lock itself in and outrank a better
+bandage found later. A listed item now always beats an unlisted one, and
+among listed items the lowest `BANDAGE_PRIORITY` index wins.
+
+### Changed - selectors converted to the shared walk
+
+`AutoPilot_Medical.findBandage`; `AutoPilot_Inventory.getBestFood`,
+`getBestFoodForHunger`, `selectFoodByWeight`, `getBestDrink`,
+`getBestWeapon`, `getReadable`, `getSupplyCounts`, `refillWaterContainer`,
+`placeItem`, `preferTastyFood`, `bestMeleeWeapon`, `findClothing`,
+`getInventorySummary`; and the painkiller lookup in
+`AutoPilot_Needs`. `placeItem` additionally now passes the container that
+actually holds the item as the transfer source instead of always naming
+the main inventory.
+
+Search SCOPE only: no threshold, priority order, or safety guarantee
+changed. The V4.5 ownership registry / intervention backoff / F10 panic
+stop, the V4.6 XP-gated cap, and world-container looting are untouched.
+
+### Tests
+
+- New `tests/test_container_search.lua` (36 assertions): depth reporting,
+  early stop, depth guard, self-referential container, missing-surface
+  degradation, and the converted food/drink/summary selectors.
+- `tests/test_medical_logic.lua` grows the user's exact scenario (scratched
+  with the only bandage in a worn backpack), a depth-2 fanny pack, and the
+  ranking-fix regressions.
+- Shared mocks gain `MockContainer` (nested containers matching the real
+  `getItems` / `getItemContainer` signatures).
+- Lua assertions 526 -> 575 across 12 files, all passing, luacheck clean.
 ## [V4.7] - 2026-07-19 - CONFIGURABLE HUNGER AND THIRST TRIGGERS
 
 User-reported: "eating and healing don't appear to work", and separately
