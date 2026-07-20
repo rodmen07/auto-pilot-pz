@@ -2,6 +2,99 @@
 
 All notable changes to AutoPilot are documented here.
 
+## [V5.3] - 2026-07-20 - VERSION VISIBILITY
+
+User request: "Can you add the current version to the description so that I
+know what version is active on the server?"
+
+The motivating incident is concrete. The user joins their own PZ server, and
+the client there runs the copy Steam downloaded from the Workshop, not the
+source tree. Earlier in this project the cached Workshop copy on that machine
+was `modversion=3.2` while the source tree was `4.3`. Nothing on screen said
+so. The mismatch was only found by hand-inspecting the cached files, after
+time was spent debugging behavior that the loaded build simply did not have.
+
+Two places now answer "which version is this?", and they answer different
+questions on purpose:
+
+- The F11 panel reports what is **actually loaded** (the authoritative
+  answer, since it comes from the running code).
+- The Workshop description reports what is **published** (what a fresh
+  download would install).
+
+Comparing the two is what turns an invisible cache mismatch into a
+five-second check.
+
+### Added
+
+- `AutoPilot_Constants.VERSION`, the version string the running code
+  reports. It is a compiled-in constant rather than a runtime read of
+  `mod.info` because Kahlua is sandboxed and this mod has no verified 42.19
+  surface for reading its own mod metadata (`getFileReader` reaches
+  `~/Zomboid`, not the mod folder). The duplication is deliberate and it is
+  guarded, see below. Presentation only: never written by
+  `AutoPilot_Options`, never read by any decision path.
+- `AutoPilot_UI.formatTitle(version)` and the F11 panel title it produces:
+  `AutoPilot Leveler  v5.1`. The title bar was chosen over a new panel row
+  because it costs no vertical space (the `createChildren` height
+  arithmetic, 23 rows, is untouched) and stays readable while the window is
+  collapsed. A nil, empty, or non-string version degrades to the plain
+  pre-V5.3 title instead of drawing `v nil`.
+- A version line in the Workshop description, and machinery in
+  `sync_workshop.sh` to keep it current. The script previously wrote its
+  embedded `workshop.txt` template only when the file was ABSENT, so
+  template edits could never reach an already-published item. It now
+  rewrites the single line carrying the marker `description=[b]Mod version:`
+  in place, streaming every other line through byte for byte (including its
+  CRLF terminator). `id=`, which Steam assigns after the first upload and
+  which identifies the published item, is never parsed or matched, only
+  echoed. A backup is left at `workshop.txt.bak`, an already-current file is
+  not rewritten at all, and a file with neither a version line nor the
+  `description=Build ...` anchor to insert one is left untouched with a loud
+  printed reminder rather than a guess.
+- `tests/test_version_sync.py`: the drift guard. It fails the build unless
+  `modversion=` in `mod.info`, `modversion=` in `42/mod.info`,
+  `AutoPilot_Constants.VERSION`, and the README's "Current modversion:" line
+  all agree, and it pins the pieces of the `sync_workshop.sh` rewrite that
+  make it safe (version read from `mod.info` at run time, marker-only line
+  selection, no `id=` rewriting). Failure messages spell out all four files
+  a release commit must change together. Same cross-file-guard shape as
+  `tests/test_automation_metrics.py`.
+- `tests/test_version_constant.lua`: 13 assertions on the constant's shape
+  and on `formatTitle`, including the degrade paths. This is the first suite
+  to load `AutoPilot_UI` at all, and it does so by stubbing ONLY the
+  module's two load-time calls (`require("ISUI/...")` and
+  `ISCollapsableWindow:derive`) suite-locally. The mock's documented
+  `[G]` gap for the panel stands: `createChildren` and `render` still need
+  live ISUI widgets and remain playtest-only.
+
+### Fixed - build tooling
+
+- `.gitattributes` added (`* text=auto`, `*.sh text eol=lf`). The user's
+  release staging was blocked outright: `bash sync_workshop.sh` died with
+  `sync_workshop.sh: line 9: $'\r': command not found` and
+  `: invalid option namee 10: set: pipefail`. Cause: global
+  `core.autocrlf=true` plus no `.gitattributes` meant every checkout
+  rewrote the shell scripts with CRLF terminators, and bash treats the
+  trailing `\r` as part of the command. `check.sh` and `sync_workshop.sh`
+  were both affected (`deploy.sh` happened to be LF). Repository content
+  was already LF, so only the checkout filter needed pinning; the working
+  tree was renormalized in this commit so the fix applies now rather than
+  on the next fresh clone. Nothing is forced to CRLF: `.bat` files keep
+  their native Windows endings through `text=auto`.
+
+### Notes
+
+- The V4.4 on-screen action HUD line was deliberately NOT changed. That line
+  is transient halo text rewritten roughly every 0.75 s to answer "what is
+  the mod doing right now"; a static version string repeated on it every
+  cycle is noise on the one line the player reads for live state. The F11
+  panel title is persistent and is the designated home.
+- `modversion` is unchanged at 5.1 in this commit. Version bumps are
+  user-only and land in their own release commit, which must now update
+  both `mod.info` files, `AutoPilot_Constants.VERSION`, and the README
+  line together. That is precisely what the new guard enforces.
+
 ## [V5.0] - 2026-07-19 - SCOPE REMOVAL: BARRICADING AND WOODWORKING
 
 User directive: "Let's remove the barricading/woodworking functionality,

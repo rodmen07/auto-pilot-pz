@@ -22,7 +22,9 @@ This guide is for a technical user who wants to:
   Fitness=squats with sit-up fallback), XP-fatigue detection with rotation
   and rest
 - Metrics: F11 panel with level, XP-to-next, session gain, XP/hour, ETA,
-  live trainer status, and sets-per-day counter
+  live trainer status, and sets-per-day counter; the panel title reports the
+  loaded mod version (V5.3), so a stale Workshop copy on a server is visible
+  at a glance
 - Survival fail-safe: hunger, thirst, sleep, wounds, temperature; fight/flee
   only when zombies actually engage (chasing/visible/close)
 - Player control guarantees (V4.5): the mod only ever interrupts or clears
@@ -150,6 +152,26 @@ So AutoPilot is fully local and rule-based by design.
 - Current modversion: 5.1 (root mod.info and 42/mod.info, which must always match)
 - Major release label style: V5.1
 - Workshop publish assets/checklist live in WORKSHOP.md and TESTING.md
+
+The version is stated in four places and `tests/test_version_sync.py` fails
+the build unless all four agree. A release commit must change them together:
+
+1. `mod.info` -> `modversion=X`
+2. `42/mod.info` -> `modversion=X`
+3. `42/media/lua/client/AutoPilot_Constants.lua` -> `AutoPilot_Constants.VERSION = "X"`
+4. this README -> the "Current modversion:" line above
+
+`sync_workshop.sh` reads `modversion` out of `mod.info` at run time and
+rewrites the Workshop description's version line in place, so it needs no
+edit. The reason the Lua constant is compiled in rather than read from
+`mod.info` at runtime: Kahlua is sandboxed and the mod has no verified 42.19
+API for reading its own mod metadata.
+
+To check which build is actually loaded in a game (including on a server,
+where the client runs the Steam-downloaded Workshop copy rather than your
+source tree), press F11: the panel title reads `AutoPilot Leveler  v5.1`.
+Compare it against the version stated in the Workshop description. They
+diverging is exactly the cache mismatch this reporting exists to expose.
 
 ## Telemetry
 
