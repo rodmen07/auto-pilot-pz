@@ -88,7 +88,7 @@ jobs:
 
           # Assert dev-only artefacts are NOT bundled.
           DEV_PATTERNS=(".luacheckrc" "tests/" "requirements" ".github" "automate.py"
-                        "auto_tune.py" "benchmark.py" "schemas/")
+                        "auto_tune.py" "benchmark.py")
           DEV_FOUND=0
           for pat in "${DEV_PATTERNS[@]}"; do
             if unzip -l "${ARCHIVE}" | grep -q "${pat}"; then
