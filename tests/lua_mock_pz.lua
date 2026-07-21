@@ -62,7 +62,15 @@
 --          bandage, doIt=false/nil REMOVES it (ISApplyBandage.lua:39, :71,
 --          :111). Now captured, asserted boolean, and returned on the action
 --          table so test_medical_logic can assert AutoPilot always applies.
---   [MA] ISEatFoodAction:new(character, item, count)   asserts item only;
+--   [MA] ISEatFoodAction:new(character, item, percentage)   asserts item only;
+--          2026-07-20 mock-surface sweep: the real 3rd param
+--          (shared/TimedActions/ISEatFoodAction.lua:294) is `percentage`, how
+--          much of the item to consume (0.0-1.0; falls back to 1 when falsy),
+--          NOT a count of items. AutoPilot always passes 1 (eat the whole
+--          item), which matches the real constructor's own default -- not a
+--          bug, just a naming mismatch between this project's "count" and the
+--          engine's "percentage". Corrected the name here so a future reader
+--          does not read "1" as "eat 1 item" and reason about it wrongly.
 --          PZ uses this for drinks and the painkiller fallback too
 --   [M]  ISSitOnGround:new(character, square)
 --   [M]  ISWalkToTimedAction:new(character, square) + :setOnComplete(fn, ...)
@@ -357,10 +365,10 @@ ISTimedActionQueue = {
 }
 
 -- ── Timed-action constructors ─────────────────────────────────────────────────
--- (character, item, count); PZ routes drinks and the painkiller fallback
+-- (character, item, percentage); PZ routes drinks and the painkiller fallback
 -- through this action too.
 ISEatFoodAction = {
-    new = function(_, player, item, _count)
+    new = function(_, player, item, _percentage)
         assert(item ~= nil, "ISEatFoodAction:new expects an item as 2nd arg")
         return { type = "eat", item = item }
     end,
