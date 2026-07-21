@@ -2,9 +2,12 @@
 -- Handles survival needs and idle behaviour.
 --
 -- luacheck: globals getClimateManager
--- SPLITSCREEN NOTE: Module-level variables (restCooldownMs, sleepCooldownMs,
--- exerciseCycle, exerciseWaitLogMs) are shared across all local players.
--- Splitscreen is NOT supported.
+-- SPLITSCREEN NOTE: Module-level variables (restCooldownMs, exerciseWaitLogMs)
+-- are shared across all local players. Splitscreen is NOT supported.
+-- (Corrected 2026-07-20: sleepCooldownMs moved to AutoPilot_Sleep.lua in the
+-- code-health split, and drinkCooldownMs moved to AutoPilot_Consumption.lua
+-- in the prior slice; "exerciseCycle" never existed as an actual variable in
+-- this file — found stale while fixing this comment for the same reason.)
 --
 -- Priority order (highest -> lowest):
 --   1. Bleeding      -> bandage immediately (fatal if untreated)
@@ -55,8 +58,6 @@ local BOREDOM_STAT_THRESHOLD = AutoPilot_Constants.BOREDOM_THRESHOLD
 local ENDURANCE_REST_MIN     = AutoPilot_Constants.ENDURANCE_REST_MIN
 local EXERCISE_MINUTES       = AutoPilot_Constants.EXERCISE_MINUTES
 local OUTDOOR_SEARCH_DIST    = AutoPilot_Constants.OUTDOOR_SEARCH_DIST
-
-local PAIN_SLEEP_THRESHOLD   = AutoPilot_Constants.PAIN_SLEEP_THRESHOLD
 
 -- ── V5.7: the exercise endurance HYSTERESIS PAIR ────────────────────────────
 --
@@ -477,184 +478,8 @@ local function doRest(player, sitOnly)
     return true
 end
 
-local sleepCooldownMs = 0
-
-local BED_SEARCH_DIST   = AutoPilot_Constants.BED_SEARCH_DIST
-local BED_SEARCH_FLOORS = AutoPilot_Constants.BED_SEARCH_FLOORS
-
-local function getBedObjectOnSquare(sq)
-    for i = 0, sq:getObjects():size() - 1 do
-        local obj = sq:getObjects():get(i)
-        local ok, isBed = pcall(function()
-            return obj:getSprite()
-                and obj:getSprite():getProperties()
-                    :has(IsoFlagType.bed)
-        end)
-        if ok and isBed then return obj end
-    end
-    return nil
-end
-
--- Search for the nearest bed object around `player`.
--- Prefers home bounds when home is set; falls back to a wide multi-floor scan.
--- Returns the IsoObject with the bed flag, or nil if none is found.
-local function _findBedNearby(player)
-    -- Always do a multi-floor scan around the player — home bounds are z-locked
-    -- to ground floor, which misses upstairs beds. Prefer nearest bed regardless.
-    local px, py, pz = player:getX(), player:getY(), player:getZ()
-    local bestObj  = nil
-    local bestDist = math.huge
-
-    -- Build z-level candidates: current floor first, then alternating up/down
-    local zlevels = {pz}
-    for offset = 1, BED_SEARCH_FLOORS - 1 do
-        table.insert(zlevels, pz + offset)
-        table.insert(zlevels, pz - offset)
-    end
-
-    for _, z in ipairs(zlevels) do
-        if z >= 0 then
-            for dx = -BED_SEARCH_DIST, BED_SEARCH_DIST do
-                for dy = -BED_SEARCH_DIST, BED_SEARCH_DIST do
-                    local sq = getCell():getGridSquare(px + dx, py + dy, z)
-                    if sq then
-                        local obj = getBedObjectOnSquare(sq)
-                        if obj then
-                            local floorPenalty = math.abs(z - pz) * 200
-                            local dist = dx * dx + dy * dy + floorPenalty
-                            if dist < bestDist then
-                                bestDist = dist
-                                bestObj  = obj
-                            end
-                        end
-                    end
-                end
-            end
-        end
-    end
-    return bestObj
-end
-
-local function doSleep(player)
-    -- Cooldown guard: prevent re-queuing bed action every tick
-    local ok, now = pcall(function()
-        return getGameTime():getCalender():getTimeInMillis()
-    end)
-    local ms = ok and now or 0
-    if ms < sleepCooldownMs then return true end
-
-    -- If pain is high, attempt medical relief or painkillers before sleeping.
-    local painVal = AutoPilot_Utils.safeStat(player, CharacterStat.PAIN)
-    if painVal >= PAIN_SLEEP_THRESHOLD then
-        print("[Needs] Sleep blocked by pain (" .. tostring(painVal) .. "). Attempting medical/pain relief.")
-        local okMed, medQueued = pcall(function() return AutoPilot_Medical.check(player, false) end)
-        if okMed and medQueued then
-            print("[Needs] Queued medical treatment to reduce pain.")
-            return true
-        end
-
-        -- Try to find painkillers the player is carrying (match type/name
-        -- heuristics).  V4.8: searches worn/carried sub-containers too, so
-        -- pills in a backpack or fanny pack are no longer invisible.
-        local tookPill = false
-        AutoPilot_Utils.iteratePlayerItems(player, function(item, container)
-            if not item then return false end
-            local okType, typ = pcall(function() return item:getType() end)
-            local okName, name = pcall(function() return item:getName() end)
-            local lower = ""
-            if okType and typ then lower = lower .. typ:lower() end
-            if okName and name then lower = lower .. " " .. name:lower() end
-            if lower:find("painkill") or lower:find("aspirin") or lower:find("paracetamol") then
-                -- V4.9: pills in a bag must reach the main inventory first.
-                local _, usable = AutoPilot_Utils.queueItemToMainInventory(
-                    player, item, container)
-                if not usable then
-                    print("[Needs] Painkiller transfer refused: skipping this item.")
-                    return false
-                end
-                local takePill = rawget(_G, "ISTakePillAction")
-                local okUse = pcall(function()
-                    if takePill and takePill.new then
-                        AutoPilot_Utils.queueModAction(takePill:new(player, item))
-                    else
-                        AutoPilot_Utils.queueModAction(ISEatFoodAction:new(player, item, 1))
-                    end
-                end)
-                if okUse then
-                    local pname = (okName and name) or typ
-                    print("[Needs] Taking painkiller: " .. tostring(pname))
-                    tookPill = true
-                    return true
-                end
-            end
-            return false
-        end)
-        if tookPill then return true end
-
-        -- No treatment available; delay sleep attempts to avoid a busy loop.
-        sleepCooldownMs = ms + 60000
-        print("[Needs] No medical/painkiller available; delaying sleep for 60s.")
-        return false
-    end
-
-    print("[Needs] Sleeping...")
-    ISTimedActionQueue.clear(player)
-
-    local bedObj = _findBedNearby(player)
-    if not bedObj then
-        -- Already seated in a vehicle? B42 counts it as "averageBed"
-        -- (onSleepWalkToComplete with a nil bed checks getVehicle()).
-        local inVehicle = false
-        pcall(function() inVehicle = player:getVehicle() ~= nil end)
-        if inVehicle then
-            player:setVariable("ExerciseStarted", false)
-            player:setVariable("ExerciseEnded", true)
-            ISWorldObjectContextMenu.onSleepWalkToComplete(player:getPlayerNum(), nil)
-            print("[Needs] Sleeping in vehicle (no bed found).")
-            sleepCooldownMs = ms + 15000
-            return true
-        end
-        -- Forcing sleep via setAsleep is client-only; the server never learns of
-        -- the state change, causing fatigue desync in MP.  Retry next cycle.
-        if AutoPilot_Home.isSet(player) then
-            print(
-                "[Needs] No bed found inside home bounds — cannot force sleep (MP-unsafe); will retry.")
-        else
-            print("[Needs] No bed found — cannot force sleep (MP-unsafe); will retry.")
-        end
-        return false
-    end
-
-    local bedSq = bedObj:getSquare()
-    print("[Needs] Found bed — walking to it.")
-
-    -- Build 42 sleeps via ISWorldObjectContextMenu.onSleepWalkToComplete(playerIndex, bed):
-    -- it takes the 0-based player index (not the player object), re-resolves the player
-    -- with getSpecificPlayer, runs the zombie/pain/panic safety checks, and calls
-    -- setAsleep(true) — mirrors the vanilla onConfirmSleep flow.
-    player:setVariable("ExerciseStarted", false)
-    player:setVariable("ExerciseEnded", true)
-
-    local pnum = player:getPlayerNum()
-    if AdjacentFreeTileFinder.isTileOrAdjacent(player:getCurrentSquare(), bedSq) then
-        ISWorldObjectContextMenu.onSleepWalkToComplete(pnum, bedObj)
-        print("[Needs] Sleeping in adjacent bed.")
-    else
-        local adjacent = AdjacentFreeTileFinder.Find(bedSq, player)
-        if adjacent then
-            local walkAction = ISWalkToTimedAction:new(player, adjacent)
-            walkAction:setOnComplete(ISWorldObjectContextMenu.onSleepWalkToComplete, pnum, bedObj)
-            AutoPilot_Utils.queueModAction(walkAction)
-            print("[Needs] Walking to bed, then sleeping.")
-        else
-            print("[Needs] Bed unreachable — no adjacent free tile found.")
-            return false
-        end
-    end
-
-    sleepCooldownMs = ms + 15000
-    return true
-end
+-- getBedObjectOnSquare/_findBedNearby/doSleep moved to AutoPilot_Sleep.lua
+-- (code-health split, 2026-07-20, second slice); see that file's header.
 
 -- Walk to the nearest outdoor square to relieve boredom.
 local function doGoOutside(player)
@@ -1433,7 +1258,7 @@ function AutoPilot_Needs.check(player)
     local fatigue = AutoPilot_Utils.safeStat(player, CharacterStat.FATIGUE)
     if fatigue >= FATIGUE_STAT_THRESHOLD then
         AutoPilot_Telemetry.setDecision("sleep", "fatigue_thresh")
-        return doSleep(player)
+        return AutoPilot_Sleep.doSleep(player)
     end
 
     -- 2. Thirst (0.0=hydrated, ~1.0=dying)
@@ -1703,7 +1528,7 @@ function AutoPilot_Needs.forceDrink(player)
 end
 
 function AutoPilot_Needs.forceSleep(player)
-    return doSleep(player)
+    return AutoPilot_Sleep.doSleep(player)
 end
 
 --- @param sitOnly  V5.4: true to skip beds (sit-to-recover semantics).

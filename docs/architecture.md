@@ -19,11 +19,11 @@ mod is client-side only and MP-compatible (in multiplayer each client
 automates its own character). Splitscreen is not supported (removed in
 V3.2). The mod starts OFF; arming it is a deliberate player action.
 
-The runtime is 18 modules under `42/media/lua/client/` (`AutoPilot_Consumption`
-added 2026-07-20, split out of `AutoPilot_Needs` in a code-health pass — see
-that module's row below). PZ loads client Lua files alphabetically;
-`AutoPilot_Constants` loads before every module that reads it at load time,
-and the module that sorts earlier (`Adaptive`) only touches Constants inside
+The runtime is 19 modules under `42/media/lua/client/` (`AutoPilot_Consumption`
+and `AutoPilot_Sleep` both added 2026-07-20, split out of `AutoPilot_Needs`
+in a code-health pass — see their rows below). PZ loads client Lua files
+alphabetically; `AutoPilot_Constants` loads before every module that reads it
+at load time, and the module that sorts earlier (`Adaptive`) only touches Constants inside
 function bodies, never at load.
 
 ## Module Map
@@ -48,8 +48,9 @@ both `AutoPilot_Options` (player sliders) and `AutoPilot_Adaptive`
 
 | Module | Responsibility | Key interactions |
 |---|---|---|
-| `AutoPilot_Needs` | Priority state machine for survival needs plus the exercise slot: sleep/rest, shelter, clothing, wound treatment dispatch, boredom relief, proactive scavenging, and `doExercise` (endurance gates, optional daily set cap (V4.6: 0 = unlimited by default), equipment preference, XP-fatigue rotation, and the V4.5 player-intervention backoff: a mod-queued set that vanishes uncompleted without a mod-initiated clear, an observed manual exercise, or an F10 panic stop holds training off for `EXERCISE_BACKOFF_MINUTES` game minutes instead of re-queuing over the player). Eat/drink moved to `AutoPilot_Consumption` (2026-07-20); `check`'s hunger/thirst branches and `forceEat`/`forceDrink` now delegate there, and `getEmptyLootCycles` delegates to `Consumption.getEmptyLootCycles`. | Called by `Main` (`check`, `shouldInterrupt`, and the V4.5 notifications `noteForeignExercise`/`noteModExerciseCleared`/`notePanicStop`). Calls `Medical.check`/`hasCriticalWound`, `Consumption.doEat`/`doDrink`, many `Inventory` helpers, `Home` bounds checks, `Leveler.check`, and `Telemetry.setDecision` for every decision. Exposes `trainExercise` (the Leveler's seam) and `getExerciseStatus` (the panel's status line). |
+| `AutoPilot_Needs` | Priority state machine for survival needs plus the exercise slot: rest, shelter, clothing, wound treatment dispatch, boredom relief, proactive scavenging, and `doExercise` (endurance gates, optional daily set cap (V4.6: 0 = unlimited by default), equipment preference, XP-fatigue rotation, and the V4.5 player-intervention backoff: a mod-queued set that vanishes uncompleted without a mod-initiated clear, an observed manual exercise, or an F10 panic stop holds training off for `EXERCISE_BACKOFF_MINUTES` game minutes instead of re-queuing over the player). Eat/drink moved to `AutoPilot_Consumption`, sleep to `AutoPilot_Sleep` (both 2026-07-20); `check`'s hunger/thirst/fatigue branches and `forceEat`/`forceDrink`/`forceSleep` now delegate there, and `getEmptyLootCycles` delegates to `Consumption.getEmptyLootCycles`. `doRest` (endurance-critical rest in place) stays here: its cooldown state is read and written directly by `check()`'s own V5.4 rest-hold gate, so it isn't a clean extraction without a state-sharing redesign first. | Called by `Main` (`check`, `shouldInterrupt`, and the V4.5 notifications `noteForeignExercise`/`noteModExerciseCleared`/`notePanicStop`). Calls `Medical.check`/`hasCriticalWound`, `Consumption.doEat`/`doDrink`, `Sleep.doSleep`, many `Inventory` helpers, `Home` bounds checks, `Leveler.check`, and `Telemetry.setDecision` for every decision. Exposes `trainExercise` (the Leveler's seam) and `getExerciseStatus` (the panel's status line). |
 | `AutoPilot_Consumption` | Eat and drink: food/drink selection by hunger/weight/proximity (via `Inventory`), backpack-to-main-inventory transfer before queueing the eat/drink action (V4.9), the empty-loot-cycle counter that triggers a supply run, and drink's own cooldown after a successful sip. Extracted from `AutoPilot_Needs` in the 2026-07-20 code-health split: its state (`_emptyLootCycles`, `drinkCooldownMs`) had exactly one external reader (`Needs.getEmptyLootCycles`, now a delegation) and no writer outside the module. | Called by `Needs.check`'s hunger/thirst branches and by `Needs.forceEat`/`forceDrink`. Calls `Inventory` food/drink/loot helpers and `Utils.queueItemToMainInventory`/`queueModAction`. |
+| `AutoPilot_Sleep` | Sleep: bed search (multi-floor, home-bounds-aware), pain/painkiller gating before sleep, vehicle-sleep fallback, and the walk-then-sleep sequence via `ISWorldObjectContextMenu.onSleepWalkToComplete`. Extracted from `AutoPilot_Needs` in the same 2026-07-20 split, second slice: its cooldown state (`sleepCooldownMs`) had zero external readers or writers, and `doSleep` had exactly two call sites in `Needs.lua`, both simple black-box invocations. | Called by `Needs.check`'s fatigue branch and by `Needs.forceSleep`. Calls `Medical.check` (pain relief before sleep), `Home.isSet`, and `Utils` action-queueing helpers. |
 | `AutoPilot_Threat` | Zombie detection (same z-level, cached per cycle) and the fight/flee decision, including the V3.2 engagement gate, directional spread analysis, encirclement handling, and flee stutter prevention. | Called by `Main` (`beginCycle`, `check`). `getNearbyZombies` is also read by `Main`'s HUD, `Telemetry`, and `DeathLog`. Calls `Medical.hasCriticalWound` (bleeding forces flee), `Inventory.checkAndSwapWeapon`/`getBestWeapon` (pre-equip before the engage decision), and `Home` (flee redirects toward home when set). |
 | `AutoPilot_Inventory` | Item selection and looting: safe-food/drink choice, weapon selection and swap, bandage-loot support, supply counts, supply runs, water sourcing and refill, clothing adjustment, and exercise-equipment checks plus the daily gear fetch. | Called by `Needs` and `Threat`. Reads `Home` bounds to keep loot trips inside the containment circle and reads/writes `Map` depletion so empty containers are not revisited. |
 | `AutoPilot_Medical` | Wound detection and treatment: bleeding first, then deep wounds, bites, scratches, burns; bandage selection by quality with a rip-sheets fallback. | `check(player, bleedingOnly)` is called from `Needs`; `hasCriticalWound` from `Needs` and `Threat`; `getWoundSnapshot` from `Telemetry` and `DeathLog`. V4.1: a queued treatment samples the Doctor perk via `AutoPilot_XP.sample` (visibility only). |
@@ -469,7 +470,7 @@ the old session and starts the next id.
 
 `check.sh` (mirrored by `.github/workflows/ci.yml`) enforces:
 
-1. **luacheck**: zero errors and zero warnings across the 18 modules in
+1. **luacheck**: zero errors and zero warnings across the 19 modules in
    `42/media/lua/client/`.
 2. **Static API guard**: no deprecated direct stat getters
    (`:getHunger()`, `:getThirst()`, `:getFatigue()`, `:getEndurance()`,
