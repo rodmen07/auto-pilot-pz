@@ -190,5 +190,58 @@ class TestWorkshopVersionLine(unittest.TestCase):
         )
 
 
+class TestWorkshopDescriptionStalenessReminder(unittest.TestCase):
+    """Only the version line is auto-synced; every other description= line
+
+    (tagline, Leveling/Survival/Death Learning/Multiplayer/Fair Play sections,
+    tags=) is copied byte for byte from whatever workshop.txt already has, so
+    a template edit to any of those never reaches an already-published item
+    (the real incident: V5.0 removed barricading and updated the template
+    here, but the live local workshop.txt still advertised "maintains window
+    barricades" until corrected by hand). The script cannot safely auto-fix
+    this the way it does the version line — most of these lines have no
+    single-word stable marker to key off — so it must at least say so.
+    """
+
+    def test_tracks_whether_workshop_txt_preexisted(self) -> None:
+        src = _read(SYNC_SCRIPT)
+        self.assertIn(
+            "WORKSHOP_TXT_PREEXISTED=",
+            src,
+            "the script must know whether workshop.txt already existed before "
+            "this run, since a freshly-created file is trivially up to date "
+            "and does not need the staleness reminder below.",
+        )
+
+    def test_reminder_fires_only_for_a_preexisting_file(self) -> None:
+        src = _read(SYNC_SCRIPT)
+        match = re.search(
+            r"if \[\[ \$\{WORKSHOP_TXT_PREEXISTED\} -eq 1 \]\]; then\n"
+            r"(.*?)\nfi\n",
+            src,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(
+            match,
+            "expected a guarded block gating the staleness reminder on "
+            "WORKSHOP_TXT_PREEXISTED, so a fresh workshop.txt (which is "
+            "trivially current) is not told it might be stale.",
+        )
+        assert match is not None  # narrowing for type checkers
+        reminder_body = match.group(1)
+        self.assertIn("REMINDER", reminder_body)
+        self.assertIn("workshop.txt", reminder_body)
+
+    def test_reminder_names_the_delete_and_rerun_fix(self) -> None:
+        """The reminder must give an actionable fix, not just raise alarm."""
+        src = _read(SYNC_SCRIPT)
+        self.assertIn(
+            "re-run this script to regenerate",
+            src,
+            "the reminder must tell the human what to actually do: delete "
+            "workshop.txt and re-run, or hand-edit — not just warn.",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

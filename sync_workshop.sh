@@ -105,6 +105,8 @@ _sync_workshop_version() {
 }
 
 # ── workshop.txt (created only when absent — the game manages id= after upload) ──
+WORKSHOP_TXT_PREEXISTED=0
+[[ -f "${STAGING}/workshop.txt" ]] && WORKSHOP_TXT_PREEXISTED=1
 if [[ ! -f "${STAGING}/workshop.txt" ]]; then
     # The version placeholder below is rewritten by _sync_workshop_version
     # immediately after creation, so there is exactly one code path that
@@ -137,6 +139,31 @@ EOF
 fi
 
 _sync_workshop_version "${STAGING}/workshop.txt"
+
+# ── Non-version description staleness reminder ───────────────────────────────
+# _sync_workshop_version only ever rewrites the ONE line starting with
+# VERSION_MARKER; every other description= line (the tagline, the Leveling /
+# Survival Fail-Safe / Death Learning / Multiplayer / Fair Play sections, tags=)
+# is copied byte for byte from whatever workshop.txt already had. If the
+# embedded template above changed those lines since workshop.txt was first
+# created, an existing local copy never sees the update (the real incident
+# this reminder exists for: V5.0 removed barricading from the mod, updated
+# the template here, and the LIVE local workshop.txt still advertised
+# "maintains window barricades" for a release before anyone noticed by hand).
+# A general auto-rewrite for every line was considered and rejected: unlike
+# the version line, most of these lines have no single-word stable marker to
+# key off (the tagline and the intro sentence are not "[b]Label:[/b] ..."
+# shaped), so a blanket rewrite risks clobbering hand edits with no reliable
+# way to tell a real change from one. This reminder is the safe alternative.
+if [[ ${WORKSHOP_TXT_PREEXISTED} -eq 1 ]]; then
+    echo ""
+    echo "REMINDER: only the version line above is auto-synced. If this"
+    echo "release also changed any OTHER description= content (feature text,"
+    echo "tags=), workshop.txt will NOT reflect it — delete"
+    echo "  ${STAGING}/workshop.txt"
+    echo "and re-run this script to regenerate it fully from the current"
+    echo "template, or edit the changed line(s) in workshop.txt by hand."
+fi
 
 echo "Workshop staging synced: ${STAGING}"
 find "${STAGING}" -maxdepth 4 | head -20
