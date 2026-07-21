@@ -51,10 +51,8 @@ AutoPilot_Threat = {}
 local function _apNoop(...) end
 local print = _apNoop
 
-local DETECTION_RADIUS      = AutoPilot_Constants.DETECTION_RADIUS
 local FLEE_MOODLE_LIMIT     = AutoPilot_Constants.FLEE_MOODLE_LIMIT
 local FLEE_DISTANCE         = AutoPilot_Constants.FLEE_DISTANCE
-local FLEE_HORDE_SIZE       = AutoPilot_Constants.FLEE_HORDE_SIZE
 local FLEE_ESCAPE_ARC_MIN   = AutoPilot_Constants.FLEE_ESCAPE_ARC_MIN
 local FLEE_COOLDOWN_CYCLES  = AutoPilot_Constants.FLEE_COOLDOWN_CYCLES
 local WEAPON_FIGHT_COND_MIN = AutoPilot_Constants.WEAPON_FIGHT_CONDITION_MIN

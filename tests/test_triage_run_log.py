@@ -85,7 +85,11 @@ class TestParseRunLog(unittest.TestCase):
         self.assertEqual(e["fit"],         3)
 
     def test_scavenge_line_carries_class_idle(self) -> None:
-        """The Lua REASON_CLASS table lacks scavenge, so its lines log class=idle."""
+        """This v2 fixture predates PR #19, so its scavenge line carries the
+        pre-fix class=idle value verbatim; the parser must not reinterpret
+        it. The LIVE Lua REASON_CLASS table has classified scavenge as
+        class=survival since PR #19 — this test is about historical-log
+        parsing fidelity, not current runtime behavior."""
         entries, _ = tr.parse_run_log(FIXTURE)
         scavenge = [e for e in entries if e["action"] == "scavenge"]
         self.assertEqual(len(scavenge), 1)
