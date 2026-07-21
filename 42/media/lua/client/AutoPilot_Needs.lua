@@ -308,6 +308,29 @@ local function restHoldFrom(ms)
     return ms + hold
 end
 
+-- Code-health seam (2026-07-20): restCooldownMs is read AND written from two
+-- places that do not otherwise share any state -- doRest's own redundant
+-- early-exit, and AutoPilot_Needs.check()'s V5.4 rest-hold gate, which reads
+-- it to decide whether to keep holding, and clears it early when endurance
+-- has recovered. That is exactly the kind of cross-cutting entanglement that
+-- blocked extracting doRest into its own module the way doEat/doDrink and
+-- doSleep already were (both had zero external readers/writers). These three
+-- functions are the seam: naming what was previously bare variable access so
+-- a future move only has to relocate this block, not redesign it. No
+-- behavior changes here -- doRest and check() still do exactly what they did,
+-- just through a name instead of a shared local.
+local function _isRestHoldActive(nowMs)
+    return nowMs < restCooldownMs
+end
+
+local function _extendRestHold(nowMs)
+    restCooldownMs = restHoldFrom(nowMs)
+end
+
+local function _clearRestHold()
+    restCooldownMs = 0
+end
+
 --- Queue a rest.
 --- @param player   the character
 --- @param sitOnly  when true, beds are skipped: this is the V5.4
@@ -319,7 +342,7 @@ local function doRest(player, sitOnly)
     end)
     local ms = ok and now or 0
 
-    if ms < restCooldownMs then
+    if _isRestHoldActive(ms) then
         -- Still inside the hold from an earlier rest: nothing new is queued,
         -- but the cycle IS a rest, so the reported activity has to say so.
         -- Without this write the panel could still be showing whatever the
@@ -352,7 +375,7 @@ local function doRest(player, sitOnly)
         -- V5.4 the inside-home-only furniture filter plus the 30% gate meant
         -- this fallback was almost never reached.
         if queueGroundRest() then
-            restCooldownMs = restHoldFrom(ms)
+            _extendRestHold(ms)
             return true
         end
         print("[Needs] Exhausted but no valid rest furniture found; skipping rest.")
@@ -463,7 +486,7 @@ local function doRest(player, sitOnly)
 
     if not queued then
         if queueGroundRest() then
-            restCooldownMs = restHoldFrom(ms)
+            _extendRestHold(ms)
             return true
         end
         print("[Needs] Unable to queue a safe rest action.")
@@ -474,7 +497,7 @@ local function doRest(player, sitOnly)
     -- getGameTime():getCalender()), so the character stood back up after about
     -- one game minute and recovered nothing.  Now it holds up to
     -- REST_HOLD_MS and check() releases early at ENDURANCE_REST_TARGET.
-    restCooldownMs = restHoldFrom(ms)
+    _extendRestHold(ms)
     return true
 end
 
@@ -1329,7 +1352,7 @@ function AutoPilot_Needs.check(player)
     local okNow, nowMs = pcall(function()
         return getGameTime():getCalender():getTimeInMillis()
     end)
-    if okNow and nowMs < restCooldownMs then
+    if okNow and _isRestHoldActive(nowMs) then
         local restTarget = tonumber(AutoPilot_Constants.ENDURANCE_REST_TARGET) or 0
         if endurance < restTarget then
             AutoPilot_Telemetry.setDecision("rest", "rest_cooldown")
@@ -1340,7 +1363,7 @@ function AutoPilot_Needs.check(player)
             return true  -- still resting; keep recovering
         end
         -- Recovered ahead of the maximum hold: stand up and resume the chain.
-        restCooldownMs = 0
+        _clearRestHold()
         print(string.format(
             "[Needs] Endurance recovered to %.0f%%; ending rest.", endurance * 100))
     end
