@@ -113,10 +113,18 @@ do
     local result = AutoPilot_Medical.check(player, false)
     assert_true("check() returns true when bleeding + bandage available", result)
     local hasBandage = false
+    local bandageAction = nil
     for _, a in ipairs(ISTimedActionQueue_calls) do
-        if a.type == "bandage" then hasBandage = true end
+        if a.type == "bandage" then hasBandage = true; bandageAction = a end
     end
     assert_true("bandage action was queued", hasBandage)
+    -- 2026-07-20 mock-surface drift audit: doIt=true APPLIES the bandage;
+    -- doIt=false/nil REMOVES it (real ISApplyBandage.lua behavior). AutoPilot
+    -- must never queue a removal on a real wound -- this is the assertion
+    -- the pre-audit mock could not express because it silently dropped the
+    -- 5th constructor argument instead of asserting it.
+    assert_true("bandage action APPLIES (doIt=true), never removes",
+        bandageAction ~= nil and bandageAction.doIt == true)
 end
 
 -- 5. bleedingOnly=true with scratch-only wound → no treatment.

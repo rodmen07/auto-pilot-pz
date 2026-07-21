@@ -52,10 +52,16 @@
 --          queued on top of a sit.  It survives as the fallback for when
 --          the seat action is unavailable, and useAnimations is now `true`
 --          (nil is falsy, i.e. a rest with the sitting animation disabled).
---   [MA] ISApplyBandage:new(character, patient, bandage, bodyPart, ...)
+--   [MA] ISApplyBandage:new(character, patient, bandage, bodyPart, doIt)
 --          as shipped through the V2.1 and V3.2 live verification sweeps.
 --          Pre-audit, this mock had the args in the wrong slots (patient
 --          landed in a "bodyPart" parameter); fixed by this audit.
+--          2026-07-20 mock-surface drift audit: the 5th arg (doIt) was
+--          undocumented as "..." and uncaptured by the mock function, so it
+--          silently vanished and was never asserted -- doIt=true applies the
+--          bandage, doIt=false/nil REMOVES it (ISApplyBandage.lua:39, :71,
+--          :111). Now captured, asserted boolean, and returned on the action
+--          table so test_medical_logic can assert AutoPilot always applies.
 --   [MA] ISEatFoodAction:new(character, item, count)   asserts item only;
 --          PZ uses this for drinks and the painkiller fallback too
 --   [M]  ISSitOnGround:new(character, square)
@@ -439,8 +445,19 @@ ISReadABook = {
 -- bandage), stale slots that silently received the PATIENT in the bodyPart
 -- parameter.  Tests stayed green because they only inspect .type; the params
 -- now mirror the verified callsite and assert on it.
+-- Real 42.19 signature (shared/TimedActions/ISApplyBandage.lua:173, verified
+-- 2026-07-20 against the live install): ISApplyBandage:new(character,
+-- otherPlayer, item, bodyPart, doIt). doIt is not cosmetic: the constructor
+-- stores it as self.doIt, and isValid()/perform() branch on it to decide
+-- whether the action APPLIES the bandage or REMOVES it (line 39's UI label
+-- literally toggles "Bandage" vs "Remove Bandage" on this flag). Found
+-- unmocked and unasserted: the mock captured only 4 of the 5 constructor
+-- params, so a 5th argument silently vanished (Lua truncates extra args
+-- rather than erroring) and no test could have caught doIt ever being wrong
+-- -- which would mean AutoPilot_Medical.doTreatWound queues a bandage
+-- REMOVAL instead of an application, on a real wound, with a passing suite.
 ISApplyBandage = {
-    new = function(_, character, patient, bandage, bodyPart)
+    new = function(_, character, patient, bandage, bodyPart, doIt)
         assert(type(character) == "table",
             "ISApplyBandage:new expects the treating character as 1st arg, got "
             .. type(character))
@@ -450,7 +467,11 @@ ISApplyBandage = {
         assert(type(bandage) == "table",
             "ISApplyBandage:new expects the bandage item as 3rd arg, got "
             .. type(bandage))
-        return { type = "bandage", bodyPart = bodyPart, bandage = bandage }
+        assert(type(doIt) == "boolean",
+            "ISApplyBandage:new expects a boolean doIt as 5th arg, got "
+            .. type(doIt) .. " (doIt=true applies the bandage; "
+            .. "doIt=false/nil REMOVES it -- see ISApplyBandage.lua:39)")
+        return { type = "bandage", bodyPart = bodyPart, bandage = bandage, doIt = doIt }
     end,
 }
 
