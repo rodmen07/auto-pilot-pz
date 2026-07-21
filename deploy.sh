@@ -13,7 +13,7 @@
 #   42/          — Lua mod files (the whole B42 folder)
 #
 # What is NOT copied (dev-only, not needed by PZ):
-#   .luacheckrc, schemas/, tests/, check.sh, deploy.sh, requirements*.txt
+#   .luacheckrc, tests/, check.sh, deploy.sh, requirements*.txt
 
 set -euo pipefail
 
