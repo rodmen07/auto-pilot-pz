@@ -20,7 +20,9 @@ real breadth to cover. That breadth is now covered: exercise, all five survival 
 response, XP metrics, session history, training programs, and death-learning adaptation all
 ship today. ROADMAP.md's own direction is explicit — **"harden and maintain"** — and the standing
 non-goals rule out re-growing scope into the deleted Skills/Foraging/Vehicles/Combat/Explore/
-Actions territory. Padding this proposal with speculative new action types to hit a bigger
+Actions territory. *(That last constraint was reversed in part on 2026-07-21, one day after this
+document was drafted — see the superseding note under Ground rules. The reopened territory is
+scoped to its own V7.0 proposal and does not change the three candidates below.)* Padding this proposal with speculative new action types to hit a bigger
 number would be inventing work, which the dispatch rules this document was drafted under
 explicitly forbid. Three candidates is the honest size of what a direct code read actually
 turned up as real, narrow, low-risk gaps.
@@ -36,6 +38,11 @@ how it complies:
 3. **No splitscreen.** Removed in V3.2 because it could not be made reliable.
 4. **No resurrection of deleted modules.** Skills / Foraging / Vehicles / Combat / Explore /
    Actions stay deleted. No barricading or woodworking (removed V5.0, user-directed scope cut).
+   > **SUPERSEDED IN PART 2026-07-21** (after this document was drafted): the user reopened
+   > Skills, Foraging, Actions, Combat, and Explore as expansion territory, routed through a
+   > separate V7.0 proposal. Vehicles, barricading, and woodworking remain closed. This does
+   > NOT change any candidate below — all three were designed inside the stricter constraint
+   > and none of them touch the reopened areas.
 5. **No new external action surface unless a candidate says so explicitly and justifies it.**
    Every candidate below either observes existing behavior or narrows an existing gate; none
    adds a new `ISXxxAction` call site to a previously-untouched vanilla system.
@@ -256,7 +263,9 @@ Notes for the decision:
 - C1's default `SICKNESS_EXERCISE_MAX` threshold value is a judgment call for review, not a
   live-verification gate — flag a preferred default (or "use your best judgment") in your
   decision if you approve it.
-- All three candidates comply with the standing non-goals: no `addXp()`, no LLM sidecar, no
-  splitscreen, no resurrection of deleted modules, no new external action surface.
+- All three candidates comply with the standing non-goals as they stood when this was drafted:
+  no `addXp()`, no LLM sidecar, no splitscreen, no resurrection of deleted modules, no new
+  external action surface. The 2026-07-21 partial reopening of the deleted-module non-goal does
+  not affect them — none of the three touch Skills, Foraging, Actions, Combat, or Explore.
 - Rejecting all three is a completely valid outcome: ROADMAP.md's stated direction is "harden
   and maintain," and none of this document's candidates are load-bearing for that direction.
