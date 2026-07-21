@@ -40,12 +40,13 @@ how it complies:
 4. **No resurrection of deleted modules.** Skills / Foraging / Vehicles / Combat / Explore /
    Actions stay deleted. No barricading or woodworking (removed V5.0, user-directed scope cut).
    > **SUPERSEDED IN PART 2026-07-21** (after this document was drafted): the user reopened
-   > **Foraging, Combat, and Explore** as expansion territory, routed through a separate V7.0
-   > proposal. Vehicles, Skills, Actions, barricading, and woodworking all remain closed.
-   > (Skills and Actions were in the initial reopening and were withdrawn the same day: Skills
-   > has no queueable action path in 42.19, and Actions was the retired LLM sidecar's command
-   > registry.) This does NOT change any candidate below — all three were designed inside the
-   > stricter constraint and none of them touch the reopened areas.
+   > **Foraging, Combat, Explore, and Skills** as expansion territory, routed through a separate
+   > V7.0 proposal. Vehicles, Actions, barricading, and woodworking all remain closed.
+   > Note for anyone reading this document's evidence policy: the Skills reopening came with a
+   > falsification of a claim repeated across several of these docs — 42.19 DOES expose queueable
+   > skill-XP actions (e.g. `ISRepairClothing` grants Tailoring XP in its own `perform()`),
+   > verified against the live install. This does NOT change any candidate below — all three were
+   > designed inside the stricter constraint and none of them touch the reopened areas.
 5. **No new external action surface unless a candidate says so explicitly and justifies it.**
    Every candidate below either observes existing behavior or narrows an existing gate; none
    adds a new `ISXxxAction` call site to a previously-untouched vanilla system.
