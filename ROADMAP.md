@@ -57,25 +57,23 @@ Standing non-goals (do NOT plan these without explicit user direction):
 
 ## Completed milestones
 
-V3.4 through V3.7, V4.0 through V4.9, and V5.0 through V5.8 are all complete — see the "Shipped" sections above and `CHANGELOG.md` for full per-release detail. The one stabilize-track item not yet done:
+V3.4 through V3.7, V4.0 through V4.9, and V5.0 through V5.8 are all complete — see the "Shipped" sections above and `CHANGELOG.md` for full per-release detail.
 
-### V3.8: B42.20-stable readiness (prepare now, execute BLOCKED)
+### V3.8: B42.20-stable readiness (PREPARED 2026-07-20, execute BLOCKED)
 
-Build 42.20 was announced as the stable candidate on 2026-07-09, and 42.19 saves will not carry over, so the migration moment is a real event that deserves a script. The checklist can be written today; running it is gated (see Blocked). **Not started as of 2026-07-20** — `docs/b42_20_checklist.md` does not exist yet.
+Build 42.20 was announced as the stable candidate on 2026-07-09, and 42.19 saves will not carry over, so the migration moment is a real event that deserves a script. **Preparation is done:** [docs/b42_20_checklist.md](docs/b42_20_checklist.md) exists, built from `tests/lua_mock_pz.lua`'s continuously-maintained verified-API-surface header rather than a fresh enumeration (a second list of the same surfaces would itself drift), and names the five surfaces with a prior history of breaking (`ISFitnessAction:new`, `ISTimedActionQueue.addGetUpAndThen`, `ISRestAction:new`, `PZAPI.ModOptions` load-time availability, `addComboBox`) as the priority re-verification order.
 
-- Write `docs/b42_20_checklist.md` listing every API surface to re-verify on 42.20: `ISFitnessAction:new` signature, exercise definitions and xpMod values, `PZAPI.ModOptions`, `getSpecificPlayer`, sleep flow (`onSleepWalkToComplete`), `ISRestAction` 3-arg, `ISTimedActionQueue.addGetUpAndThen`, `ISPathFindAction:pathToSitOnFurniture` (added V5.8), and the `inventory:contains` equipment gate plus the recursive worn/carried container scan added in V4.8/V4.9/V5.1.
-- Include the mechanical steps: bump pzversion in both `mod.info` files, update Workshop tags/description, full TESTING.md pass including the soak test, then Workshop update.
 - BLOCKED (execution): do not run the checklist until Build 42.20 is the Steam default AND the user explicitly decides to migrate.
 - USER-ONLY: the migration decision, all in-game verification, and the Workshop "Update Item" upload.
-- **Done when (preparation):** the checklist file exists and covers every API surface the mod touches; execution has its own gate above.
+- **Done when (preparation):** DONE — the checklist file exists and covers every API surface `tests/lua_mock_pz.lua` enumerates; execution has its own gate above.
 
 ## Next milestones
 
 No expansion milestone is currently approved. The actionable next steps, tracked in the AutoPilot backlog (`d:\Projects\.claude\skills\autodev\backlogs\autopilot-pz.md`), ordered by dependency rather than a calendar:
 
-- V3.8 preparation above (agent-doable now, no dependency).
 - A behavior-preserving, verbatim-move-first split of the code-health hotspots preflight C10 flags: `AutoPilot_Needs.lua` (1854 lines) and `AutoPilot_Inventory.lua` (1038 lines).
 - A fresh expansion proposal, only if the user wants to grow capability again, drafted and reviewed the same way `docs/EXPANSION_PROPOSAL_V4.md` was — never ad-hoc module resurrection.
+- V3.8 execution, once unblocked (see above).
 
 ---
 
