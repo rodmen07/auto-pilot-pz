@@ -1,25 +1,34 @@
 # AutoPilot Leveler Roadmap
 
-**Status:** Code and packaged builds are current through V5.8 (`mod.info` modversion 5.8, 2026-07-20; `CHANGELOG.md` is the authoritative shipped record). Workshop item 3767254910 was published at V3.3 on 2026-07-18; later Workshop updates are USER-ONLY (`sync_workshop.sh` plus in-game "Update Item") and not verifiable from this environment — confirm the live Workshop version in-game before assuming parity with the code.
-> ## ⚠ IDENTITY PIVOT IN PROGRESS (2026-07-21) — read this before anything below
+> ## 🛑 PROJECT DECOMMISSIONED (2026-07-21) — this roadmap is a historical record
 >
-> **The mod is pivoting from "auto-exercise leveler" to "autonomous survival mod."** User
-> directive, verbatim: *"There are already autotrainer mods, I want to pivot away from the leveling
-> angle. I want the mod to be an autonomous survival mod with lower priority actions to fulfill
-> when there are not immediate threats or needs. For example, exercise is deprioritized for
-> securing the area. That means that combat will need a significant overhaul."*
+> **There is no roadmap. This project is over.** Development stopped on 2026-07-21, the Steam
+> Workshop item was delisted, and no further milestone in this document will be built. Everything
+> below is preserved as a record of what shipped and what was planned, not as work queued.
 >
-> **Decisions already made:** exercise drops to the bottom idle slot; "secure the area" becomes a
-> first-class priority phase above scavenging; barricading/construction is reopened but sequenced
-> AFTER the combat-clearing milestone; the mod gets renamed.
+> **The decommission followed an identity pivot that was started and then abandoned within the
+> same day.** The sequence, for anyone reading the git history and wondering:
+> 1. The mod's V3.1 scope cut had narrowed it to an auto-exercise leveler, deleting six modules.
+> 2. On 2026-07-21 the owner reopened most of that territory, then pivoted the identity outright:
+>    *"There are already autotrainer mods, I want to pivot away from the leveling angle. I want the
+>    mod to be an autonomous survival mod... exercise is deprioritized for securing the area. That
+>    means that combat will need a significant overhaul."* Exercise was to drop to a bottom idle
+>    slot, "secure the area" was to become a first-class priority phase, barricading was reopened,
+>    and the mod was to be renamed.
+> 3. Before that pivot was designed, the owner concluded the project had no differentiated purpose
+>    worth rebuilding for a third time, and decommissioned it instead.
 >
-> **Consequence for this document:** every "Direction" and "standing non-goal" statement below was
-> written for the narrow leveler identity and is being reassessed. Two prior scope cuts were
-> justified explicitly BY that identity and are now void: V3.1's six-module deletion ("a deliberate
-> scope-down... to a focused identity") and V5.0's barricading removal ("more of an artifact of the
-> broader scoped auto-survival and is now out of scope"). Broad autonomous survival is the scope
-> again. Treat anything below that contradicts this box as stale until the pivot's release plan
-> lands.
+> **What was NOT the problem:** engineering. At decommission the mod was V5.8, 21 modules, 14 test
+> suites, 1107 assertions passing, luacheck clean, CI green, with `AutoPilot_Needs.lua` freshly
+> refactored from 1848 to 706 lines. It worked. It just never settled on being something the
+> Workshop did not already have.
+>
+> **Consequently, every "Direction," "Next milestone," and "standing non-goal" below is void as
+> guidance.** They are retained because they document real decisions and their rationales — several
+> of which were themselves reversed on the final day (V3.1's six-module deletion and V5.0's
+> barricading removal were both justified by the narrow leveler identity that the pivot discarded).
+
+**Final state:** Code and packaged builds are current through V5.8 (`mod.info` modversion 5.8, 2026-07-20; `CHANGELOG.md` is the authoritative shipped record). Workshop item 3767254910 was published at V3.3 on 2026-07-18 and DELISTED on 2026-07-21. Local Workshop staging (`sync_workshop.sh`) and the in-game "Update Item" flow were always user-only and were never run after V3.3, so the published Workshop build lagged the repo by several releases at delisting.
 
 **Direction (pre-pivot, being superseded):** The V3.4-V3.8 stabilize track (including V3.8 preparation, done 2026-07-20 — execution stays gated on Build 42.20) and the entire V4.0-approved expansion track (V4.1-V4.9) are COMPLETE. A user-directed scope cut (V5.0) and five bug-driven hardening releases (V5.1-V5.8) followed. Then a code-health split of `AutoPilot_Needs.lua` (four slices shipped 2026-07-20: eat/drink, sleep, endurance-critical rest, and the exercise/trainer block, 1848 → 706 lines). This file supersedes `EXPANSION_ROADMAP.md` (the old V1.1-V2.0 expansion plan) as of 2026-07-18.
 **Cadence:** each milestone is sized for one or two small PRs, ordered by dependency and user gates, never by calendar time — agent execution runs far faster than a planned weekly cadence (the V4.1-V5.8 arc below shipped in about a day and a half).

@@ -1,5 +1,29 @@
 # AutoPilot Leveler for Project Zomboid Build 42
 
+> # ⚠️ DEPRECATED — NO LONGER MAINTAINED
+>
+> **This project was decommissioned on 2026-07-21 and is no longer developed, supported, or
+> published.** The Steam Workshop item has been delisted. No further releases, bug fixes, or
+> compatibility updates will be made — including for future Project Zomboid builds.
+>
+> **Why:** not a technical failure. At decommission the mod was healthy — V5.8, 21 Lua modules,
+> 14 test suites, 1107 assertions passing, luacheck clean, CI green. What it never settled was a
+> differentiated *purpose*. It went through three identities in quick succession (broad
+> auto-survival → auto-exercise leveler → back toward autonomous survival), and the final pivot
+> was prompted by the realisation that the auto-trainer niche it occupied is already well served
+> by existing mods. Rather than rebuild it a third time into a crowded category, the owner chose
+> to stop.
+>
+> **State at decommission:** fully working on Build 42.19.0 Unstable. Nothing is half-finished or
+> broken. If you want to run or fork it, the last release (V5.8) is functional — see
+> `CHANGELOG.md` for the complete shipped record and `docs/architecture.md` for the module map.
+>
+> **If you are a former Workshop subscriber:** your locally-installed copy will keep working for
+> as long as it stays compatible with your game build. It will not receive updates.
+>
+> Everything below this notice describes the mod as it was, and is preserved unedited as a
+> historical record.
+
 Auto-exercise leveler with a survival fail-safe. Reach a stable spot, press
 F10, and your character grinds Strength/Fitness while you step away.
 
