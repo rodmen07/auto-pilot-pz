@@ -1,7 +1,7 @@
 # AutoPilot Leveler Roadmap
 
 **Status:** Code and packaged builds are current through V5.8 (`mod.info` modversion 5.8, 2026-07-20; `CHANGELOG.md` is the authoritative shipped record). Workshop item 3767254910 was published at V3.3 on 2026-07-18; later Workshop updates are USER-ONLY (`sync_workshop.sh` plus in-game "Update Item") and not verifiable from this environment — confirm the live Workshop version in-game before assuming parity with the code.
-**Direction:** The V3.4-V3.7 stabilize track and the entire V4.0-approved expansion track (V4.1-V4.9) are COMPLETE. V3.8 preparation is the only stabilize item still open (execution stays gated). A user-directed scope cut (V5.0) and five bug-driven hardening releases (V5.1-V5.8) followed. No further expansion is currently approved; see "Next milestones" below. This file supersedes `EXPANSION_ROADMAP.md` (the old V1.1-V2.0 expansion plan) as of 2026-07-18.
+**Direction:** The V3.4-V3.8 stabilize track (including V3.8 preparation, done 2026-07-20 — execution stays gated on Build 42.20) and the entire V4.0-approved expansion track (V4.1-V4.9) are COMPLETE. A user-directed scope cut (V5.0) and five bug-driven hardening releases (V5.1-V5.8) followed. No further expansion is currently approved; current work is hardening plus an in-progress code-health split of `AutoPilot_Needs.lua` (three slices shipped 2026-07-20: eat/drink, sleep, endurance-critical rest — see "Next milestones" below for what's left). This file supersedes `EXPANSION_ROADMAP.md` (the old V1.1-V2.0 expansion plan) as of 2026-07-18.
 **Cadence:** each milestone is sized for one or two small PRs, ordered by dependency and user gates, never by calendar time — agent execution runs far faster than a planned weekly cadence (the V4.1-V5.8 arc below shipped in about a day and a half).
 
 ---
@@ -42,7 +42,7 @@ All of V2.1 through V3.3 shipped on 2026-07-18; `CHANGELOG.md` is the authoritat
 
 ## Direction and standing non-goals
 
-Stabilize (V3.4-V3.7) and the full V4.0-approved expansion track (V4.1-V4.9) are both **complete** (2026-07-20); V3.8 preparation is the only stabilize item still open, and its execution stays gated. With no further expansion currently approved, the near-term direction is **harden and maintain**: fix real in-game bug reports (the AutoPilot backlog `## Bugs` section is the queue), keep docs and this roadmap truthful, and split the code-health hotspot files preflight C10 flags (`AutoPilot_Needs.lua`, `AutoPilot_Inventory.lua`) when doing so would unblock parallel work. A new expansion track resumes only through a fresh proposal reviewed the same way V4.0 was, never ad-hoc module resurrection.
+Stabilize (V3.4-V3.8, including V3.8 preparation) and the full V4.0-approved expansion track (V4.1-V4.9) are both **complete** (2026-07-20); V3.8's execution stays gated on Build 42.20. With no further expansion currently approved, the near-term direction is **harden and maintain**: fix real in-game bug reports (the AutoPilot backlog `## Bugs` section is the queue), keep docs and this roadmap truthful, and continue the `AutoPilot_Needs.lua` code-health split preflight C10 flagged — three of an unknown-total number of slices shipped 2026-07-20 (1848 to 1275 lines), still over the 1000-line threshold; `AutoPilot_Inventory.lua` (1038 lines) is a separate, not-yet-started candidate. A new expansion track resumes only through a fresh proposal reviewed the same way V4.0 was, never ad-hoc module resurrection.
 
 Standing non-goals (do NOT plan these without explicit user direction):
 
@@ -71,7 +71,7 @@ Build 42.20 was announced as the stable candidate on 2026-07-09, and 42.19 saves
 
 No expansion milestone is currently approved. The actionable next steps, tracked in the AutoPilot backlog (`d:\Projects\.claude\skills\autodev\backlogs\autopilot-pz.md`), ordered by dependency rather than a calendar:
 
-- A behavior-preserving, verbatim-move-first split of the code-health hotspots preflight C10 flags: `AutoPilot_Needs.lua` (1854 lines) and `AutoPilot_Inventory.lua` (1038 lines).
+- The `AutoPilot_Needs.lua` code-health split is IN PROGRESS, not a fresh candidate: three verbatim-move slices shipped 2026-07-20 (`AutoPilot_Consumption.lua` for eat/drink, `AutoPilot_Sleep.lua` for sleep, `AutoPilot_Rest.lua` for endurance-critical rest, the last needing a same-day prior seam increment first). `AutoPilot_Needs.lua` is down to 1275 lines from 1848 but still over the 1000-line threshold; the next candidate is the exercise/trainer block, which needs its own dependency mapping for `shouldInterrupt`/intervention-state sharing with `check()` before it's known whether it's a clean move or needs a seam first (see backlog CODE HEALTH entries). `AutoPilot_Inventory.lua` (1038 lines) remains a separate, not-yet-started candidate.
 - A fresh expansion proposal, only if the user wants to grow capability again, drafted and reviewed the same way `docs/EXPANSION_PROPOSAL_V4.md` was — never ad-hoc module resurrection.
 - V3.8 execution, once unblocked (see above).
 
