@@ -66,6 +66,7 @@ globals = {
     "AutoPilot_Consumption",
     "AutoPilot_Sleep",
     "AutoPilot_Rest",
+    "AutoPilot_Exercise",
     "AutoPilot_Threat",
     "AutoPilot_Inventory",
     "AutoPilot_Medical",
