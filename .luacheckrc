@@ -63,6 +63,7 @@ globals = {
     "AutoPilot_Constants",
     "AutoPilot_Utils",
     "AutoPilot_Needs",
+    "AutoPilot_Consumption",
     "AutoPilot_Threat",
     "AutoPilot_Inventory",
     "AutoPilot_Medical",
