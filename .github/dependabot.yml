@@ -1,0 +1,15 @@
+version: 2
+updates:
+  # GitHub Actions used by ci.yml and release.yml (actions/checkout,
+  # actions/setup-python, softprops/action-gh-release).
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+
+  # Python dev/test tooling (requirements.txt, requirements-dev.txt) used by
+  # the pytest suite and the log-triage/benchmark scripts under tools/.
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
