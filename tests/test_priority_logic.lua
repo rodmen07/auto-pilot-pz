@@ -77,6 +77,10 @@ AutoPilot_Home = {
 -- split; AutoPilot_Needs.check/forceEat/forceDrink now call into it).
 dofile("42/media/lua/client/AutoPilot_Consumption.lua")
 
+-- Real Sleep (doSleep moved here in the same split's second slice;
+-- AutoPilot_Needs.check/forceSleep now call into it).
+dofile("42/media/lua/client/AutoPilot_Sleep.lua")
+
 -- ── Load the module under test ────────────────────────────────────────────────
 dofile("42/media/lua/client/AutoPilot_Needs.lua")
 
