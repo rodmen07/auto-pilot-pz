@@ -88,10 +88,14 @@ runs (agent or human) read first, per its own stated purpose.
 ## Step 3: mechanical release steps (execute only once Step 1 is clean)
 
 1. Bump `pzversion` in **both** `mod.info` (repo root) and `42/mod.info`.
-   `README.md` documents that these two files must always match, but no CI
-   check enforces it (`release.yml`'s version check only compares the git
-   tag against `42/mod.info`) — bump both by hand and diff them before
-   committing.
+   Correction (2026-07-20): an earlier draft of this document claimed no CI
+   check enforces the two files staying in sync. That was wrong —
+   `tests/test_version_sync.py::test_both_mod_info_files_agree` already
+   does, runs on every push via `ci.yml`'s bare `pytest tests/`, and would
+   fail loudly on a `pzversion=` (or `modversion=`) mismatch. `pzversion=`
+   itself is outside that test's scope (it only compares `modversion=`), so
+   still bump and diff both by hand — the guard just means a caught mistake
+   fails CI instead of shipping silently.
 2. Review `tags=` in both `mod.info` files and the Workshop description
    template in `sync_workshop.sh` for anything 42.20-specific.
 3. Full `TESTING.md` pass, including the soak test. Note in passing: the
