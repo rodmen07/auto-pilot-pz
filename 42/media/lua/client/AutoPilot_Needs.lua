@@ -2,12 +2,15 @@
 -- Handles survival needs and idle behaviour.
 --
 -- luacheck: globals getClimateManager
--- SPLITSCREEN NOTE: Module-level variables (restCooldownMs, exerciseWaitLogMs)
--- are shared across all local players. Splitscreen is NOT supported.
--- (Corrected 2026-07-20: sleepCooldownMs moved to AutoPilot_Sleep.lua in the
--- code-health split, and drinkCooldownMs moved to AutoPilot_Consumption.lua
--- in the prior slice; "exerciseCycle" never existed as an actual variable in
--- this file — found stale while fixing this comment for the same reason.)
+-- SPLITSCREEN NOTE: Module-level variables (exerciseWaitLogMs) are shared
+-- across all local players. Splitscreen is NOT supported.
+-- (Corrected 2026-07-20, twice now: sleepCooldownMs moved to
+-- AutoPilot_Sleep.lua and drinkCooldownMs to AutoPilot_Consumption.lua in
+-- earlier slices; restCooldownMs just moved to AutoPilot_Rest.lua in this
+-- one, so this file no longer owns ANY of the cooldown state the note
+-- originally listed. "exerciseCycle" never existed as an actual variable in
+-- this file at all. Re-verify this list with a fresh grep the next time this
+-- file's module-level locals change, rather than trust it again.)
 --
 -- Priority order (highest -> lowest):
 --   1. Bleeding      -> bandage immediately (fatal if untreated)
@@ -132,16 +135,33 @@ end
 -- The fix is not "add a second field for resting": two fields that can
 -- disagree IS the bug.  This one string is now the single answer to "what is
 -- the needs layer doing", written by every path that claims the cycle -- the
--- trainer below AND doRest above -- and read by getExerciseStatus, which is
--- what both the panel and the HUD already call.
+-- trainer below and, since the 2026-07-20 code-health split, AutoPilot_Rest
+-- across the module boundary via AutoPilot_Needs.setActivity below -- and
+-- read by getExerciseStatus, which is what both the panel and the HUD
+-- already call. NOTE: verified AutoPilot_Sleep does NOT call setActivity at
+-- all (grepped, zero matches) -- unclear whether that is intentional or a
+-- pre-existing gap; out of scope for this split, not investigated further
+-- here, but worth a QA look since it is the same "two things can disagree"
+-- shape the V5.8 fix above was written to close.
 --
--- It is declared HERE, above doRest, rather than next to the trainer state,
--- purely because Lua locals are only visible below their declaration and
--- doRest is defined first.
+-- It is declared HERE, near the top of the file, so every later local
+-- function in this module can see it as an upvalue (Lua locals are only
+-- visible below their declaration). doRest itself moved out to
+-- AutoPilot_Rest.lua in the same split that made this a cross-module export;
+-- the positioning constraint outlived the specific function that first
+-- required it.
 local _activityOutcome = "idle"
 
 local function _setActivity(text)
     _activityOutcome = text
+end
+
+--- Cross-module accessor: AutoPilot_Rest.doRest (extracted 2026-07-20) calls
+--- this instead of the private local above, since it no longer lives in this
+--- file. Internal call sites within this file continue to use _setActivity
+--- directly, unchanged.
+function AutoPilot_Needs.setActivity(text)
+    _setActivity(text)
 end
 
 -- ── Helpers ─────────────────────────────────────────────────────────────────
@@ -171,338 +191,18 @@ end
 -- Rest on nearby furniture to recover endurance.
 -- Searches for bed > sofa/couch/armchair > chair/bench/stool/pew.
 -- Falls back to sitting on the ground if nothing is found.
-local restCooldownMs = 0
-local REST_SEARCH_DIST = AutoPilot_Constants.REST_SEARCH_DIST
-
--- V5.4: sittable-furniture sprite patterns.  Before V5.4 only sofa, couch and
--- chair were matched, so the outdoor bench the user asked about was never
--- recognised as seating at all.  Priority 2 = upholstered (best recovery
--- posture), 3 = plain seating.  Patterns are deliberately conservative: only
--- words that name a seat on their own are listed.  "seat" is NOT matched
--- because it is a substring of too many non-seat sprites.
-local SEAT_PATTERNS = {
-    { pattern = "sofa",     priority = 2 },
-    { pattern = "couch",    priority = 2 },
-    { pattern = "loveseat", priority = 2 },
-    { pattern = "armchair", priority = 2 },
-    { pattern = "chair",    priority = 3 },
-    -- "bench" also names WORKbenches and carpentry benches, which are not
-    -- seating; the reject list below drops those.
-    { pattern = "bench",    priority = 3, reject = { "work", "carpentry", "saw" } },
-    { pattern = "stool",    priority = 3 },
-    { pattern = "pew",      priority = 3 },
-    -- B42's own tilesheet category word for seats: park benches and picnic
-    -- seating ship as furniture_seating_outdoor_* and never spell out "bench",
-    -- so without this the most common outdoor seat stays invisible.  Matched as
-    -- the whole word "seating", not "seat", which is a substring of too much.
-    { pattern = "seating",  priority = 3 },
-}
-
---- Classify a lowercased sprite name as seating.
---- Returns a priority number (2 or 3) or nil.  Pure: unit-tested directly.
-function AutoPilot_Needs.seatPriorityForSprite(spriteName)
-    if type(spriteName) ~= "string" then return nil end
-    local lower = spriteName:lower()
-    local best = nil
-    for _, entry in ipairs(SEAT_PATTERNS) do
-        if lower:find(entry.pattern, 1, true) then
-            local rejected = false
-            if entry.reject then
-                for _, bad in ipairs(entry.reject) do
-                    if lower:find(bad, 1, true) then rejected = true end
-                end
-            end
-            if not rejected and (best == nil or entry.priority < best) then
-                best = entry.priority
-            end
-        end
-    end
-    return best
-end
-
---- Find the best rest furniture near the player.
---- @param player      the character
---- @param sitOnly     when true, beds are IGNORED.  The 30% critical path wants
----                    a bed (it hands off to sleep); the V5.4 sit-to-recover
----                    path must not, or a merely winded character would be put
----                    to sleep in the middle of the day.
-local function findRestFurniture(player, sitOnly)
-    local px, py, pz = player:getX(), player:getY(), player:getZ()
-    local bestObj  = nil
-    local bestDist = math.huge
-    local bestPriority = 99  -- lower = better (bed=1, sofa=2, chair/bench=3)
-    -- V5.4: 0 = inside the home circle, 1 = outside it.  Compared BEFORE
-    -- furniture quality, so home seating always wins: the tiles inside home
-    -- are the ones the mod already treats as safe to walk.
-    local bestZone = 99
-    local outsideDist = AutoPilot_Constants.REST_OUTSIDE_SEARCH_DIST
-        or REST_SEARCH_DIST
-    local outsideDist2 = outsideDist * outsideDist
-
-    AutoPilot_Utils.iterateNearbySquares(px, py, pz, REST_SEARCH_DIST, function(sq, dx, dy)
-        local dist = dx * dx + dy * dy
-        -- V5.4: outside-home furniture is eligible, but only within the
-        -- tighter REST_OUTSIDE_SEARCH_DIST.  Before V5.4 this was a hard
-        -- `return false`, which hid every bench, picnic table and porch chair
-        -- outside the safehouse circle.  Note isInside() returns true when no
-        -- home is set, so an unconfigured game keeps the full radius.
-        local inside = AutoPilot_Home.isInside(sq)
-        if not inside and dist > outsideDist2 then return false end
-        local zone = inside and 0 or 1
-
-        for i = 0, sq:getObjects():size() - 1 do
-            local obj = sq:getObjects():get(i)
-            local priority = nil
-
-            -- Check for bed
-            if not sitOnly then
-                local okB, isBed = pcall(function()
-                    return obj:getSprite()
-                        and obj:getSprite():getProperties()
-                            :has(IsoFlagType.bed)
-                end)
-                if okB and isBed then
-                    priority = 1
-                end
-            end
-
-            -- Check for sittable furniture by sprite name
-            if not priority then
-                local okN, spName = pcall(function()
-                    return obj:getSprite()
-                        and obj:getSprite():getName() or ""
-                end)
-                if okN and spName then
-                    priority = AutoPilot_Needs.seatPriorityForSprite(spName)
-                end
-            end
-
-            if priority then
-                -- Rank lexicographically: home zone, then furniture quality,
-                -- then distance.
-                if zone < bestZone
-                    or (zone == bestZone and priority < bestPriority)
-                    or (zone == bestZone and priority == bestPriority
-                        and dist < bestDist)
-                then
-                    bestZone = zone
-                    bestPriority = priority
-                    bestDist = dist
-                    bestObj = obj
-                end
-            end
-        end
-        return false  -- always continue: want best furniture, not first
-    end)
-
-    return bestObj
-end
-
--- V5.4: how long a queued rest is held before the cycle is handed back.
--- This is a wedge guard, not the intended length: AutoPilot_Needs.check
--- releases the hold as soon as endurance reaches ENDURANCE_REST_TARGET.
--- Read live from constants so the options slider applies without a reload.
-local function restHoldFrom(ms)
-    local hold = tonumber(AutoPilot_Constants.REST_HOLD_MS) or 0
-    if hold <= 0 then hold = 60000 end
-    return ms + hold
-end
-
--- Code-health seam (2026-07-20): restCooldownMs is read AND written from two
--- places that do not otherwise share any state -- doRest's own redundant
--- early-exit, and AutoPilot_Needs.check()'s V5.4 rest-hold gate, which reads
--- it to decide whether to keep holding, and clears it early when endurance
--- has recovered. That is exactly the kind of cross-cutting entanglement that
--- blocked extracting doRest into its own module the way doEat/doDrink and
--- doSleep already were (both had zero external readers/writers). These three
--- functions are the seam: naming what was previously bare variable access so
--- a future move only has to relocate this block, not redesign it. No
--- behavior changes here -- doRest and check() still do exactly what they did,
--- just through a name instead of a shared local.
-local function _isRestHoldActive(nowMs)
-    return nowMs < restCooldownMs
-end
-
-local function _extendRestHold(nowMs)
-    restCooldownMs = restHoldFrom(nowMs)
-end
-
-local function _clearRestHold()
-    restCooldownMs = 0
-end
-
---- Queue a rest.
---- @param player   the character
---- @param sitOnly  when true, beds are skipped: this is the V5.4
----                 sit-to-recover path, which must not put a merely winded
----                 character to sleep.
-local function doRest(player, sitOnly)
-    local ok, now = pcall(function()
-        return getGameTime():getCalender():getTimeInMillis()
-    end)
-    local ms = ok and now or 0
-
-    if _isRestHoldActive(ms) then
-        -- Still inside the hold from an earlier rest: nothing new is queued,
-        -- but the cycle IS a rest, so the reported activity has to say so.
-        -- Without this write the panel could still be showing whatever the
-        -- trainer last set before the rest began (the V5.8 report).
-        _setActivity("resting (recovering endurance)")
-        return true  -- still resting, skip silently
-    end
-
-    local function queueGroundRest()
-        if not ISSitOnGround or not ISSitOnGround.new then
-            return false
-        end
-        local okSit, sitAction = pcall(function()
-            local sq = player and player.getCurrentSquare and player:getCurrentSquare() or nil
-            return ISSitOnGround:new(player, sq)
-        end)
-        if okSit and sitAction then
-            print("[Needs] Exhausted — no furniture found; sitting on ground to recover.")
-            AutoPilot_Utils.queueModAction(sitAction)
-            _setActivity("resting (sitting on the ground)")
-            return true
-        end
-        return false
-    end
-
-    local target = findRestFurniture(player, sitOnly)
-    if not target then
-        -- V5.4: the ground is ALWAYS an option.  The user's report asked for
-        -- exactly this ("they should at least sit on the ground"), and before
-        -- V5.4 the inside-home-only furniture filter plus the 30% gate meant
-        -- this fallback was almost never reached.
-        if queueGroundRest() then
-            _extendRestHold(ms)
-            return true
-        end
-        print("[Needs] Exhausted but no valid rest furniture found; skipping rest.")
-        return false
-    end
-
-    local targetSq = target:getSquare()
-    if not targetSq then
-        print("[Needs] Rest target has no square; skipping rest.")
-        return false
-    end
-
-    ISTimedActionQueue.clear(player)
-
-    local queued = false
-
-    local okBed, isBed = pcall(function()
-        return target:getSprite()
-            and target:getSprite():getProperties()
-                :has(IsoFlagType.bed)
-    end)
-
-    if okBed and isBed then
-        print("[Needs] Exhausted — using nearby bed to recover.")
-        -- B42 sleep goes through ISWorldObjectContextMenu.onSleepWalkToComplete,
-        -- which takes the 0-based player index (not the player object) and handles
-        -- the walk-to + setAsleep, including MP SleepAllowed checks.
-        local pnum = player:getPlayerNum()
-        if AdjacentFreeTileFinder.isTileOrAdjacent(player:getCurrentSquare(), targetSq) then
-            ISWorldObjectContextMenu.onSleepWalkToComplete(pnum, target)
-            queued = true
-        else
-            local adjacent = AdjacentFreeTileFinder.Find(targetSq, player)
-            if adjacent then
-                local walkAction = ISWalkToTimedAction:new(player, adjacent)
-                walkAction:setOnComplete(ISWorldObjectContextMenu.onSleepWalkToComplete, pnum, target)
-                AutoPilot_Utils.queueModAction(walkAction)
-                queued = true
-            end
-        end
-        if queued then _setActivity("resting (using a bed)") end
-    else
-        print("[Needs] Exhausted — resting using nearby furniture.")
-
-        -- ── V5.8: queue ONE action, and let it be the one that SEATS ────────
-        --
-        -- User report, with a screenshot: "Text says resting, but character is
-        -- not sitting in the chair as expected" -- standing in the middle of
-        -- the room, an empty chair right beside her, HUD reading "Resting".
-        --
-        -- Through V5.7 this branch queued BOTH of the calls below, back to
-        -- back, and that is self-defeating:
-        --
-        --   * ISPathFindAction:pathToSitOnFurniture(character, furniture, cb)
-        --     is the only one of the two whose recorded semantics include
-        --     both halves of what this branch wants: it WALKS the character
-        --     to the furniture and SEATS them on it.  It is the same call
-        --     shape the mock has recorded since the V3.2 API audit.
-        --
-        --   * ISRestAction:new(character, bed, useAnimations) does no
-        --     pathing at all.  Queued behind the seat action it is at best
-        --     redundant, and a second timed action behind a sit is exactly
-        --     the situation the mod's own exercise path uses
-        --     ISTimedActionQueue.addGetUpAndThen for ("stands the character
-        --     up from any furniture before..."), i.e. the engine's own way
-        --     of running a follow-up action is to STAND UP first.  A
-        --     standing character reading "Resting" is precisely what was
-        --     reported.
-        --
-        -- The `useAnimations` argument compounded it: the mod passed nil,
-        -- which is falsy, so even the rest action itself ran with its
-        -- animations suppressed.  It is only reachable now as the fallback
-        -- below, and it passes `true` there.
-        --
-        -- The ground fallback settles the design question: it queues
-        -- ISSitOnGround ALONE, with no rest action chaser, and that is the
-        -- path V5.4 shipped as the guaranteed recovery floor.  The mod's
-        -- model of resting is "be seated"; the furniture branch now matches
-        -- it instead of contradicting it.
-        if ISPathFindAction and ISPathFindAction.pathToSitOnFurniture then
-            local okPath, pathAction = pcall(function()
-                return ISPathFindAction:pathToSitOnFurniture(player, target, nil)
-            end)
-            if okPath and pathAction then
-                AutoPilot_Utils.queueModAction(pathAction)
-                queued = true
-            end
-        end
-
-        if not queued and ISRestAction and ISRestAction.new then
-            -- Fallback only: reached when the seat action is unavailable or
-            -- refused the furniture.  Real 42.19 signature
-            -- (shared/TimedActions/ISRestAction.lua:245):
-            -- ISRestAction:new(character, bed, useAnimations).  The 3rd
-            -- argument is passed `true` now: nil is falsy, and a rest with
-            -- its animations disabled is a rest performed standing up.
-            local okRest, restAction = pcall(function()
-                return ISRestAction:new(player, target, true)
-            end)
-            if okRest and restAction then
-                AutoPilot_Utils.queueModAction(restAction)
-                queued = true
-            end
-        end
-
-        if queued then _setActivity("resting (seated on furniture)") end
-    end
-
-    if not queued then
-        if queueGroundRest() then
-            _extendRestHold(ms)
-            return true
-        end
-        print("[Needs] Unable to queue a safe rest action.")
-        return false
-    end
-
-    -- V5.4: was `ms + 60000`, i.e. sixty IN-GAME seconds (the clock is
-    -- getGameTime():getCalender()), so the character stood back up after about
-    -- one game minute and recovered nothing.  Now it holds up to
-    -- REST_HOLD_MS and check() releases early at ENDURANCE_REST_TARGET.
-    _extendRestHold(ms)
-    return true
-end
-
+-- findRestFurniture/restHoldFrom/doRest (and the restCooldownMs seam
+-- functions) moved to AutoPilot_Rest.lua (code-health split, 2026-07-20,
+-- third slice); see that file's header.
 -- getBedObjectOnSquare/_findBedNearby/doSleep moved to AutoPilot_Sleep.lua
 -- (code-health split, 2026-07-20, second slice); see that file's header.
+
+--- Delegates to AutoPilot_Rest, which now owns the seating classification.
+--- Public API kept here unchanged: test_priority_logic.lua and any external
+--- caller still reach it as AutoPilot_Needs.seatPriorityForSprite.
+function AutoPilot_Needs.seatPriorityForSprite(spriteName)
+    return AutoPilot_Rest.seatPriorityForSprite(spriteName)
+end
 
 -- Walk to the nearest outdoor square to relieve boredom.
 local function doGoOutside(player)
@@ -570,7 +270,7 @@ local function doSeekShelter(player)
     end
 
     print("[Needs] No home shelter available; resting in place while outside.")
-    return doRest(player)
+    return AutoPilot_Rest.doRest(player)
 end
 
 -- ── Reading (boredom/unhappiness relief) ────────────────────────────────────
@@ -1338,7 +1038,7 @@ function AutoPilot_Needs.check(player)
     local enduranceMoodle = safeMoodleLevel(player, MoodleType.ENDURANCE)
     if endurance <= ENDURANCE_REST_MIN or enduranceMoodle >= 3 then
         AutoPilot_Telemetry.setDecision("rest", "low_endurance")
-        return doRest(player)
+        return AutoPilot_Rest.doRest(player)
     end
 
     -- 6b. V5.4: hold an in-progress rest so the character actually stays
@@ -1352,7 +1052,7 @@ function AutoPilot_Needs.check(player)
     local okNow, nowMs = pcall(function()
         return getGameTime():getCalender():getTimeInMillis()
     end)
-    if okNow and _isRestHoldActive(nowMs) then
+    if okNow and AutoPilot_Rest.isRestHoldActive(nowMs) then
         local restTarget = tonumber(AutoPilot_Constants.ENDURANCE_REST_TARGET) or 0
         if endurance < restTarget then
             AutoPilot_Telemetry.setDecision("rest", "rest_cooldown")
@@ -1363,7 +1063,7 @@ function AutoPilot_Needs.check(player)
             return true  -- still resting; keep recovering
         end
         -- Recovered ahead of the maximum hold: stand up and resume the chain.
-        _clearRestHold()
+        AutoPilot_Rest.clearRestHold()
         print(string.format(
             "[Needs] Endurance recovered to %.0f%%; ending rest.", endurance * 100))
     end
@@ -1453,7 +1153,7 @@ function AutoPilot_Needs.check(player)
         print(string.format(
             "[Needs] Endurance %.0f%% below sit threshold %.0f%%; sitting to recover.",
             endurance * 100, sitMin * 100))
-        if doRest(player, true) then return true end
+        if AutoPilot_Rest.doRest(player, true) then return true end
         -- Could not sit at all (no furniture, no ground square): fall through
         -- rather than burn the cycle.
     end
@@ -1556,7 +1256,7 @@ end
 
 --- @param sitOnly  V5.4: true to skip beds (sit-to-recover semantics).
 function AutoPilot_Needs.forceRest(player, sitOnly)
-    return doRest(player, sitOnly)
+    return AutoPilot_Rest.doRest(player, sitOnly)
 end
 
 function AutoPilot_Needs.forceExercise(player)

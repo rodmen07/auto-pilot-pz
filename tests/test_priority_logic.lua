@@ -81,6 +81,12 @@ dofile("42/media/lua/client/AutoPilot_Consumption.lua")
 -- AutoPilot_Needs.check/forceSleep now call into it).
 dofile("42/media/lua/client/AutoPilot_Sleep.lua")
 
+-- Real Rest (doRest moved here in the same split's third slice, after a
+-- prior increment gave restCooldownMs a seam so check()'s V5.4 rest-hold
+-- gate could call across the module boundary; AutoPilot_Needs.check/
+-- forceRest/seatPriorityForSprite now call into it).
+dofile("42/media/lua/client/AutoPilot_Rest.lua")
+
 -- ── Load the module under test ────────────────────────────────────────────────
 dofile("42/media/lua/client/AutoPilot_Needs.lua")
 
