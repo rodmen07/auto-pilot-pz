@@ -1,19 +1,19 @@
 # AutoPilot Leveler Roadmap
 
-**Status:** V3.3 shipped, pushed, and published to Steam Workshop (id 3767254910) on 2026-07-18.
-**Direction:** STABILIZE (V3.4-V3.8), then EXPAND (V4.0 track, user-gated). This file supersedes `EXPANSION_ROADMAP.md` (the old V1.1-V2.0 expansion plan) as of 2026-07-18.
-**Cadence:** roughly one minor version per week; each milestone below is sized for one or two small PRs.
+**Status:** Code and packaged builds are current through V5.8 (`mod.info` modversion 5.8, 2026-07-20; `CHANGELOG.md` is the authoritative shipped record). Workshop item 3767254910 was published at V3.3 on 2026-07-18; later Workshop updates are USER-ONLY (`sync_workshop.sh` plus in-game "Update Item") and not verifiable from this environment — confirm the live Workshop version in-game before assuming parity with the code.
+**Direction:** The V3.4-V3.7 stabilize track and the entire V4.0-approved expansion track (V4.1-V4.9) are COMPLETE. V3.8 preparation is the only stabilize item still open (execution stays gated). A user-directed scope cut (V5.0) and five bug-driven hardening releases (V5.1-V5.8) followed. No further expansion is currently approved; see "Next milestones" below. This file supersedes `EXPANSION_ROADMAP.md` (the old V1.1-V2.0 expansion plan) as of 2026-07-18.
+**Cadence:** each milestone is sized for one or two small PRs, ordered by dependency and user gates, never by calendar time — agent execution runs far faster than a planned weekly cadence (the V4.1-V5.8 arc below shipped in about a day and a half).
 
 ---
 
-## Current state (as of 2026-07-18)
+## Current state (as of 2026-07-20)
 
 AutoPilot Leveler is an auto-EXERCISE leveler for Project Zomboid Build 42 (pzversion 42.19.0, unstable branch):
 
-- Auto / Strength / Fitness focus, F10 arm/disarm, F11 metrics panel with live status, equipment exercises (dumbbell press, biceps curl, barbell curl) with a daily gear fetch from home containers, PZAPI.ModOptions sliders and rebindable keys.
-- Always-on survival FAIL-SAFE (eat, drink, sleep, flee, medical) plus death learning (DeathLog + Adaptive bounded threshold tuning).
-- OFF by default. MP-compatible, client-side only. Splitscreen support was removed in V3.2.
-- 17 Lua modules under `42/media/lua/client/`; 9 Lua test suites (194 assertions, all green) plus Python tests; luacheck clean.
+- Auto / Strength / Fitness focus, F10 arm/disarm (protected by the V4.5 ownership registry so the mod never touches an action it did not queue), F11 metrics panel with live status and a session-history trend line, an on-screen action/intention HUD, equipment exercises with a daily gear fetch from home containers (worn and carried containers are now searched too, not just top-level inventory), configurable weekly training programs, PZAPI.ModOptions sliders and rebindable keys registered on `Events.OnMainMenuEnter` with an `OnTick` fallback (V5.5 fix — they previously never reached the in-game menu).
+- Always-on survival FAIL-SAFE (eat, drink, sleep, flee, medical) with configurable hunger/thirst thresholds, an endurance-recovery floor for the 30-50 percent dead zone, death learning (DeathLog + Adaptive bounded threshold tuning), and combat where fight and flee share one engage guard (V5.6 fix — the queue was previously cleared every tick, so neither could complete).
+- OFF by default. MP-compatible, client-side only. Splitscreen support was removed in V3.2. Barricading and woodworking were removed in V5.0 (artifact of the old broader-survival scope).
+- 17 Lua modules under `42/media/lua/client/` (`AutoPilot_Barricade.lua` removed in V5.0, `AutoPilot_SessionHistory.lua` added in V4.2 — the count held steady); 14 Lua test suites, 1106 assertions, 0 failures (verified 2026-07-20); luacheck clean across 17 files; Python tooling suite green aside from two long-known-stale console-log assertions excluded from CI (tracked in the AutoPilot backlog `## Bugs`).
 
 ### Shipped 2026-07-18 (the pivot-and-stabilize burst)
 
@@ -26,11 +26,23 @@ All of V2.1 through V3.3 shipped on 2026-07-18; `CHANGELOG.md` is the authoritat
 - **V3.3** (commit eef62ec): equipment exercises with vanilla prop equipping, daily equipment fetch, live F11 status line + sets/day + regularity + arm/disarm button, ModOptions sliders and rebindable keys, fix for load-time constant caching that made Adaptive tuning partially inert, telemetry log rotation past 20k lines.
 - **Tooling and publish:** `sync_workshop.sh` Workshop staging builder (commit 0e3e275), Workshop description refreshed to the leveler identity (commit 8e988fa), mod published to Steam Workshop id 3767254910.
 
+### Shipped 2026-07-19 to 2026-07-20 (stabilize completion, full V4.0 expansion, and bug-driven hardening)
+
+`CHANGELOG.md` carries the full detail per release; this is the rollup the "Next milestones" section below used to promise on a weekly cadence and instead shipped in about a day and a half of agent execution:
+
+- **V3.4-V3.7 (stabilize track, PRs #13-#20, #27):** glob-driven test discovery in CI and `check.sh`, a mock-surface audit that caught a stale `ISApplyBandage` signature, nine doc-vs-code corrections, an `architecture.md` rewrite, `triage_run_log.py` plus a fixture and pattern-detector catalog, a validated GitHub issue template, and `FEEDBACK.md`. V3.8 remains **prepared, not executed** — see below.
+- **V4.0 (PR #21):** expansion proposal drafted and approved with defaults — C2+C6 (V4.1), C5 (V4.2), C3 (V4.3) accepted; C1 gated on user in-game SkillBook verification; C4 deferred.
+- **V4.1-V4.3 (PRs #22-#24):** Woodwork+Doctor XP visibility (later reversed by V5.0), F11 session history with a trend sparkline, five weekly training presets.
+- **V4.4-V4.5 (PRs #28, #26):** the on-screen action/intention HUD; the ownership registry (weak-keyed, GC-safe, all ~30 queue sites routed through it) so the mod never touches a foreign action; an armed-intervention backoff; an F10 panic stop that clears any running exercise.
+- **V4.6-V4.9:** XP-gated training with an opt-in daily set cap; configurable hunger/thirst thresholds; a real user-reported bug where worn and carried containers were invisible to `findBandage` and every inventory selector (V4.8), a transfer-before-use follow-up (V4.9), and a V5.1 hotfix guarding the container type-check.
+- **V5.0 (PR #34):** user-directed scope cut — barricading and woodworking removed entirely (`AutoPilot_Barricade.lua` deleted, the priority-10 maintenance slot gone, telemetry schema v3 to v4).
+- **V5.2-V5.8:** auto-days prefer carried equipment over burpees; version visibility in the F11 panel and the Workshop description; an endurance-recovery floor for the 30-50 percent dead zone; two more real user-reported bugs fixed — mod options never reaching the in-game menu (now registered on `Events.OnMainMenuEnter`, was load-time-only before) and combat clearing its own action queue every tick so neither fighting nor fleeing could complete (fight and flee now share one engage guard); the user's tuned option defaults adopted; a rest bug where the character was reported "resting" while still standing, fixed by queuing one sit-and-rest action instead of two, plus a single shared activity string so the F11 panel and the HUD can no longer disagree.
+
 ---
 
 ## Direction and standing non-goals
 
-The near-term direction is **stabilize**: harden CI, make the docs truthful, build triage tooling for the now-public Workshop audience, and prepare (but not execute) the Build 42.20 migration. The standing emphasis after that is **expansion** (user direction, 2026-07-18): grow the mod's capability through the V4.0 proposal track below rather than stopping at maintenance. Expansion routes through an approved proposal, never ad-hoc module resurrection.
+Stabilize (V3.4-V3.7) and the full V4.0-approved expansion track (V4.1-V4.9) are both **complete** (2026-07-20); V3.8 preparation is the only stabilize item still open, and its execution stays gated. With no further expansion currently approved, the near-term direction is **harden and maintain**: fix real in-game bug reports (the AutoPilot backlog `## Bugs` section is the queue), keep docs and this roadmap truthful, and split the code-health hotspot files preflight C10 flags (`AutoPilot_Needs.lua`, `AutoPilot_Inventory.lua`) when doing so would unblock parallel work. A new expansion track resumes only through a fresh proposal reviewed the same way V4.0 was, never ad-hoc module resurrection.
 
 Standing non-goals (do NOT plan these without explicit user direction):
 
@@ -43,71 +55,27 @@ Standing non-goals (do NOT plan these without explicit user direction):
 
 ---
 
-## Next milestones
+## Completed milestones
 
-### V3.4: CI and test durability (agent-doable now)
-
-Locks in the stabilize direction: make it impossible for test coverage to silently rot, and keep the mock as the guard against another phantom-signature incident.
-
-- Replace the hardcoded 9-file Lua test list in `.github/workflows/ci.yml` (lines 59-68) with glob-driven discovery of `tests/test_*.lua`, failing the job if zero files are found.
-- Apply the same glob to the `LUA_TEST_FILES` array in `check.sh` (lines 109-118) so local and CI runs cannot diverge.
-- Simplify the pytest `--ignore` lists in `ci.yml` and `check.sh`: pytest does not collect `.lua` files, so the lists are dead weight and are already inconsistent between the two.
-- Audit `tests/lua_mock_pz.lua` against every PZ API callsite in `42/media/lua/client/` (special attention: `ISFitnessAction:new` table-4th/string-5th, `ISTimedActionQueue.addGetUpAndThen`, `ISRestAction` 3-arg, `PZAPI.ModOptions`) and record the verified 42.19 surface in the mock's header comment.
-- Slicing: PR1 = glob-driven CI + check.sh + pytest cleanup; PR2 = mock audit.
-- **Done when:** adding a 10th `tests/test_*.lua` file is picked up by both CI and `check.sh` with no list edits, and the mock header documents the verified 42.19 API surface.
-
-### V3.5: docs truth pass to V3.3 (agent-doable now)
-
-Every user-facing doc should describe the mod that actually shipped; the README currently contradicts `mod.info` and lists a deleted module.
-
-- `README.md`: fix "Current modversion: 1.1" (line 128) to 3.3; remove deleted `AutoPilot_Actions.lua` from Core Runtime Modules and add Leveler / XP / UI / DeathLog / Adaptive / Options; delete the splitscreen telemetry file lines (`_p1`..`_p3`); replace the "grows unbounded" log claim with the V3.3 rotation behavior (rotates past 20k lines, keeps newest 5k).
-- `TESTING.md`: retitle from V3.2 to V3.3 and fold the "V3.3 Additions" section into the main checklist so it reads as one current pass.
-- `WORKSHOP.md`: update the Known Limitations telemetry line (log rotates since V3.3) and add a line for ModOptions sliders and rebindable keys.
-- `MULTIPLAYER.md`: replace the `WorkshopItems=<your-workshop-id>` placeholder (line 33) with the published id 3767254910; the rest of the file already matches V3.2+ behavior.
-- `docs/architecture.md`: retitle from v2.0; update the module ownership map to the current 17 modules; remove the Splitscreen Safety section. Accuracy matters here because `release.yml` packages this file into release zips.
-- `PHASE1_SUMMARY.md`: add a two-line superseded banner at the top pointing here (the four modules it celebrates were deleted in V3.1); leave the historic content intact.
-- Slicing: PR1 = README + TESTING + WORKSHOP + MULTIPLAYER + PHASE1_SUMMARY banner; PR2 = architecture.md.
-- **Done when:** no shipped doc names a deleted module, claims modversion 1.1, or describes splitscreen or unbounded logs as current behavior.
-
-### V3.6: telemetry triage helper (agent-doable now)
-
-`auto_pilot_run.log` is the debugging goldmine (it found the V3.2 scavenging-starvation bug); a summarizer turns hours of log reading into minutes.
-
-- Add a small standalone script (e.g. `triage_run_log.py` next to `benchmark.py`) that summarizes `auto_pilot_run.log`: per-action counts, action/reason transition table, training vs resting vs survival time split, threat events, and STR/FIT level deltas per session.
-- Emit a "suspicious patterns" section: long single-action streaks, zero-XP training loops, repeated flee cycles, empty-loot spirals.
-- Add a pytest for the parser against a fixture log excerpt.
-- Document usage in README's Telemetry section; leave `benchmark.py` untouched.
-- Slicing: PR1 = script + fixture test; PR2 = README doc + pattern rules.
-- **Done when:** running the script on a real session log prints the summary and pattern sections, and its parser test passes in CI.
-
-### V3.7: Workshop feedback triage process (mostly agent-doable)
-
-The mod is public as of 2026-07-18 (id 3767254910); reports will arrive and each one needs the same evidence to be actionable.
-
-- Add `.github/ISSUE_TEMPLATE/bug_report.yml` capturing: pzversion, SP or MP, `console.txt` excerpt, `auto_pilot_run.log` excerpt, `auto_pilot_deaths.log` lines, and mod options changed from defaults.
-- Add a short `FEEDBACK.md` triage guide mapping common report types (mod does nothing, exercise never starts, panel dead, died while AFK) to the log evidence and the test suite that isolates each.
-- USER-ONLY: reading and answering Workshop comments and deciding which reports become GitHub issues.
-- **Done when:** a new GitHub issue opened via the template contains every field the triage guide needs.
+V3.4 through V3.7, V4.0 through V4.9, and V5.0 through V5.8 are all complete — see the "Shipped" sections above and `CHANGELOG.md` for full per-release detail. The one stabilize-track item not yet done:
 
 ### V3.8: B42.20-stable readiness (prepare now, execute BLOCKED)
 
-Build 42.20 was announced as the stable candidate on 2026-07-09, and 42.19 saves will not carry over, so the migration moment is a real event that deserves a script. The checklist can be written today; running it is gated (see Blocked).
+Build 42.20 was announced as the stable candidate on 2026-07-09, and 42.19 saves will not carry over, so the migration moment is a real event that deserves a script. The checklist can be written today; running it is gated (see Blocked). **Not started as of 2026-07-20** — `docs/b42_20_checklist.md` does not exist yet.
 
-- Write `docs/b42_20_checklist.md` listing every API surface to re-verify on 42.20: `ISFitnessAction:new` signature, exercise definitions and xpMod values, `PZAPI.ModOptions`, `getSpecificPlayer`, sleep flow (`onSleepWalkToComplete`), `ISRestAction` 3-arg, `ISTimedActionQueue.addGetUpAndThen`, and the `inventory:contains` equipment gate.
+- Write `docs/b42_20_checklist.md` listing every API surface to re-verify on 42.20: `ISFitnessAction:new` signature, exercise definitions and xpMod values, `PZAPI.ModOptions`, `getSpecificPlayer`, sleep flow (`onSleepWalkToComplete`), `ISRestAction` 3-arg, `ISTimedActionQueue.addGetUpAndThen`, `ISPathFindAction:pathToSitOnFurniture` (added V5.8), and the `inventory:contains` equipment gate plus the recursive worn/carried container scan added in V4.8/V4.9/V5.1.
 - Include the mechanical steps: bump pzversion in both `mod.info` files, update Workshop tags/description, full TESTING.md pass including the soak test, then Workshop update.
 - BLOCKED (execution): do not run the checklist until Build 42.20 is the Steam default AND the user explicitly decides to migrate.
 - USER-ONLY: the migration decision, all in-game verification, and the Workshop "Update Item" upload.
 - **Done when (preparation):** the checklist file exists and covers every API surface the mod touches; execution has its own gate above.
 
-### V4.0: expansion track kickoff (agent-doable proposal; implementation user-gated)
+## Next milestones
 
-The V3.1 trim was about shedding the broad-survival identity, not about the mod staying small. This milestone restarts deliberate expansion under the leveler identity, grounded in verified 42.19 APIs.
+No expansion milestone is currently approved. The actionable next steps, tracked in the AutoPilot backlog (`d:\Projects\.claude\skills\autodev\backlogs\autopilot-pz.md`), ordered by dependency rather than a calendar:
 
-- **Proposal drafted 2026-07-19:** see [docs/EXPANSION_PROPOSAL_V4.md](docs/EXPANSION_PROPOSAL_V4.md) (six costed candidates with verdicts and a per-candidate decision section; awaiting user accept/reject).
-- Draft `docs/EXPANSION_PROPOSAL_V4.md`: candidate features with effort, risk, and the exact API surface each needs. Starting candidates: skill-book reading (SkillBook table + ISReadABook, with the Carpentry=Woodwork / FirstAid=Doctor / Foraging=PlantScavenging perk-name mapping), carpentry XP via the existing barricade pass (shipped as V4.1 C2, then removed in V5.0 with barricading), configurable training programs and schedules, richer Adaptive strategies from accumulated death-log data, and F11 panel upgrades (session history, per-perk ETAs).
-- Every candidate must respect the standing non-goals (no direct addXp, no LLM sidecar, no splitscreen) and cite runtime-verified API facts, never phantom reads.
-- USER-ONLY: choosing which proposals proceed; each approved feature becomes its own V4.x milestone with one-or-two-PR slices.
-- **Done when:** the proposal doc exists with at least five costed candidates and the user has marked accept or reject on each.
+- V3.8 preparation above (agent-doable now, no dependency).
+- A behavior-preserving, verbatim-move-first split of the code-health hotspots preflight C10 flags: `AutoPilot_Needs.lua` (1854 lines) and `AutoPilot_Inventory.lua` (1038 lines).
+- A fresh expansion proposal, only if the user wants to grow capability again, drafted and reviewed the same way `docs/EXPANSION_PROPOSAL_V4.md` was — never ad-hoc module resurrection.
 
 ---
 
