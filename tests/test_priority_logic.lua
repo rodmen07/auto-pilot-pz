@@ -87,6 +87,13 @@ dofile("42/media/lua/client/AutoPilot_Sleep.lua")
 -- forceRest/seatPriorityForSprite now call into it).
 dofile("42/media/lua/client/AutoPilot_Rest.lua")
 
+-- AutoPilot_Exercise.lua: doExercise and the trainer state (code-health
+-- split, 2026-07-20, fourth slice). Unlike doRest, no separate seam PR was
+-- needed -- check()'s three touch points (syncSetsCounter, isInTrainingRun,
+-- enduranceResumeGate) were already named functions before the move, not
+-- bare variable reads.
+dofile("42/media/lua/client/AutoPilot_Exercise.lua")
+
 -- ── Load the module under test ────────────────────────────────────────────────
 dofile("42/media/lua/client/AutoPilot_Needs.lua")
 
