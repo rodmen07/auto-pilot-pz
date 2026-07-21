@@ -62,10 +62,16 @@ DEFAULT_LOG = Path.home() / "Zomboid" / "Lua" / "auto_pilot_run.log"
 # sync-guarded against the Lua REASON_CLASS table, precisely so it can retain
 # labels the runtime no longer emits.
 #
-# NOTE: "scavenge" and "barricade" are absent from the Lua REASON_CLASS table,
-# so telemetry lines for them carry class=idle.  This map intentionally files
-# them under "survival" (they are supply/base upkeep, not idle time), which is
-# why the split is computed from the action label rather than the class field.
+# NOTE (stale claim corrected 2026-07-20): "scavenge" was absent from the Lua
+# REASON_CLASS table through PR #19, so pre-fix telemetry lines for it carry
+# class=idle; the live table has classified it class=survival since (PR #19,
+# both the Lua and this file's benchmark.py sibling). "barricade" never
+# rejoined the table after V5.0 removed the feature, so historical logs
+# recorded before that removal still carry class=idle for it. Either way this
+# map intentionally files both under "survival" (they are supply/base upkeep,
+# not idle time), which is why the split is computed from the action label
+# rather than the class field — that choice holds regardless of what any
+# given log's class= value says.
 ACTION_CATEGORY: dict[str, str] = {
     # training - the mod's primary purpose (Needs step 8)
     "exercise":  "training",
@@ -83,7 +89,7 @@ ACTION_CATEGORY: dict[str, str] = {
     "outside":   "survival",    # wellness upkeep
     "happiness": "survival",    # legacy REASON_CLASS label
     "loot":      "survival",    # legacy REASON_CLASS label
-    "scavenge":  "survival",    # Needs step 9 (class=idle in the raw log)
+    "scavenge":  "survival",    # Needs step 9 (class=survival since PR #19; class=idle in logs predating it)
     "barricade": "survival",    # historical: removed from the mod in V5.0
     "combat":    "survival",
     "fight":     "survival",    # legacy REASON_CLASS label

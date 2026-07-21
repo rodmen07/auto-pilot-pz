@@ -1757,12 +1757,6 @@ function AutoPilot_Needs.check(player)
     return false
 end
 
--- ── Public aliases for chain-action use ──────────────────────────────────────
--- AutoPilot_Actions.lua references these so it can delegate without duplicating
--- the full bed-search and outdoor-square-search logic.
-AutoPilot_Needs.trySleep    = doSleep
-AutoPilot_Needs.tryGoOutside = doGoOutside
-
 --- Return how many consecutive empty loot cycles have accumulated (Phase 3).
 function AutoPilot_Needs.getEmptyLootCycles()
     return _emptyLootCycles

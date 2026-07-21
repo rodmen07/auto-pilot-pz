@@ -168,8 +168,6 @@ AutoPilot_Needs = {
         return AutoPilot_Needs._returnVal
     end,
     shouldInterrupt = function(_player) return false end,
-    trySleep        = function(_player) return false end,
-    tryGoOutside    = function(_player) return false end,
     preferredExerciseType = function(_player) return "either" end,
     -- Real signature already relied on by AutoPilot_UI (F11 panel); the
     -- V4.4 intention accessor reads the same call.  Configurable per test.
