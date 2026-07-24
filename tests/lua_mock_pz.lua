@@ -495,13 +495,32 @@ ISApplyBandage = {
 -- action.  The stub records the furniture it was handed (V5.8) so tests can
 -- assert WHICH seat was chosen, and its type says "seated", not "walked".
 ISPathFindAction = {
-    pathToSitOnFurniture = function(_, player, furniture, _)
-        -- Return a stub path-to-seat action; callbacks are ignored in tests.
-        local action = { type = "sit_furniture", target = furniture }
-        action.setOnComplete = function(self, ...) end
+    pathToSitOnFurniture = function(_, player, furniture, _anyGrid)
+        -- Stub path-to-seat action.  It exposes goalFurnitureObject (the furniture
+        -- the pathfinder resolved) and RECORDS setOnComplete so a test can fire the
+        -- ISRestAction chaser the mod binds (AutoPilot_Rest._seatAfterPath), which
+        -- is what actually seats the character per the engine.
+        local action = { type = "sit_furniture", target = furniture,
+                         goalFurnitureObject = furniture }
+        action.setOnComplete = function(self, fn, ...) self.onComplete = { fn = fn, args = { ... } } end
         action.setOnFail     = function(self, ...) end
         action.addAfter      = function(self, _) return nil end
         return action
+    end,
+}
+
+-- SeatingManager: the engine's registry of sit positions per furniture object.
+-- AutoPilot_Rest.findRestFurniture prefers furniture the character can actually
+-- sit on (getTilePositionCount > 0).  Mock furniture carries an _seatData count
+-- (see mockFurniture in the test files); a test sets seatData=false for a dining
+-- chair the engine has no sit data for.
+SeatingManager = {
+    getInstance = function()
+        return {
+            getTilePositionCount = function(_self, obj)
+                return (obj and obj._seatData) or 0
+            end,
+        }
     end,
 }
 

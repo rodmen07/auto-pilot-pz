@@ -102,6 +102,7 @@ globals = {
     "ISPathFindAction",
     "ISRestAction",
     "AdjacentFreeTileFinder",
+    "SeatingManager",
     "ISSitOnGround",
 
     -- PZ B42 climate/weather globals

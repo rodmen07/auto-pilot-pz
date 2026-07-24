@@ -1505,7 +1505,7 @@ local function resetRest()
 end
 
 -- A world object whose sprite carries a name and, optionally, the bed flag.
-local function mockFurniture(spriteName, isBed, sq)
+local function mockFurniture(spriteName, isBed, sq, seatData)
     local sprite = {
         getName = function(_self) return spriteName end,
         getProperties = function(_self)
@@ -1519,6 +1519,10 @@ local function mockFurniture(spriteName, isBed, sq)
     return {
         getSprite = function(_self) return sprite end,
         getSquare = function(_self) return sq end,
+        -- SeatingManager sit-position count (see the SeatingManager mock).
+        -- Default 1 (sittable); a test passes seatData=false for a dining chair
+        -- the engine has no sit data for, so the character would rest standing.
+        _seatData = (seatData == false) and 0 or 1,
     }
 end
 
@@ -1528,7 +1532,7 @@ local function placeFurniture(specs)
         function(_cx, _cy, _cz, _radius, cb)
             for _, spec in ipairs(specs) do
                 local sq = {}
-                local obj = mockFurniture(spec.sprite, spec.bed, sq)
+                local obj = mockFurniture(spec.sprite, spec.bed, sq, spec.seatData)
                 sq.getObjects = function(_self) return makeArray({ obj }) end
                 sq.getX = function(_self) return spec.dx or 0 end
                 sq.getY = function(_self) return spec.dy or 0 end
@@ -1826,11 +1830,12 @@ do
         last_action_type(), nil)
 end
 
-print("\n-- Test V5.4-15: the 30% critical path still prefers a bed")
+print("\n-- Test V5.4-15: the critical rest sits on the NEAREST furniture, never sleeps")
 do
     resetRest()
-    local origAdjacent = AdjacentFreeTileFinder.isTileOrAdjacent
-    AdjacentFreeTileFinder.isTileOrAdjacent = function(_a, _b) return true end
+    -- V6 (user design 2026-07-24): RESTING = sit on any furniture, all types
+    -- equal, NEVER sleep.  With a bed at dx=3 and a bench at dx=1 the NEAREST
+    -- furniture (the bench) is chosen, and the action is the seat path, not sleep.
     placeFurniture({
         { sprite = "furniture_bedding_01_20", bed = true, dx = 3, dy = 0 },
         { sprite = "location_park_bench_01",  dx = 1, dy = 0 },
@@ -1838,27 +1843,24 @@ do
     local player = windedPlayer(0.20)
     assert_true("critically low endurance claims the cycle",
         AutoPilot_Needs.check(player))
-    assert_eq("the bed still wins below 30%, even next to a bench",
-        last_action_type(), "sleep")
-    AdjacentFreeTileFinder.isTileOrAdjacent = origAdjacent
+    assert_eq("the nearest furniture is used, and it is a sit, not sleep",
+        last_action_type(), "sit_furniture")
     noFurniture()
 end
 
-print("\n-- Test V5.4-16: the sit path never takes a bed")
+print("\n-- Test V5.4-16: the sit-to-recover path USES a bed as a seat, never sleeps")
 do
     resetRest()
-    local origAdjacent = AdjacentFreeTileFinder.isTileOrAdjacent
-    AdjacentFreeTileFinder.isTileOrAdjacent = function(_a, _b) return true end
+    -- V6 (user decision 2026-07-24, Q1): a merely-winded character USES a bed
+    -- when it is the available furniture -- it SITS on it via the seat path, it
+    -- does NOT sleep, and it does NOT sit on the floor next to it.
     placeFurniture({
         { sprite = "furniture_bedding_01_20", bed = true, dx = 1, dy = 0 },
     })
-    -- 40% is winded, not exhausted: putting the character to sleep in the
-    -- middle of the day would be worse than the idling this fix removes.
     local player = windedPlayer(0.40)
     AutoPilot_Needs.check(player)
-    assert_eq("a bed in the dead zone does NOT become sleep",
-        last_action_type(), "rest")
-    AdjacentFreeTileFinder.isTileOrAdjacent = origAdjacent
+    assert_eq("a bed is used as a seat (sit path), not sleep and not the ground",
+        last_action_type(), "sit_furniture")
     noFurniture()
 end
 
@@ -2310,28 +2312,36 @@ do
         queued[1].target:getSprite():getName(),
         "furniture_seating_indoor_chair_04")
 
-    -- The pre-V5.8 shape: a second, non-pathing rest action stacked behind
-    -- the sit, itself constructed with useAnimations = nil.
-    for _, act in ipairs(queued) do
-        assert_false("no rest action is stacked behind the sit",
-            act.type == "rest_furniture")
-    end
+    -- V6: the seat path's onComplete chains ISRestAction, which is what actually
+    -- SEATS the character (mirrors the engine's onRestPathFound).  V5.8 dropped
+    -- this chaser and seated nothing; fire the onComplete and prove it is bound.
+    local sitAction = queued[1]
+    assert_true("the seat action has an onComplete chaser bound",
+        sitAction.onComplete ~= nil)
+    sitAction.onComplete.fn(sitAction.onComplete.args[1], sitAction.onComplete.args[2])
+    local after = ISTimedActionQueue_calls[#ISTimedActionQueue_calls]
+    assert_eq("firing it queues the ISRestAction that seats the character",
+        after.type, "rest_furniture")
+    assert_eq("seated on the furniture the pathfinder resolved",
+        after.target:getSprite():getName(), "furniture_seating_indoor_chair_04")
+    assert_eq("with useAnimations = true so the sit-down animation plays",
+        after.useAnimations, true)
     noFurniture()
 end
 
-print("\n-- Test V5.8-2: the ISRestAction fallback never disables its animations")
+print("\n-- Test V5.8-2: with no seat pathfinder available, rest falls to the ground")
 do
     resetRest()
     placeFurniture({ { sprite = "furniture_seating_indoor_sofa_01", dx = 1, dy = 0 } })
-    -- Take the seat action away: the fallback is the only thing left.
+    -- Take the seat action away.  There is no ISRestAction "fallback" any more
+    -- (resting always goes through the pathfind+seat chain, mirroring the engine),
+    -- so the guaranteed safe floor is the ground-sit.
     local savedPath = ISPathFindAction.pathToSitOnFurniture
     ISPathFindAction.pathToSitOnFurniture = nil
     local player = windedPlayer(0.40)
     assert_true("check() still claims the cycle", AutoPilot_Needs.check(player))
-    local last = ISTimedActionQueue_calls[#ISTimedActionQueue_calls]
-    assert_eq("the fallback rest action is used", last.type, "rest_furniture")
-    assert_eq("useAnimations is TRUE, not the falsy nil that rested standing up",
-        last.useAnimations, true)
+    assert_eq("the ground-sit is the fallback when the seat pathfinder is gone",
+        last_action_type(), "rest")
     ISPathFindAction.pathToSitOnFurniture = savedPath
     noFurniture()
 end
@@ -2533,6 +2543,39 @@ do
     assert_true("check() acts on a realistic Unhappy moodle (level 2)", result)
     assert_eq("queues 'eat' (mood relief) for Unhappy 2, not exercise/idle",
         last_action_type(), "eat")
+end
+
+-- ── Rest seating-data preference (bug 2 core, 2026-07-24) ────────────────────
+-- Per the engine, ISRestAction only plays the sit-down animation on furniture
+-- that has SeatingManager sit data; a dining chair without it rests the character
+-- STANDING (the reported "Resting but standing" bug).  findRestFurniture now
+-- prefers furniture the character can actually sit on, all TYPES otherwise equal.
+print("\n-- Test: a sittable sofa is preferred over a NEARER un-sittable dining chair")
+do
+    resetRest()
+    placeFurniture({
+        { sprite = "furniture_seating_indoor_chair_04", dx = 1, dy = 0, seatData = false },
+        { sprite = "furniture_seating_indoor_sofa_01",  dx = 2, dy = 0 },
+    })
+    local player = windedPlayer(0.40)
+    assert_true("check() rests", AutoPilot_Needs.check(player))
+    local sit = ISTimedActionQueue_calls[#ISTimedActionQueue_calls]
+    assert_eq("the seat path is used", sit.type, "sit_furniture")
+    assert_eq("the SITTABLE sofa is chosen over the nearer no-seat-data chair",
+        sit.target:getSprite():getName(), "furniture_seating_indoor_sofa_01")
+    noFurniture()
+end
+
+print("\n-- Test: a lone un-sittable chair is still used (the preference is not a gate)")
+do
+    resetRest()
+    placeFurniture({
+        { sprite = "furniture_seating_indoor_chair_04", dx = 1, dy = 0, seatData = false },
+    })
+    AutoPilot_Needs.check(windedPlayer(0.40))
+    assert_eq("a no-seat-data chair still beats the ground for resting",
+        last_action_type(), "sit_furniture")
+    noFurniture()
 end
 
 -- ── Summary ───────────────────────────────────────────────────────────────────
