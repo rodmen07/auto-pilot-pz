@@ -30,7 +30,7 @@ AutoPilot_Telemetry = {}
 -- action and run_tick: triage coerces wood when present and never consumes
 -- it, and benchmark never listed it at all.  Existing v3 logs therefore keep
 -- parsing verbatim, and mixed v3/v4 files parse line by line.
-local SCHEMA_VERSION = 4
+local SCHEMA_VERSION = 5   -- v5 (2026-07-24): added the `speed` field (real game multiplier)
 
 -- ── Per-player state ───────────────────────────────────────────────────────────
 -- Keys are playerNum (0-based integer from player:getPlayerNum()).
@@ -251,15 +251,23 @@ function AutoPilot_Telemetry.logTick(player, action, reason)
     _pendingRetry[pnum]  = 0
 
     local s   = _collectStats(player)
+    -- NOTE: `ff` is a ZOMBIE-PRESENCE flag (active = a zombie was in this cycle's
+    -- cached scan), NOT fast-forward -- a historical misnomer that has misled
+    -- fast-forward investigations.  The real game speed is the separate `speed`
+    -- field (schema v5, 2026-07-24): 1 = normal, 5/20/40 = fast-forward x1/x2/x3
+    -- (getGameTime():getMultiplier()), so speed-related reports now carry evidence.
     local ff  = (s.zombies > 0) and "active" or "normal"
+    local speed = 1
+    pcall(function() speed = getGameTime():getMultiplier() end)
+    if type(speed) ~= "number" or speed < 1 then speed = 1 end
     local cls = _classifyAction(action)
 
     local line = string.format(
-        "schema_version=%d,player=%d,mode=autopilot,ff=%s,run_tick=%d,"
+        "schema_version=%d,player=%d,mode=autopilot,ff=%s,speed=%d,run_tick=%d,"
         .. "action=%s,reason=%s,class=%s,stage=%s,fail_reason=%s,retry_count=%d,"
         .. "hunger=%d,thirst=%d,fatigue=%d,endurance=%d,"
         .. "zombies=%d,bleeding=%d,str=%d,fit=%d,doc=%d",
-        SCHEMA_VERSION, pnum, ff, _runTick[pnum],
+        SCHEMA_VERSION, pnum, ff, speed, _runTick[pnum],
         action, reason, cls, stage, fail_reason, retry_count,
         s.hunger, s.thirst, s.fatigue, s.endurance,
         s.zombies, s.bleeding, s.str, s.fit, s.doc

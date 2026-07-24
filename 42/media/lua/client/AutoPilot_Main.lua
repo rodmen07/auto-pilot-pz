@@ -351,7 +351,18 @@ local function onTick()
         st.lastTickMs = nowMs
     end
 
-    st.tickCounter = (tonumber(st.tickCounter) or 0) + 1
+    -- FF-1 (2026-07-24): advance the cadence by the game-speed MULTIPLIER, not a
+    -- flat 1, so evaluations stay roughly constant per unit of GAME time at any
+    -- speed.  Fast-forward is getGameTime():setMultiplier(5/20/40); OnTick still
+    -- fires at ~20/s REAL, so a flat "+1 per frame, decide every 15 frames" made
+    -- decisions every ~0.75 s REAL = up to ~30 s of GAME time at 40x, leaving the
+    -- character unmonitored across long game windows.  Mirrors the engine idiom
+    -- (ISAnimalTracksFinder decrements its counter by getMultiplier() per tick).
+    -- mult defaults to 1, so normal (1x) speed is byte-for-byte unchanged.
+    local mult = 1
+    pcall(function() mult = getGameTime():getMultiplier() end)
+    if type(mult) ~= "number" or mult < 1 then mult = 1 end
+    st.tickCounter = (tonumber(st.tickCounter) or 0) + mult
     if st.tickCounter < (tonumber(TICK_INTERVAL) or 15) then return end
     st.tickCounter = 0
 

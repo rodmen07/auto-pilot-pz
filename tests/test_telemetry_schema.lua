@@ -139,12 +139,14 @@ do
     assert_eq("pending action is 'recover'", AutoPilot_Telemetry.getPendingAction(p), "recover")
 end
 
--- ── Test 8: schema v4 appends the doc perk level after fit ───────────
--- V4.1 (C6) put wood,doc after fit; V5.0 removed barricading and with it the
--- wood field, so the line now ends str,fit,doc at schema_version=4.
-print("\n=== Telemetry Test 8: schema v4 line carries doc after fit ===")
+-- ── Test 8: schema v5 line carries doc after fit + the real game-speed field ──
+-- V4.1 (C6) put wood,doc after fit; V5.0 removed barricading and with it the wood
+-- field; v5 (2026-07-24) adds the `speed` game-multiplier field after ff.  The
+-- line still ends str,fit,doc.
+print("\n=== Telemetry Test 8: schema v5 line carries doc after fit + real speed ===")
 do
     MockFiles["auto_pilot_run.log"] = nil
+    MockGameSpeed.set(1)
     local p = MockPlayer.new({
         playerNum = 0,
         stats = { HUNGER = 0.10, THIRST = 0.05, ENDURANCE = 0.90, FATIGUE = 0.10 },
@@ -155,13 +157,27 @@ do
     local f = MockFiles["auto_pilot_run.log"]
     assert_true("run-log line written", f ~= nil and #f.lines >= 1)
     local line = (f and f.lines[#f.lines]) or ""
-    assert_true("schema_version=4 emitted",
-        line:find("schema_version=4,", 1, true) ~= nil)
+    assert_true("schema_version=5 emitted",
+        line:find("schema_version=5,", 1, true) ~= nil)
     assert_true("doc appended after fit",
         line:find("str=1,fit=2,doc=3", 1, true) ~= nil)
     -- The player above still HAS Woodwork 4; the field must be gone anyway.
     assert_true("wood= is no longer emitted at any level",
         line:find("wood=", 1, true) == nil)
+    -- FF-2: the real game speed is recorded, defaulting to 1 at normal speed.
+    assert_true("speed field defaults to 1 at normal speed",
+        line:find("speed=1,", 1, true) ~= nil)
+
+    -- FF-2 behavior difference: under fast-forward the `speed` field carries the
+    -- real multiplier (the separate `ff` field is a zombie-presence misnomer).
+    MockFiles["auto_pilot_run.log"] = nil
+    MockGameSpeed.set(20)
+    AutoPilot_Telemetry.logTick(p, "exercise", "training")
+    local line2 = (MockFiles["auto_pilot_run.log"]
+        and MockFiles["auto_pilot_run.log"].lines[#MockFiles["auto_pilot_run.log"].lines]) or ""
+    assert_true("speed field carries the real multiplier under fast-forward (20)",
+        line2:find("speed=20,", 1, true) ~= nil)
+    MockGameSpeed.set(1)  -- restore
 end
 
 -- ── Test 9 (V5.0): barricade is gone from REASON_CLASS ─────────────────

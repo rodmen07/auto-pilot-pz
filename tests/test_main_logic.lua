@@ -982,6 +982,37 @@ do
         AutoPilot_UI.trainedExerciseFrom(nil), nil)
 end
 
+-- ── FF-1: evaluation cadence scales with game speed (2026-07-24) ─────────────
+-- Fast-forward is a GAME-TIME multiplier (getGameTime():setMultiplier(5/20/40)),
+-- NOT extra ticks; OnTick keeps firing at ~20/s real.  A flat +1 per frame made
+-- decisions every ~15 frames of REAL time = 5-40x fewer per game-minute under
+-- fast-forward (the character went unmonitored across long game windows).  onTick
+-- now advances the counter by getGameTime():getMultiplier(), so the SAME 3 frames
+-- reach the eval gate at 5x that would take 15 at 1x.  Behavior-difference proof.
+print("\n-- Test: the evaluation cadence scales with game speed (fast-forward)")
+do
+    reset()
+    _mockPlayers[0] = makePlayer(0)
+    arm()
+    MockGameSpeed.set(1)
+    AutoPilot.tickCounter = 0
+    _telemLog = {}
+    for _ = 1, 3 do MockRealTime.advance(16); fireEvent("OnTick") end
+    assert_eq("at 1x, 3 frames do NOT reach the eval gate (no decision logged)",
+        #_telemLog, 0)
+
+    reset()
+    _mockPlayers[0] = makePlayer(0)
+    arm()
+    MockGameSpeed.set(5)
+    AutoPilot.tickCounter = 0
+    _telemLog = {}
+    for _ = 1, 3 do MockRealTime.advance(16); fireEvent("OnTick") end
+    assert_true("at 5x fast-forward, the same 3 frames DO reach the gate (decision logged)",
+        #_telemLog > 0)
+    MockGameSpeed.set(1)  -- restore normal speed for any later tests
+end
+
 -- ── Summary ───────────────────────────────────────────────────────────────────
 print(("\n=== Results: %d passed, %d failed ==="):format(PASS, FAIL))
 if FAIL > 0 then
