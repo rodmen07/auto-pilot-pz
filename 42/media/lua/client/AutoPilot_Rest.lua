@@ -66,82 +66,101 @@ function AutoPilot_Rest.seatPriorityForSprite(spriteName)
     return best
 end
 
+--- Classify an object as rest furniture and whether the character can SIT on it.
+--- Per the user's 2026-07-24 design, RESTING treats all furniture TYPES equally
+--- (chair = sofa = bench = bed); the only ranking preference is furniture the
+--- character can actually sit on, i.e. the engine has SeatingManager tile
+--- positions for it (mirrors ISRestAction.furnitureHasSittingData).  A dining
+--- chair with no sit data still rests the character, but standing, so a sittable
+--- seat is preferred when one is in range.
+--- @return isFurniture, hasSeatingData
+local function _restFurnitureInfo(obj)
+    local okB, isBed = pcall(function()
+        return obj:getSprite()
+            and obj:getSprite():getProperties():has(IsoFlagType.bed)
+    end)
+    local isFurniture = (okB and isBed) or false
+    if not isFurniture then
+        local okN, spName = pcall(function()
+            return obj:getSprite() and obj:getSprite():getName() or ""
+        end)
+        if okN and spName and AutoPilot_Rest.seatPriorityForSprite(spName) then
+            isFurniture = true
+        end
+    end
+    if not isFurniture then return false, false end
+    local hasData = false
+    pcall(function()
+        hasData = SeatingManager.getInstance():getTilePositionCount(obj) > 0
+    end)
+    return true, hasData
+end
+
 --- Find the best rest furniture near the player.
---- @param player      the character
---- @param sitOnly     when true, beds are IGNORED.  The 30% critical path wants
----                    a bed (it hands off to sleep); the V5.4 sit-to-recover
----                    path must not, or a merely winded character would be put
----                    to sleep in the middle of the day.
-local function findRestFurniture(player, sitOnly)
+--- @param player   the character
+--- @param sitOnly  retained for signature compatibility; it NO LONGER excludes
+---                 beds.  Per the user's 2026-07-24 design a bed is valid rest
+---                 furniture -- the character SITS on it via ISRestAction and
+---                 doRest never sleeps -- so the sit-to-recover path uses a bed
+---                 when it is the nearest furniture.
+local function findRestFurniture(player, sitOnly)   -- luacheck: ignore sitOnly
     local px, py, pz = player:getX(), player:getY(), player:getZ()
     local bestObj  = nil
+    local bestZone = 99      -- 0 = inside the home circle (safe), 1 = outside
+    local bestData = -1      -- 1 = has SeatingManager sit data, 0 = none; higher wins
     local bestDist = math.huge
-    local bestPriority = 99  -- lower = better (bed=1, sofa=2, chair/bench=3)
-    -- V5.4: 0 = inside the home circle, 1 = outside it.  Compared BEFORE
-    -- furniture quality, so home seating always wins: the tiles inside home
-    -- are the ones the mod already treats as safe to walk.
-    local bestZone = 99
     local outsideDist = AutoPilot_Constants.REST_OUTSIDE_SEARCH_DIST
         or REST_SEARCH_DIST
     local outsideDist2 = outsideDist * outsideDist
 
     AutoPilot_Utils.iterateNearbySquares(px, py, pz, REST_SEARCH_DIST, function(sq, dx, dy)
         local dist = dx * dx + dy * dy
-        -- V5.4: outside-home furniture is eligible, but only within the
-        -- tighter REST_OUTSIDE_SEARCH_DIST.  Before V5.4 this was a hard
-        -- `return false`, which hid every bench, picnic table and porch chair
-        -- outside the safehouse circle.  Note isInside() returns true when no
-        -- home is set, so an unconfigured game keeps the full radius.
+        -- Outside-home furniture stays eligible only within the tighter
+        -- REST_OUTSIDE_SEARCH_DIST -- a safety clamp on crossing unsecured
+        -- ground.  isInside() returns true when no home is set, so an
+        -- unconfigured game keeps the full radius.  The clamp applies to ALL
+        -- rest furniture equally, beds included: a far bed is a long unsecured
+        -- walk, so the ground stays the safer choice, exactly as for a far bench.
         local inside = AutoPilot_Home.isInside(sq)
         if not inside and dist > outsideDist2 then return false end
         local zone = inside and 0 or 1
 
         for i = 0, sq:getObjects():size() - 1 do
             local obj = sq:getObjects():get(i)
-            local priority = nil
-
-            -- Check for bed
-            if not sitOnly then
-                local okB, isBed = pcall(function()
-                    return obj:getSprite()
-                        and obj:getSprite():getProperties()
-                            :has(IsoFlagType.bed)
-                end)
-                if okB and isBed then
-                    priority = 1
-                end
-            end
-
-            -- Check for sittable furniture by sprite name
-            if not priority then
-                local okN, spName = pcall(function()
-                    return obj:getSprite()
-                        and obj:getSprite():getName() or ""
-                end)
-                if okN and spName then
-                    priority = AutoPilot_Rest.seatPriorityForSprite(spName)
-                end
-            end
-
-            if priority then
-                -- Rank lexicographically: home zone, then furniture quality,
-                -- then distance.
+            local isFurniture, hasData = _restFurnitureInfo(obj)
+            if isFurniture then
+                local dataRank = hasData and 1 or 0
+                -- Rank: safe zone first, then furniture the character can
+                -- actually sit on, then nearest.  All furniture TYPES are equal.
                 if zone < bestZone
-                    or (zone == bestZone and priority < bestPriority)
-                    or (zone == bestZone and priority == bestPriority
-                        and dist < bestDist)
+                    or (zone == bestZone and dataRank > bestData)
+                    or (zone == bestZone and dataRank == bestData and dist < bestDist)
                 then
                     bestZone = zone
-                    bestPriority = priority
+                    bestData = dataRank
                     bestDist = dist
-                    bestObj = obj
+                    bestObj  = obj
                 end
             end
         end
-        return false  -- always continue: want best furniture, not first
+        return false  -- always continue: want the best furniture, not the first
     end)
 
     return bestObj
+end
+
+--- onComplete chaser for the rest pathfind: SEAT the character with ISRestAction,
+--- bound to the furniture the pathfinder actually resolved (goalFurnitureObject,
+--- which for multi-tile sprite-grid furniture can differ from the selected one).
+--- Mirrors ISWorldObjectContextMenu.onRestPathFound; useAnimations=true so the
+--- sit-down animation plays when the furniture has SeatingManager sit data.
+function AutoPilot_Rest._seatAfterPath(player, pathAction)
+    if not (ISRestAction and ISRestAction.new) then return end
+    local furniture = (pathAction and pathAction.goalFurnitureObject) or nil
+    if not furniture then return end
+    pcall(function()
+        AutoPilot_Utils.queueModAction(ISRestAction:new(player, furniture, true))
+    end)
 end
 
 -- V5.4: how long a queued rest is held before the cycle is handed back.
@@ -234,99 +253,32 @@ function AutoPilot_Rest.doRest(player, sitOnly)
 
     local queued = false
 
-    local okBed, isBed = pcall(function()
-        return target:getSprite()
-            and target:getSprite():getProperties()
-                :has(IsoFlagType.bed)
-    end)
-
-    if okBed and isBed then
-        print("[Needs] Exhausted — using nearby bed to recover.")
-        -- B42 sleep goes through ISWorldObjectContextMenu.onSleepWalkToComplete,
-        -- which takes the 0-based player index (not the player object) and handles
-        -- the walk-to + setAsleep, including MP SleepAllowed checks.
-        local pnum = player:getPlayerNum()
-        if AdjacentFreeTileFinder.isTileOrAdjacent(player:getCurrentSquare(), targetSq) then
-            ISWorldObjectContextMenu.onSleepWalkToComplete(pnum, target)
+    -- V6 (2026-07-24, user design): RESTING = sit on ANY furniture (chair, sofa,
+    -- bench, bed all equal), NEVER sleep.  Sleep is a separate, fatigue-driven
+    -- action (AutoPilot_Sleep.doSleep).  Mirror the engine's own rest-on-furniture
+    -- flow (ISWorldObjectContextMenu.onRest -> onRestPathFound): pathToSitOnFurniture
+    -- WALKS to the furniture (it self-paths, so no AdjacentFreeTileFinder is needed
+    -- and the old "no adjacent tile -> sit on the floor beside the bed" funnel is
+    -- gone), then its onComplete queues ISRestAction(char, goalFurnitureObject, true)
+    -- which actually SEATS the character.  V5.8 queued only pathToSitOnFurniture and
+    -- dropped that chaser -- per the engine that seats nothing, which is why chairs
+    -- read "Resting" while standing.  bAnySpriteGridObject=true matches the engine.
+    if ISPathFindAction and ISPathFindAction.pathToSitOnFurniture then
+        local okPath, pathAction = pcall(function()
+            return ISPathFindAction:pathToSitOnFurniture(player, target, true)
+        end)
+        if okPath and pathAction then
+            pcall(function()
+                pathAction:setOnComplete(AutoPilot_Rest._seatAfterPath, player, pathAction)
+            end)
+            AutoPilot_Utils.queueModAction(pathAction)
             queued = true
-        else
-            local adjacent = AdjacentFreeTileFinder.Find(targetSq, player)
-            if adjacent then
-                local walkAction = ISWalkToTimedAction:new(player, adjacent)
-                walkAction:setOnComplete(ISWorldObjectContextMenu.onSleepWalkToComplete, pnum, target)
-                AutoPilot_Utils.queueModAction(walkAction)
-                queued = true
-            end
         end
-        if queued then AutoPilot_Needs.setActivity("resting (using a bed)") end
-    else
-        print("[Needs] Exhausted — resting using nearby furniture.")
-
-        -- ── V5.8: queue ONE action, and let it be the one that SEATS ────────
-        --
-        -- User report, with a screenshot: "Text says resting, but character is
-        -- not sitting in the chair as expected" -- standing in the middle of
-        -- the room, an empty chair right beside her, HUD reading "Resting".
-        --
-        -- Through V5.7 this branch queued BOTH of the calls below, back to
-        -- back, and that is self-defeating:
-        --
-        --   * ISPathFindAction:pathToSitOnFurniture(character, furniture, cb)
-        --     is the only one of the two whose recorded semantics include
-        --     both halves of what this branch wants: it WALKS the character
-        --     to the furniture and SEATS them on it.  It is the same call
-        --     shape the mock has recorded since the V3.2 API audit.
-        --
-        --   * ISRestAction:new(character, bed, useAnimations) does no
-        --     pathing at all.  Queued behind the seat action it is at best
-        --     redundant, and a second timed action behind a sit is exactly
-        --     the situation the mod's own exercise path uses
-        --     ISTimedActionQueue.addGetUpAndThen for ("stands the character
-        --     up from any furniture before..."), i.e. the engine's own way
-        --     of running a follow-up action is to STAND UP first.  A
-        --     standing character reading "Resting" is precisely what was
-        --     reported.
-        --
-        -- The `useAnimations` argument compounded it: the mod passed nil,
-        -- which is falsy, so even the rest action itself ran with its
-        -- animations suppressed.  It is only reachable now as the fallback
-        -- below, and it passes `true` there.
-        --
-        -- The ground fallback settles the design question: it queues
-        -- ISSitOnGround ALONE, with no rest action chaser, and that is the
-        -- path V5.4 shipped as the guaranteed recovery floor.  The mod's
-        -- model of resting is "be seated"; the furniture branch now matches
-        -- it instead of contradicting it.
-        if ISPathFindAction and ISPathFindAction.pathToSitOnFurniture then
-            local okPath, pathAction = pcall(function()
-                return ISPathFindAction:pathToSitOnFurniture(player, target, nil)
-            end)
-            if okPath and pathAction then
-                AutoPilot_Utils.queueModAction(pathAction)
-                queued = true
-            end
-        end
-
-        if not queued and ISRestAction and ISRestAction.new then
-            -- Fallback only: reached when the seat action is unavailable or
-            -- refused the furniture.  Real 42.19 signature
-            -- (shared/TimedActions/ISRestAction.lua:245):
-            -- ISRestAction:new(character, bed, useAnimations).  The 3rd
-            -- argument is passed `true` now: nil is falsy, and a rest with
-            -- its animations disabled is a rest performed standing up.
-            local okRest, restAction = pcall(function()
-                return ISRestAction:new(player, target, true)
-            end)
-            if okRest and restAction then
-                AutoPilot_Utils.queueModAction(restAction)
-                queued = true
-            end
-        end
-
-        if queued then AutoPilot_Needs.setActivity("resting (seated on furniture)") end
     end
 
-    if not queued then
+    if queued then
+        AutoPilot_Needs.setActivity("resting (seated on furniture)")
+    else
         if queueGroundRest() then
             AutoPilot_Rest.extendRestHold(ms)
             return true
