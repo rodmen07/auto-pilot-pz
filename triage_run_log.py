@@ -181,7 +181,7 @@ class TriageSummary:
 # ── Parsing ───────────────────────────────────────────────────────────────────
 
 _INT_FIELDS = {
-    "schema_version", "player", "run_tick", "retry_count",
+    "schema_version", "player", "speed", "run_tick", "retry_count",
     "hunger", "thirst", "fatigue", "endurance",
     "zombies", "bleeding", "str", "fit",
     # Perk levels appended by later schema versions: "doc" from v3 (V4.1),

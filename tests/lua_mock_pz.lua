@@ -689,9 +689,16 @@ local _mockCalender = {
     getTimeInMillis = function(self) return _mockTimeMs end,
 }
 
+-- Game-speed multiplier (1 = normal, 5/20/40 = fast-forward x1/x2/x3).  Default 1
+-- so existing tests are unaffected; a test calls MockGameSpeed.set(m) to simulate
+-- fast-forward and exercise the FF-aware evaluation cadence in AutoPilot_Main.
+local _mockGameSpeed = 1
+MockGameSpeed = { set = function(m) _mockGameSpeed = m end }
+
 local _mockGameTimeInstance = {
     getCalender = function(self) return _mockCalender end,
     getDay      = function(self) return 1 end,
+    getMultiplier = function(self) return _mockGameSpeed end,
 }
 
 GameTime = {

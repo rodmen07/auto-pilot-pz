@@ -56,6 +56,26 @@ class TestParseRunLog(unittest.TestCase):
         self.assertEqual(entries, [])
         self.assertEqual(skipped, 0)
 
+    def test_v5_speed_field_parses_as_int(self) -> None:
+        # schema v5 (2026-07-24) adds `speed` = the real game multiplier (1
+        # normal, 5/20/40 fast-forward). It coerces to int; `ff` stays a
+        # separate zombie-presence string, and later fields still parse.
+        line = (
+            "schema_version=5,player=0,mode=autopilot,ff=normal,speed=20,"
+            "run_tick=7,action=idle,reason=no_action,class=idle,stage=,"
+            "fail_reason=,retry_count=0,hunger=10,thirst=10,fatigue=10,"
+            "endurance=90,zombies=0,bleeding=0,str=5,fit=4,doc=0"
+        )
+        with tempfile.TemporaryDirectory() as td:
+            log = Path(td) / "run.log"
+            log.write_text(line + "\n", encoding="utf-8")
+            entries, skipped = tr.parse_run_log(log)
+        self.assertEqual(skipped, 0)
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(entries[0]["speed"], 20)     # coerced to int
+        self.assertEqual(entries[0]["ff"], "normal")  # separate zombie flag
+        self.assertEqual(entries[0]["run_tick"], 7)   # fields after speed parse
+
     def test_fixture_parses_all_lines(self) -> None:
         entries, skipped = tr.parse_run_log(FIXTURE)
         self.assertEqual(len(entries), 20)
