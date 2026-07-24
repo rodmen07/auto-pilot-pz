@@ -2439,6 +2439,73 @@ do
     AutoPilot_Needs.endTrainingRun()
 end
 
+-- ── Sleep pain-gate regression (bug: sleep starvation when sore, 2026-07-24) ──
+-- The fatigue -> sleep branch used to be terminal, so a tired character in pain
+-- queued a sleep the engine refuses ("Experiencing too much pain to sleep") and
+-- then addressed no other need.  AutoPilot_Sleep.canSleepNow now mirrors the
+-- engine gate (ISWorldObjectContextMenu.onSleepWalkToComplete) and the branch
+-- falls through when sleep cannot actually proceed.
+print("\n-- Test: canSleepNow mirrors the engine pain/panic sleep gate")
+do
+    local can, why = AutoPilot_Sleep.canSleepNow(MockPlayer.new({
+        stats = { FATIGUE = 0.75 }, moodles = { [MoodleType.PAIN] = 2 } }))
+    assert_false("PAIN moodle 2 + fatigue 0.75 -> cannot sleep", can)
+    assert_eq("block reason is pain_block", why, "pain_block")
+
+    -- Extreme fatigue (> 0.85) bypasses the pain gate, matching the engine.
+    assert_true("PAIN moodle 2 but fatigue 0.90 -> can sleep",
+        (AutoPilot_Sleep.canSleepNow(MockPlayer.new({
+            stats = { FATIGUE = 0.90 }, moodles = { [MoodleType.PAIN] = 2 } }))))
+
+    -- Mild pain (moodle 1) does not block.
+    assert_true("PAIN moodle 1 -> can sleep",
+        (AutoPilot_Sleep.canSleepNow(MockPlayer.new({
+            stats = { FATIGUE = 0.75 }, moodles = { [MoodleType.PAIN] = 1 } }))))
+
+    -- Panic blocks sleep with its own reason.
+    local canP, whyP = AutoPilot_Sleep.canSleepNow(MockPlayer.new({
+        stats = { FATIGUE = 0.75 }, moodles = { [MoodleType.PANIC] = 1 } }))
+    assert_false("PANIC moodle 1 -> cannot sleep", canP)
+    assert_eq("block reason is panic", whyP, "panic")
+
+    -- A strong sleeping-tablet effect bypasses the gate entirely.
+    assert_true("sleeping-tablet effect >= 2000 bypasses the pain block",
+        (AutoPilot_Sleep.canSleepNow(MockPlayer.new({
+            stats = { FATIGUE = 0.75 },
+            moodles = { [MoodleType.PAIN] = 2 },
+            sleepingTablet = 3000 }))))
+end
+
+print("\n-- Test: check() falls through to a lower need when sleep is pain-blocked")
+do
+    reset()
+    resetRest()
+    -- Tired (0.75 >= 0.70) AND sleep-blocked by pain (PAIN moodle 2, fatigue <= 0.85)
+    -- AND exhausted (endurance 0.20 <= 0.30).  Before the fix the terminal sleep
+    -- branch returned first and queued NOTHING; now it falls through to rest.
+    local p = MockPlayer.new({
+        stats   = { HUNGER = 0.05, THIRST = 0.05, FATIGUE = 0.75, ENDURANCE = 0.20 },
+        moodles = { [MoodleType.PAIN] = 2 },
+    })
+    local result = AutoPilot_Needs.check(p)
+    assert_true("check() acts (does not idle) when tired but sleep is pain-blocked", result)
+    assert_eq("falls through to 'rest' instead of terminating on sleep",
+        last_action_type(), "rest")
+
+    -- Negative control: identical fatigue/endurance but NO pain.  The sleep
+    -- branch stays terminal, so the rest below is never reached -- proving the
+    -- new gate diverts ONLY on a real block (the behavior difference is real).
+    reset()
+    resetRest()
+    local q = MockPlayer.new({
+        stats   = { HUNGER = 0.05, THIRST = 0.05, FATIGUE = 0.75, ENDURANCE = 0.20 },
+        moodles = {},
+    })
+    AutoPilot_Needs.check(q)
+    assert_eq("with no pain the sleep branch stays terminal (no rest queued)",
+        last_action_type(), nil)
+end
+
 -- ── Summary ───────────────────────────────────────────────────────────────────
 print(("\n=== Results: %d passed, %d failed ==="):format(PASS, FAIL))
 if FAIL > 0 then
