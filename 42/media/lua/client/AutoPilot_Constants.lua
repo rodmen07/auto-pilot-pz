@@ -322,12 +322,17 @@ AutoPilot_Constants.EXERCISE_DAILY_CAP = 0
 AutoPilot_Constants.WEIGHT_UNDERWEIGHT = 65    -- below this: prioritize high-calorie food
 AutoPilot_Constants.WEIGHT_OVERWEIGHT  = 85    -- above this: prefer low-calorie food
 
--- Phase 3: Happiness / boredom thresholds
-AutoPilot_Constants.HAPPINESS_LOW_THRESHOLD  = 40   -- MoodleType.Unhappy level to trigger boredom action
--- HAPPINESS_FOOD_PRIORITY: tasty-food path fires at or above this Unhappy moodle level,
--- before reading. Set to a value ≤ HAPPINESS_LOW_THRESHOLD to always prefer food first.
--- Default 40 = same as HAPPINESS_LOW_THRESHOLD (food preferred whenever unhappy block fires).
-AutoPilot_Constants.HAPPINESS_FOOD_PRIORITY  = 40
+-- Phase 3: Happiness / boredom thresholds.  The Unhappy moodle is a 0-4 LEVEL
+-- (0 none .. 4 extreme), NOT a 0-100 stat, so this must be a small integer.  It
+-- was 40 -- unreachable for a 0-4 moodle -- so the unhappy relief branch in
+-- AutoPilot_Needs.check() never fired at all (fixed 2026-07-24; same unit-mismatch
+-- class as the sleep pain gate).
+AutoPilot_Constants.HAPPINESS_LOW_THRESHOLD  = 2    -- Unhappy moodle level (0-4) that triggers mood relief
+-- HAPPINESS_FOOD_PRIORITY: intended as the Unhappy level at/above which the tasty-food
+-- path is preferred before reading.  NOTE: currently UNUSED by code -- the tasty-food
+-- sub-branch in check() gates on HAPPINESS_LOW_THRESHOLD, not this.  Kept on the 0-4
+-- scale; filed to wire-or-remove (see backlog).
+AutoPilot_Constants.HAPPINESS_FOOD_PRIORITY  = 2
 
 -- Phase 3: Foraging / supply run radii
 AutoPilot_Constants.LOOT_RADIUS_HOME   = 80    -- normal home-area loot radius (capped for scan cost)
