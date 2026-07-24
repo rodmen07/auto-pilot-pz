@@ -2506,6 +2506,35 @@ do
         last_action_type(), nil)
 end
 
+-- ── Unhappy relief dead-clause regression (2026-07-24) ───────────────────────
+-- The Unhappy moodle is a 0-4 LEVEL, but HAPPINESS_LOW_THRESHOLD was 40, so the
+-- unhappy relief branch in check() could never fire (0-4 is never >= 40).  Test 23
+-- above only "passed" because it set the moodle to the constant's own value, an
+-- impossible in-game level, so it referenced the bug instead of catching it.  This
+-- case uses a REALISTIC Unhappy level (2) and proves relief now fires; it FAILS on
+-- the pre-fix constant (2 < 40 -> the branch is skipped and check() reaches exercise).
+print("\n-- Test: a realistic Unhappy moodle level (2) triggers mood relief")
+do
+    reset()
+    resetRest()
+    local tastyFood = {
+        getName     = function() return "Chocolate" end,
+        getCalories = function() return 200 end,
+    }
+    AutoPilot_Inventory.preferTastyFood = function(_player) return tastyFood end
+    -- Healthy vitals + BOREDOM 0 so ONLY the unhappy trigger can fire (isolates it,
+    -- unlike Test 23 which also set BOREDOM=50).
+    local p = MockPlayer.new({
+        stats   = { HUNGER = 0.05, THIRST = 0.05, FATIGUE = 0.05, ENDURANCE = 1.0, BOREDOM = 0 },
+        moodles = { Unhappy = 2 },
+    })
+    local result = AutoPilot_Needs.check(p)
+    AutoPilot_Inventory.preferTastyFood = function(_player) return nil end
+    assert_true("check() acts on a realistic Unhappy moodle (level 2)", result)
+    assert_eq("queues 'eat' (mood relief) for Unhappy 2, not exercise/idle",
+        last_action_type(), "eat")
+end
+
 -- ── Summary ───────────────────────────────────────────────────────────────────
 print(("\n=== Results: %d passed, %d failed ==="):format(PASS, FAIL))
 if FAIL > 0 then
