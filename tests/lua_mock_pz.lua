@@ -238,8 +238,9 @@
 --   [M]  CharacterStat   HUNGER/THIRST/FATIGUE/ENDURANCE/PAIN/BOREDOM/SANITY;
 --          PANIC/SICKNESS/STRESS are suite-local (test_threat_logic);
 --          safeStat degrades missing keys to 0 by design
---   [M]  MoodleType   ENDURANCE/Unhappy (PAIN absent; the only callsite is
---          nil-guarded in safeMoodleLevel)
+--   [M]  MoodleType   ENDURANCE/Unhappy/PAIN/PANIC (PAIN and PANIC added for
+--          AutoPilot_Sleep.canSleepNow, which mirrors the engine sleep gate;
+--          getMoodleLevel returns 0 for any key a test does not set)
 --   [M]  BodyPartType   MAX / ToIndex (getDisplayName is suite-local in
 --          test_medical_logic; leg-part keys like UpperLeg_L are absent, so
 --          the squat-stiffness gate pcall-degrades to "not stiff")
@@ -299,6 +300,11 @@ CharacterStat = {
 MoodleType = {
     ENDURANCE = "ENDURANCE",
     Unhappy   = "Unhappy",
+    -- Real engine moodle types read by the sleep gate
+    -- (ISWorldObjectContextMenu.onSleepWalkToComplete); AutoPilot_Sleep.canSleepNow
+    -- mirrors that gate, so tests set these to drive it.
+    PAIN      = "PAIN",
+    PANIC     = "PANIC",
 }
 
 -- ── BodyPartType ──────────────────────────────────────────────────────────────
@@ -873,6 +879,9 @@ function MockPlayer.new(cfg)
         _xpMult       = multStore,
         getStats      = function(self) return statsObj end,
         getMoodles    = function(self) return moodlesObj end,
+        -- Real engine API read by AutoPilot_Sleep.canSleepNow: a strong sleeping
+        -- tablet effect (>= 2000) bypasses the pain/panic sleep gate.  Default 0.
+        getSleepingTabletEffect = function(self) return cfg.sleepingTablet or 0 end,
         getBodyDamage = function(self) return bodyDamageObj end,
         getInventory  = function(self) return inv end,
         getPerkLevel  = function(self, perk) return perks[perk] or 0 end,

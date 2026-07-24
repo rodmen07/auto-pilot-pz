@@ -420,10 +420,24 @@ function AutoPilot_Needs.check(player)
 
     -- Sleep overrides rest cooldown — fatigue is checked before the cooldown gate
     -- so the character can transition from resting to sleeping when tired enough.
+    -- The sleep branch is TERMINAL only when the engine will actually allow sleep:
+    -- canSleepNow mirrors the engine's pain/panic gate, so a sore character (PAIN
+    -- moodle >= 2 while fatigue <= 0.85) no longer monopolises the decision with a
+    -- sleep the engine silently refuses ("too much pain to sleep").  When blocked,
+    -- record why (fail_reason), try a one-shot pain remedy, then FALL THROUGH so
+    -- thirst, hunger, wound care and rest still run instead of idling.
     local fatigue = AutoPilot_Utils.safeStat(player, CharacterStat.FATIGUE)
     if fatigue >= FATIGUE_STAT_THRESHOLD then
-        AutoPilot_Telemetry.setDecision("sleep", "fatigue_thresh")
-        return AutoPilot_Sleep.doSleep(player)
+        local canSleep, blockReason = AutoPilot_Sleep.canSleepNow(player)
+        if canSleep then
+            AutoPilot_Telemetry.setDecision("sleep", "fatigue_thresh")
+            return AutoPilot_Sleep.doSleep(player)
+        end
+        AutoPilot_Telemetry.setDecision("sleep", "fatigue_thresh", nil, nil, blockReason)
+        if blockReason == "pain_block" and AutoPilot_Sleep.relievePain(player) then
+            return true
+        end
+        -- fall through: address lower needs instead of idling on a blocked sleep
     end
 
     -- 2. Thirst (0.0=hydrated, ~1.0=dying)

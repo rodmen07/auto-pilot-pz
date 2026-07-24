@@ -74,6 +74,90 @@ local function _findBedNearby(player)
     return bestObj
 end
 
+-- Return the level (0-4) of a moodle, defensively: B42 stores moodles in a Map
+-- and a missing entry throws a Java NPE, so pcall and treat any failure as 0.
+local function _moodleLevel(player, moodleType)
+    if not moodleType then return 0 end
+    local ok, lvl = pcall(function()
+        return player:getMoodles():getMoodleLevel(moodleType)
+    end)
+    return (ok and lvl) or 0
+end
+
+-- Predict whether the engine will actually let the character sleep right now,
+-- mirroring the gate in ISWorldObjectContextMenu.onSleepWalkToComplete (verified
+-- against the live 42.19 install): a strong sleeping-tablet effect (>= 2000)
+-- bypasses the checks; otherwise sleep is refused while the PAIN moodle is >= 2
+-- and fatigue <= 0.85, or while the PANIC moodle is >= 1.  Zombies are NOT checked
+-- here: AutoPilot_Main preempts on threat before AutoPilot_Needs.check() runs.
+-- Returns (canSleep, blockReason): (true, nil) when sleep will proceed, or
+-- (false, "pain_block"|"panic") with the label used for the telemetry fail_reason.
+function AutoPilot_Sleep.canSleepNow(player)
+    local tablet = 0
+    pcall(function() tablet = player:getSleepingTabletEffect() or 0 end)
+    if tablet >= 2000 then return true, nil end
+
+    local fatigue = AutoPilot_Utils.safeStat(player, CharacterStat.FATIGUE)
+    if _moodleLevel(player, MoodleType.PAIN) >= 2 and fatigue <= 0.85 then
+        return false, "pain_block"
+    end
+    if _moodleLevel(player, MoodleType.PANIC) >= 1 then
+        return false, "panic"
+    end
+    return true, nil
+end
+
+-- Attempt to reduce pain via medical treatment or a carried painkiller.  Returns
+-- true if a remedy was queued this tick, false if none was available.  Kept
+-- separate from doSleep so AutoPilot_Needs.check() can call it when sleep is
+-- pain-blocked and then fall through to lower needs, instead of leaving a sore,
+-- tired character idle on a sleep the engine will refuse.
+function AutoPilot_Sleep.relievePain(player)
+    local okMed, medQueued = pcall(function() return AutoPilot_Medical.check(player, false) end)
+    if okMed and medQueued then
+        print("[Needs] Queued medical treatment to reduce pain.")
+        return true
+    end
+
+    -- Try to find painkillers the player is carrying (match type/name
+    -- heuristics).  V4.8: searches worn/carried sub-containers too, so
+    -- pills in a backpack or fanny pack are no longer invisible.
+    local tookPill = false
+    AutoPilot_Utils.iteratePlayerItems(player, function(item, container)
+        if not item then return false end
+        local okType, typ = pcall(function() return item:getType() end)
+        local okName, name = pcall(function() return item:getName() end)
+        local lower = ""
+        if okType and typ then lower = lower .. typ:lower() end
+        if okName and name then lower = lower .. " " .. name:lower() end
+        if lower:find("painkill") or lower:find("aspirin") or lower:find("paracetamol") then
+            -- V4.9: pills in a bag must reach the main inventory first.
+            local _, usable = AutoPilot_Utils.queueItemToMainInventory(
+                player, item, container)
+            if not usable then
+                print("[Needs] Painkiller transfer refused: skipping this item.")
+                return false
+            end
+            local takePill = rawget(_G, "ISTakePillAction")
+            local okUse = pcall(function()
+                if takePill and takePill.new then
+                    AutoPilot_Utils.queueModAction(takePill:new(player, item))
+                else
+                    AutoPilot_Utils.queueModAction(ISEatFoodAction:new(player, item, 1))
+                end
+            end)
+            if okUse then
+                local pname = (okName and name) or typ
+                print("[Needs] Taking painkiller: " .. tostring(pname))
+                tookPill = true
+                return true
+            end
+        end
+        return false
+    end)
+    return tookPill
+end
+
 function AutoPilot_Sleep.doSleep(player)
     -- Cooldown guard: prevent re-queuing bed action every tick
     local ok, now = pcall(function()
@@ -83,53 +167,12 @@ function AutoPilot_Sleep.doSleep(player)
     if ms < sleepCooldownMs then return true end
 
     -- If pain is high, attempt medical relief or painkillers before sleeping.
+    -- (AutoPilot_Needs.check() already pre-screens with canSleepNow, but doSleep
+    -- keeps this guard for its other callers and as a defence in depth.)
     local painVal = AutoPilot_Utils.safeStat(player, CharacterStat.PAIN)
     if painVal >= PAIN_SLEEP_THRESHOLD then
         print("[Needs] Sleep blocked by pain (" .. tostring(painVal) .. "). Attempting medical/pain relief.")
-        local okMed, medQueued = pcall(function() return AutoPilot_Medical.check(player, false) end)
-        if okMed and medQueued then
-            print("[Needs] Queued medical treatment to reduce pain.")
-            return true
-        end
-
-        -- Try to find painkillers the player is carrying (match type/name
-        -- heuristics).  V4.8: searches worn/carried sub-containers too, so
-        -- pills in a backpack or fanny pack are no longer invisible.
-        local tookPill = false
-        AutoPilot_Utils.iteratePlayerItems(player, function(item, container)
-            if not item then return false end
-            local okType, typ = pcall(function() return item:getType() end)
-            local okName, name = pcall(function() return item:getName() end)
-            local lower = ""
-            if okType and typ then lower = lower .. typ:lower() end
-            if okName and name then lower = lower .. " " .. name:lower() end
-            if lower:find("painkill") or lower:find("aspirin") or lower:find("paracetamol") then
-                -- V4.9: pills in a bag must reach the main inventory first.
-                local _, usable = AutoPilot_Utils.queueItemToMainInventory(
-                    player, item, container)
-                if not usable then
-                    print("[Needs] Painkiller transfer refused: skipping this item.")
-                    return false
-                end
-                local takePill = rawget(_G, "ISTakePillAction")
-                local okUse = pcall(function()
-                    if takePill and takePill.new then
-                        AutoPilot_Utils.queueModAction(takePill:new(player, item))
-                    else
-                        AutoPilot_Utils.queueModAction(ISEatFoodAction:new(player, item, 1))
-                    end
-                end)
-                if okUse then
-                    local pname = (okName and name) or typ
-                    print("[Needs] Taking painkiller: " .. tostring(pname))
-                    tookPill = true
-                    return true
-                end
-            end
-            return false
-        end)
-        if tookPill then return true end
-
+        if AutoPilot_Sleep.relievePain(player) then return true end
         -- No treatment available; delay sleep attempts to avoid a busy loop.
         sleepCooldownMs = ms + 60000
         print("[Needs] No medical/painkiller available; delaying sleep for 60s.")
