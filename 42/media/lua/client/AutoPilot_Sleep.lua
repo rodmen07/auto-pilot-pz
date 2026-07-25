@@ -34,15 +34,82 @@ local function getBedObjectOnSquare(sq)
     return nil
 end
 
--- Search for the nearest bed object around `player`.
+-- Rank a bed-quality string, higher is better.  The engine's own vocabulary
+-- (ISWorldObjectContextMenu.getBedQuality, verified live against the 42.19
+-- install at client/ISUI/ISWorldObjectContextMenu.lua:2917): "goodBed",
+-- "averageBed", "badBed" and "floor", each optionally suffixed "Pillow"; tile
+-- properties also define chair grades ("averageChair"/"badChair",
+-- shared/Util/CustomTileProps.lua).  Matching on the GRADE PREFIX rather than
+-- on an exact-string table means a chair grade or a modded bed type still ranks
+-- sensibly instead of falling off the table.
+--
+-- An unrecognised string ranks as AVERAGE, never as bad or floor: an unknown
+-- bed type is far more likely to be a modded bed than a worse-than-mattress
+-- surface, and under-ranking it would send the character past a real bed.
+local function _rankBedType(bedType)
+    if type(bedType) ~= "string" then return 4 end
+    local base
+    if     bedType:find("^good")    then base = 6
+    elseif bedType:find("^average") then base = 4
+    elseif bedType:find("^bad")     then base = 2
+    elseif bedType:find("^floor")   then base = 0
+    else                                 base = 4
+    end
+    -- A pillow improves the same bed (the engine shortens sleepFor for
+    -- "...Pillow" variants) but must never promote it past the next grade,
+    -- hence +1 inside a 2-wide band.
+    if bedType:find("Pillow") then base = base + 1 end
+    return base
+end
+
+-- Comfort rank of one bed object for `player`; higher is more comfortable.
+--
+-- Product decision (user, 2026-07-24): for SLEEPING, prioritise by COMFORT (bed
+-- quality) — the deliberate counterpart of the RESTING rule, where all seating
+-- is equal and nearest wins (see AutoPilot_Rest.findRestFurniture).
+--
+-- Quality comes from the engine's own resolver rather than a private sprite
+-- table, so the mod and the engine agree on what "better" means: the very same
+-- ISWorldObjectContextMenu.getBedQuality(playerObj, bed) call that
+-- onSleepWalkToComplete uses to score the sleep it is about to start
+-- (ISWorldObjectContextMenu.lua:1070).  It is pcall-guarded, and falls back to
+-- the raw BedType property the engine function itself reads (line 2958), then
+-- to "averageBed", so a renamed surface degrades to the old nearest-bed
+-- behaviour instead of erroring.
+function AutoPilot_Sleep.bedComfort(player, bedObj)
+    if not bedObj then return _rankBedType("floor") end
+
+    local okQuality, quality = pcall(function()
+        return ISWorldObjectContextMenu.getBedQuality(player, bedObj)
+    end)
+    if okQuality and type(quality) == "string" then
+        return _rankBedType(quality)
+    end
+
+    local okProp, bedType = pcall(function()
+        return bedObj:getProperties():get("BedType")
+    end)
+    if okProp and type(bedType) == "string" then
+        return _rankBedType(bedType)
+    end
+
+    return _rankBedType("averageBed")
+end
+
+-- Search for the most comfortable bed object around `player`.
 -- Prefers home bounds when home is set; falls back to a wide multi-floor scan.
 -- Returns the IsoObject with the bed flag, or nil if none is found.
+--
+-- Selection order (V0.2): comfort first, distance second.  Before V0.2 this was
+-- nearest-wins, which put an exhausted character on the closest mattress while a
+-- proper bed sat in the next room.  The reachable set is UNCHANGED — the same
+-- bounded BED_SEARCH_DIST / BED_SEARCH_FLOORS scan as before — only the choice
+-- within it changed.
 local function _findBedNearby(player)
     -- Always do a multi-floor scan around the player — home bounds are z-locked
-    -- to ground floor, which misses upstairs beds. Prefer nearest bed regardless.
+    -- to ground floor, which misses upstairs beds. Scan every bed regardless.
     local px, py, pz = player:getX(), player:getY(), player:getZ()
-    local bestObj  = nil
-    local bestDist = math.huge
+    local candidates = {}
 
     -- Build z-level candidates: current floor first, then alternating up/down
     local zlevels = {pz}
@@ -60,15 +127,26 @@ local function _findBedNearby(player)
                         local obj = getBedObjectOnSquare(sq)
                         if obj then
                             local floorPenalty = math.abs(z - pz) * 200
-                            local dist = dx * dx + dy * dy + floorPenalty
-                            if dist < bestDist then
-                                bestDist = dist
-                                bestObj  = obj
-                            end
+                            candidates[#candidates + 1] = {
+                                obj  = obj,
+                                dist = dx * dx + dy * dy + floorPenalty,
+                            }
                         end
                     end
                 end
             end
+        end
+    end
+
+    -- Quality is only resolved for squares that actually hold a bed, so the
+    -- heavy part of this search (the grid walk above) is untouched.
+    local bestObj, bestComfort, bestDist = nil, -1, math.huge
+    for i = 1, #candidates do
+        local cand   = candidates[i]
+        local comfort = AutoPilot_Sleep.bedComfort(player, cand.obj)
+        if comfort > bestComfort
+            or (comfort == bestComfort and cand.dist < bestDist) then
+            bestObj, bestComfort, bestDist = cand.obj, comfort, cand.dist
         end
     end
     return bestObj
