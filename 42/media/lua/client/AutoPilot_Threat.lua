@@ -1,6 +1,25 @@
 -- AutoPilot_Threat.lua
--- Detects nearby zombies (same z-level only) and decides: fight, flee, or
--- encircled-fight.
+-- Detects nearby zombies (same z-level only) and flees the threat.
+--
+-- ============================================================================
+-- COMBAT IS NOT VIABLE FOR AUTOMATION -- THIS MODULE IS FLEE-ONLY (0.1.0).
+-- ----------------------------------------------------------------------------
+-- Project Zomboid Build 42 exposes NO attack API for an AI-driven character:
+-- there is no ISAttack timed action, no companion/NPC combat, no scriptable way
+-- to make the character swing a weapon.  Melee is strictly player-input-only.
+-- So the mod fundamentally cannot fight.  Any "engage" that walked the character
+-- toward a zombie only ever walked it to its death (live telemetry: a healthy,
+-- armed character killed against 4 zombies while "fighting", action=dead).
+--
+-- Every threat decision therefore resolves to a FLEE, directly away from the
+-- zombie cluster (through the widest gap when encircled).  When no escape square
+-- is reachable the character HOLDS position (reason "flee_blocked") -- standing
+-- still is strictly safer than walking into the horde.  The mod still keeps the
+-- best weapon in hand (checkAndSwapWeapon) so a player who takes back control,
+-- or a zombie that catches the character, is not met bare-handed, but the mod
+-- never initiates or sustains a fight itself.  The historical fight/encircle
+-- language below is retained only to explain the detection heuristics.
+-- ============================================================================
 --
 -- Improvements vs. previous version:
 --   * Detection radius 20 tiles (was 10) -- enough lead time for action queue to drain.
@@ -65,11 +84,11 @@ local WALK_SNAP_RADIUS      = AutoPilot_Constants.WALK_SNAP_RADIUS
 AutoPilot_Threat._fleeActive   = false
 AutoPilot_Threat._fleeCooldown = 0
 
--- V5.6 engage state.  _engageActive is the SHARED version of _fleeActive: it is
--- set by BOTH doFlee and doFight whenever they actually queue something, so a
--- queued fight survives the next cycle exactly like a queued flee always did.
--- _engageReason is the last engage decision label, surfaced to telemetry so a
--- future run log can tell fight from flee (every combat tick used to log the
+-- Engage state.  _engageActive is set by doFlee whenever it actually queues a
+-- walk, so an in-progress flee survives the next cycle instead of being cleared
+-- and re-queued every tick.  (Pre-0.1.0 the deleted doFight set it too; combat
+-- is flee-only now.)  _engageReason is the last engage decision label, surfaced
+-- to telemetry so a run log can tell WHICH flee fired (every combat tick used to log the
 -- single undifferentiated reason "threat", which is why this bug was invisible
 -- across 1889 combat ticks).
 AutoPilot_Threat._engageActive = false
@@ -245,21 +264,16 @@ local function _freeSquareNear(player, x, y, z)
     return nil
 end
 
--- Resolve where to run to.  Safehouse anchor first (unchanged preference), then
--- the escape arc at decreasing distances.  Returns nil only when NOTHING in
--- reach is walkable, which is now a genuine "cannot retreat" signal rather than
--- the everyday outcome it used to be.
+-- Resolve where to run to: the escape arc, AWAY from the zombie cluster, at
+-- decreasing distances.  Returns nil only when NOTHING in reach is walkable,
+-- which is a genuine "cannot retreat" signal.
+--
+-- The safehouse/home anchor is deliberately NOT preferred here.  Running to the
+-- home centre while zombies are on top of you produced a 1-tile shuffle in place
+-- (the home anchor is usually the tile the player is standing on), which escaped
+-- nothing and read as the character twitching instead of fleeing.  Flee always
+-- moves along the escape vector, directly away from the threat.
 local function _fleeDestination(player, zombies, escDx, escDy)
-    if AutoPilot_Home.isSet(player) then
-        local hx, hy, hz = AutoPilot_Home.getState()
-        local homeZ = hz or player:getZ()
-        local sq = AutoPilot_Utils.findNearestSquare(hx, hy, homeZ, WALK_SNAP_RADIUS, function(s)
-            local ok, free = pcall(function() return s:isFree(false) end)
-            return ok and free == true and AutoPilot_Home.isInside(s)
-        end)
-        if sq and not _isPlayerSquare(player, sq) then return sq end
-    end
-
     if not escDx then
         escDx, escDy = analyzeSpread(player, zombies)
     end
@@ -280,7 +294,7 @@ local function _fleeDestination(player, zombies, escDx, escDy)
     return nil
 end
 
--- Flee toward the escape arc (or the home anchor if safehouse mode is active).
+-- Flee along the escape arc, away from the zombie cluster.
 -- escDx/escDy: optional pre-computed unit escape vector; computed internally if nil.
 -- Returns true when a walk was actually queued.
 local function doFlee(player, zombies, escDx, escDy)
@@ -296,84 +310,20 @@ local function doFlee(player, zombies, escDx, escDy)
         return true
     end
 
-    print("[Threat] FLEE failed -- no reachable square; falling back to fight.")
+    print("[Threat] FLEE failed -- no reachable escape square; holding position " ..
+        "(the mod does not fight; there is no B42 AI-attack API).")
     return false
 end
 
--- Fight the nearest zombie: swap to best usable weapon, then walk toward it.
--- In safehouse mode (home set) this still PREFERS to retreat, but V5.6 makes
--- that a preference instead of an absolute: when the retreat cannot be
--- resolved, the character now fights rather than standing still.  Callers that
--- have already tried and failed to flee pass noRetreat=true so the redirect is
--- not attempted a second time (pre-V5.6 that second attempt failed identically
--- and queued NOTHING, which is how a horde could eat a motionless character).
--- escDx/escDy: passed through to doFlee on the safehouse redirect.
--- @return queued     true when something was actually queued.
--- @return retreated  true when the safehouse redirect handled it as a flee.
-local function doFight(player, zombies, escDx, escDy, noRetreat)
-    if not noRetreat and AutoPilot_Home.isSet(player) then
-        print("[Threat] Safehouse mode -- redirecting FIGHT to FLEE.")
-        if doFlee(player, zombies, escDx, escDy) then return true, true end
-        print("[Threat] Safehouse retreat unavailable -- fighting instead.")
-    end
-
-    AutoPilot_Inventory.checkAndSwapWeapon(player)
-
-    local px, py = player:getX(), player:getY()
-    table.sort(zombies, function(a, b)
-        return (a:getX()-px)^2 + (a:getY()-py)^2 < (b:getX()-px)^2 + (b:getY()-py)^2
-    end)
-    local target = zombies[1]
-
-    local weapon, weaponCont = AutoPilot_Inventory.getBestWeapon(player)
-    local weaponUsable = weapon and getWeaponCondition(weapon) >= WEAPON_FIGHT_COND_MIN
-
-    local okPrimary, primary = pcall(function() return player:getPrimaryHandItem() end)
-    if not okPrimary then primary = nil end
-
-    local function safeMaxDamage(item)
-        if not item then return nil end
-        local ok, dmg = pcall(function() return item:getMaxDamage() end)
-        return (ok and type(dmg) == "number") and dmg or nil
-    end
-
-    local primaryDamage = safeMaxDamage(primary)
-    local weaponDamage  = safeMaxDamage(weapon)
-
-    local shouldEquip = weaponUsable and not primary
-    if not shouldEquip and weaponUsable and weaponDamage then
-        shouldEquip = not primaryDamage or primaryDamage < weaponDamage
-    end
-
-    local queued = false
-
-    if shouldEquip then
-        -- V4.9: a weapon found in a backpack (V4.8) cannot be equipped from
-        -- there; queue the move into the main inventory ahead of the equip.
-        local _, usable = AutoPilot_Utils.queueItemToMainInventory(
-            player, weapon, weaponCont)
-        if usable then
-            AutoPilot_Utils.queueModAction(ISEquipWeaponAction:new(player, weapon, 50, true))
-            queued = true
-        end
-    end
-
-    local targetSq = target and target:getSquare()
-    if targetSq then
-        AutoPilot_Utils.queueModAction(ISWalkToTimedAction:new(player, targetSq))
-        queued = true
-    end
-
-    -- V5.6: the fight path is now guarded exactly like the flee path.  Without
-    -- this the equip + walk it just queued were destroyed by the next cycle's
-    -- clear before either could run, forever.
-    if queued then
-        AutoPilot_Threat._engageActive = true
-    end
-
-    print("[Threat] FIGHT -- " .. #zombies .. " zombie(s) nearby.")
-    return queued, false
-end
+-- (Removed in 0.1.0) A doFight() used to live here: it equipped the best usable
+-- weapon and walked the character TOWARD the nearest zombie.  It has been
+-- deleted, not merely bypassed, because Build 42 exposes no AI-attack API -- the
+-- character could walk up to a zombie but never swing -- so "fighting" only ever
+-- walked it to its death (live telemetry: action=dead against 4 zombies while a
+-- healthy, armed character "fought").  Combat is flee-only now; see the module
+-- header and check().  Keeping the best weapon in hand is checkAndSwapWeapon's
+-- job (AutoPilot_Inventory), so a caught or player-controlled character is still
+-- not left bare-handed.
 
 -- V5.6: clear ONLY to make room for a new engage decision, and ONLY when the
 -- queue is holding an action THIS MOD queued.  A foreign action (started by the
@@ -405,19 +355,8 @@ local function _clearOwnQueue(player)
     return false
 end
 
--- Force fight regardless of moodle state (used by LLM commands).
-function AutoPilot_Threat.forceFight(player)
-    local zombies = AutoPilot_Threat.getNearbyZombies(player)
-    if #zombies == 0 then return end
-    AutoPilot_Threat._engageActive = false
-    AutoPilot_Threat._fleeActive   = false
-    AutoPilot_Threat._fleeCooldown = 0
-    _clearOwnQueue(player)
-    AutoPilot_Threat._engageReason = "fight_forced"
-    doFight(player, zombies, nil, nil, true)
-end
-
--- Force flee regardless of moodle state (used by LLM commands).
+-- Force flee regardless of moodle state.  (The sibling forceFight was removed in
+-- 0.1.0: the mod does not fight -- there is no B42 AI-attack API.)
 function AutoPilot_Threat.forceFlee(player)
     local zombies = AutoPilot_Threat.getNearbyZombies(player)
     if #zombies == 0 then return end
@@ -465,16 +404,19 @@ local function _decideEngagement(player, zombies)
         return "flee", "flee_unarmed", escDx, escDy
     end
 
-    -- Priority 4: Encircled -- fight through the widest gap (fleeing is unsafe).
+    -- Priority 4: Encircled -- flee THROUGH the widest gap (analyzeSpread already
+    -- points the escape vector through it).  Fighting is not an option: the mod
+    -- cannot attack (no B42 AI-attack API), so walking toward a zombie is death.
     if encircled then
-        return "fight", "fight_encircled", escDx, escDy
+        return "flee", "flee_encircled", escDx, escDy
     end
 
-    -- Priority 5: Too many negative moodles -- flee; otherwise fight.
+    -- Priority 5: Too many negative moodles -- flee.  The final case also flees:
+    -- combat is FLEE-ONLY (see the module header), so there is no "fight" intent.
     if AutoPilot_Threat.countNegativeMoodles(player) > FLEE_MOODLE_LIMIT then
         return "flee", "flee_moodles", escDx, escDy
     end
-    return "fight", "fight_default", escDx, escDy
+    return "flee", "flee_default", escDx, escDy
 end
 
 -- Called every evaluation cycle.  Returns true if a threat was detected and an
@@ -559,33 +501,17 @@ function AutoPilot_Threat.check(player)
     -- action is never cleared.
     _clearOwnQueue(player)
 
-    local acted, retreated
-    if intent == "flee" then
-        acted = doFlee(player, zombies, escDx, escDy)
-        if not acted then
-            -- The retreat could not be resolved anywhere in reach.  Stand and
-            -- FIGHT rather than stand and die: noRetreat stops doFight bouncing
-            -- straight back into the safehouse flee that just failed, which is
-            -- exactly the no-op that left the character motionless while a
-            -- horde killed it.
-            AutoPilot_Threat._engageReason = "fight_no_escape"
-            acted = doFight(player, zombies, escDx, escDy, true)
-        end
-    else
-        -- Priority 4 (encircled) means fleeing is unsafe by definition, so it
-        -- must not be redirected into a safehouse retreat.
-        acted, retreated = doFight(player, zombies, escDx, escDy,
-            reason == "fight_encircled")
-        if retreated then
-            AutoPilot_Threat._engageReason = "flee_safehouse"
-        end
-    end
+    -- Combat is FLEE-ONLY (see the module header).  Every decision resolves to a
+    -- flee; the mod never walks the character TOWARD a zombie, because B42 gives
+    -- an AI-driven character no way to actually attack -- so "engaging" a zombie
+    -- only ever walked the character into its own death.
+    local acted = doFlee(player, zombies, escDx, escDy)
 
     if not acted then
-        -- Nothing could be queued at all (no reachable square, no target
-        -- square, nothing to equip).  Distinct label so this shows up in the
-        -- run log instead of hiding inside a generic combat tick.
-        AutoPilot_Threat._engageReason = "engage_blocked"
+        -- Trapped: no reachable escape square anywhere.  There is no fight
+        -- fallback -- standing still is strictly safer than walking into the
+        -- horde -- so hold position and label it so it shows up in the run log.
+        AutoPilot_Threat._engageReason = "flee_blocked"
     end
 
     return true
