@@ -73,8 +73,8 @@ do
         type(AutoPilot_Constants.VERSION), "string")
     assert_true("VERSION is not empty",
         (AutoPilot_Constants.VERSION or "") ~= "")
-    assert_true("VERSION looks like a modversion (digits.digits)",
-        tostring(AutoPilot_Constants.VERSION):match("^%d+%.%d+$") ~= nil)
+    assert_true("VERSION looks like a semver modversion (digits.digits.digits)",
+        tostring(AutoPilot_Constants.VERSION):match("^%d+%.%d+%.%d+$") ~= nil)
     assert_true("VERSION carries no stray whitespace",
         tostring(AutoPilot_Constants.VERSION):match("%s") == nil)
 end
