@@ -2,6 +2,42 @@
 
 All notable changes to AutoPilot are documented here.
 
+## [Unreleased] - post-revival hardening (on `main`, not yet in a Workshop release)
+
+The project was revived on 2026-07-24 (full revival, all streams). These changes are merged to
+`main` but UNVERSIONED: `modversion` stays 5.8 because version bumps, tags, and Workshop uploads
+are USER-ONLY. Each non-test change needs an in-game smoke test before the next Workshop update.
+
+### Fixed
+
+- **Sleep-priority starvation while in pain/soreness (HIGH, user-reported).** The fatigue-to-sleep
+  branch in `AutoPilot_Needs.check()` was terminal, so a sore or in-pain character queued a sleep the
+  engine refuses ("too much pain to sleep") and never addressed any other need. `AutoPilot_Sleep.canSleepNow`
+  now mirrors the engine's real gate (pain MOODLE >= 2 with fatigue <= 0.85, panic, nearby zombies, and the
+  sleeping-tablet bypass); `check()` takes the sleep branch only when it will proceed, otherwise records a
+  `fail_reason`, tries one pain remedy, and falls through to lower needs. (PR #67, `0b45024`)
+- **Resting stood the character up / sat on the ground with a bed available (MED, user-reported).**
+  `doRest` now sits on any furniture via the engine-correct walk-then-seat chain
+  (`ISPathFindAction:pathToSitOnFurniture` then `ISRestAction(char, furniture, useAnimations=true)`) and
+  never sleeps; beds count as rest furniture; all seating is equal priority with the nearest winning. (PR #69, `2ba8d5a`)
+- **Unhappy-moodle relief never fired (MED).** A 0-4 moodle was compared against a 0-100 threshold; the
+  clause is revived with a non-vacuous regression test. (PR #68, `6003365`)
+- **Blocked-sleep rejections were invisible in telemetry (LOW).** `check()` now records
+  `fail_reason=pain_block|panic` on a sleep the engine would refuse. (PR #67, `0b45024`)
+
+### Changed
+
+- **Decision cadence now scales with game speed (fast-forward).** `AutoPilot_Main.onTick` advances its
+  decision counter by `getGameTime():getMultiplier()` instead of a flat +1, so the mod evaluates at a
+  constant rate per game-minute at any speed. A real `speed` telemetry field (schema v5) is added; the
+  old `ff` field (which actually flagged zombie presence, not fast-forward) is documented as a misnomer.
+  (PR #70, `9d7bbcc`)
+
+### Tests
+
+- Added the first coverage of the fast-forward multiplier freeze guard (0x/paused and nil-multiplier
+  cases), proven non-vacuous by removing the clamp. (PR #71, `6f98119`)
+
 ## [V5.8] - 2026-07-20 - SIT DOWN, AND SAY ONE TRUE THING
 
 User report, with a screenshot of the running v5.7 build:
