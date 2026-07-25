@@ -2,6 +2,32 @@
 
 All notable changes to AutoPilot are documented here.
 
+## [Unreleased]
+
+Merged to `main` after the 0.1.0 version reset, still unversioned. Needs an in-game smoke test before
+the next Workshop update (the USER-ONLY tag / `sync_workshop.sh` / Update Item flow is unchanged).
+
+### Changed
+
+- **Sleeping now picks the most COMFORTABLE bed in range, not the nearest.** Product decision (user,
+  2026-07-24): for SLEEPING prioritise by comfort (bed quality); for RESTING all seating is equal and
+  nearest wins (the resting half shipped in PR #69, this is the sleeping half). `AutoPilot_Sleep.bedComfort`
+  ranks a candidate bed with the engine's own resolver, `ISWorldObjectContextMenu.getBedQuality` -- the
+  same call `onSleepWalkToComplete` makes to score the sleep it is about to start -- so the mod and the
+  engine agree on what "more comfortable" means, and `_findBedNearby` orders candidates by comfort first
+  and distance second. The searched area is UNCHANGED (`BED_SEARCH_DIST` / `BED_SEARCH_FLOORS`), so the
+  mod never ranges further than before; only its choice inside that area changed. It degrades safely: if
+  the engine call is unavailable it falls back to the raw `BedType` property, and with no quality signal
+  at all every bed ties and the previous nearest-wins behaviour returns. (PR #76)
+
+### Tests
+
+- New suite `tests/test_sleep_comfort.lua` (17 assertions): grade ordering, the pillow bump that never
+  promotes a bed past the next grade, unknown/modded bed types ranking as average rather than bad,
+  comfort beating both distance and the multi-floor penalty, comfort ties still falling back to nearest,
+  and both degradation paths. Proven non-vacuous by reverting the selection to nearest-wins, which flips
+  three assertions to FAIL. (PR #76)
+
 ## [0.1.0] - 2026-07-25 - VERSION RESET TO PRE-1.0 (user decision)
 
 The version scheme was reset from `5.8` to a pre-1.0 semver baseline (`0.1.0`) by user decision on

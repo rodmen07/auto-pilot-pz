@@ -102,6 +102,16 @@
 --          ISGetOnBedAction does NOT exist in B42 and stays absent here.
 --   [MA] ISWorldObjectContextMenu.equip(character, currentItem, itemType, flag, twoHands)
 --          ISFitnessUI.lua:245-262 pattern; itemType STRING, twoHands BOOLEAN
+--   [MA] ISWorldObjectContextMenu.getBedQuality(playerObj, bed)
+--          the engine's own bed-quality resolver (ISWorldObjectContextMenu.lua
+--          :2917, verified live), the same call onSleepWalkToComplete makes at
+--          line 1070 to score a sleep.  Returns "goodBed"/"averageBed"/"badBed"
+--          /"floor", each optionally suffixed "Pillow".  V0.2:
+--          AutoPilot_Sleep.bedComfort ranks candidate beds with it so the mod
+--          and the engine agree on what "more comfortable" means.  PARTIAL:
+--          the vehicle and tent branches are not modelled, and the engine's
+--          scan for a pillow lying on the bed's sprite-grid squares is stood in
+--          for by a `_pillow = true` field on a mock bed
 --   [M]  AdjacentFreeTileFinder.Find(square, character)
 --   [M]  AdjacentFreeTileFinder.isTileOrAdjacent(squareA, squareB)
 --
@@ -389,6 +399,27 @@ ISWorldObjectContextMenu = {
             "onSleepWalkToComplete expects a numeric player index, got "
             .. type(playerIndex))
         table.insert(ISTimedActionQueue_calls, { type = "sleep", bed = bed })
+    end,
+    -- Real 42.19 surface (client/ISUI/ISWorldObjectContextMenu.lua:2917,
+    -- verified live): getBedQuality(playerObj, bed) returns the engine's own
+    -- bed-quality string.  Modelled here are exactly the two branches
+    -- AutoPilot_Sleep.bedComfort rides: a nil bed is "floor", and a bed resolves
+    -- through its BedType property defaulting to "averageBed" (the engine's own
+    -- line 2958).  The vehicle and tent branches are NOT modelled, and the
+    -- engine's pillow scan over the bed's sprite-grid squares is stood in for by
+    -- a `_pillow = true` field on the mock bed.
+    getBedQuality = function(playerObj, bed)
+        assert(type(playerObj) == "table",
+            "getBedQuality expects the player object as 1st arg, got "
+            .. type(playerObj))
+        if not bed then return "floor" end
+        local bedType = "averageBed"
+        local ok, prop = pcall(function()
+            return bed:getProperties():get("BedType")
+        end)
+        if ok and type(prop) == "string" then bedType = prop end
+        if bed._pillow then return bedType .. "Pillow" end
+        return bedType
     end,
     -- Equipment equip used before equipment exercises (ISFitnessUI.lua:245-262
     -- pattern): equip(character, currentItem, itemType, flag, twoHands).
