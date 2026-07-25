@@ -6,15 +6,63 @@ on:
   pull_request:
     branches: [main]
 
+# Least privilege: this suite only reads the checked-out tree. Nothing here
+# needs write access to contents, releases, packages, issues, or checks, so the
+# job token is narrowed explicitly rather than inherited from the repo default
+# (a repo-level default change would otherwise silently widen it).
+permissions:
+  contents: read
+
 jobs:
   lint-and-test:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # Runs before the ~25s toolchain install so a supply-chain regression
+      # fails fast.
+      - name: Action pin guard
+        run: |
+          echo "=== Action pin guard: external actions must be pinned to a full commit SHA ==="
+          UNPINNED=0
+          TOTAL=0
+          MATCHED=0
+          while IFS= read -r line; do
+            [ -n "$line" ] || continue
+            MATCHED=$((MATCHED + 1))
+            spec="${line#*uses:}"
+            spec="$(printf '%s' "$spec" | tr -d '\r' | awk '{print $1}')"
+            [ -n "$spec" ] || continue
+            case "$spec" in
+              ./*) echo "  SKIP     $spec (local reusable workflow, no SHA to pin)"; continue ;;
+            esac
+            TOTAL=$((TOTAL + 1))
+            ref="${spec##*@}"
+            if printf '%s' "$ref" | grep -Eq '^[0-9a-f]{40}$'; then
+              echo "  OK       $spec"
+            else
+              echo "  UNPINNED $spec"
+              UNPINNED=$((UNPINNED + 1))
+            fi
+          done <<< "$(grep -rhE '^[[:space:]]*(-[[:space:]]+)?uses:[[:space:]]' .github/workflows/)"
+          if [ "$MATCHED" -eq 0 ]; then
+            echo "ERROR: no 'uses:' lines found under .github/workflows/."
+            echo "The guard has gone blind (moved/renamed workflows?) — it must never pass on zero input."
+            exit 1
+          fi
+          echo "Checked $TOTAL external action reference(s); $UNPINNED unpinned."
+          if [ "$UNPINNED" -gt 0 ]; then
+            echo "Action pin guard FAILED: pin every external action to a full 40-hex commit SHA,"
+            echo "e.g. actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1"
+            echo "A mutable tag (@v7) can be re-pointed at new code by the action owner or by a"
+            echo "compromise of their repo, silently changing what runs in CI and in the release job."
+            exit 1
+          fi
+          echo "Action pin guard PASSED: every external action is pinned to a commit SHA."
 
       - name: Set up Python
-        uses: actions/setup-python@v7
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
 
