@@ -1,48 +1,43 @@
 # AutoPilot Leveler Roadmap
 
-> ## 🛑 PROJECT DECOMMISSIONED (2026-07-21) — this roadmap is a historical record
+> ## ✅ REVIVED (2026-07-24) — active roadmap again
 >
-> **There is no roadmap. This project is over.** Development stopped on 2026-07-21, the Steam
-> Workshop item was delisted, and no further milestone in this document will be built. Everything
-> below is preserved as a record of what shipped and what was planned, not as work queued.
+> **This roadmap is live guidance once more.** The project was decommissioned on 2026-07-21 and
+> REVIVED on 2026-07-24 by explicit user decision as a FULL revival: the software-developer,
+> DevSecOps, QA, and product streams are all active and net-new features are in scope. The
+> "there is no roadmap / this project is over / everything below is void" language that stood here
+> from 2026-07-21 to 2026-07-24 is RETRACTED — the Direction, Next-milestone, and standing-non-goal
+> sections below are binding guidance again, subject to the pending product decisions each names.
 >
-> **The decommission followed an identity pivot that was started and then abandoned within the
-> same day.** The sequence, for anyone reading the git history and wondering:
-> 1. The mod's V3.1 scope cut had narrowed it to an auto-exercise leveler, deleting six modules.
-> 2. On 2026-07-21 the owner reopened most of that territory, then pivoted the identity outright:
->    *"There are already autotrainer mods, I want to pivot away from the leveling angle. I want the
->    mod to be an autonomous survival mod... exercise is deprioritized for securing the area. That
->    means that combat will need a significant overhaul."* Exercise was to drop to a bottom idle
->    slot, "secure the area" was to become a first-class priority phase, barricading was reopened,
->    and the mod was to be renamed.
-> 3. Before that pivot was designed, the owner concluded the project had no differentiated purpose
->    worth rebuilding for a third time, and decommissioned it instead.
+> **Why it was shelved (a still-open product question, not an engineering one).** The mod never
+> settled a differentiated purpose across three identities in quick succession: broad auto-survival,
+> then an auto-exercise leveler (which drove V3.1's six-module deletion), then a same-day pivot back
+> toward autonomous survival that was abandoned before it was designed, on the grounds the
+> auto-trainer niche is already well served. Engineering was never the problem: at decommission the
+> mod was V5.8, 21 modules, 14 test suites, 1107 assertions passing, luacheck clean, CI green, with
+> `AutoPilot_Needs.lua` freshly refactored from 1848 to 706 lines.
 >
-> **What was NOT the problem:** engineering. At decommission the mod was V5.8, 21 modules, 14 test
-> suites, 1107 assertions passing, luacheck clean, CI green, with `AutoPilot_Needs.lua` freshly
-> refactored from 1848 to 706 lines. It worked. It just never settled on being something the
-> Workshop did not already have.
->
-> **Consequently, every "Direction," "Next milestone," and "standing non-goal" below is void as
-> guidance.** They are retained because they document real decisions and their rationales — several
-> of which were themselves reversed on the final day (V3.1's six-module deletion and V5.0's
-> barricading removal were both justified by the narrow leveler identity that the pivot discarded).
+> **What seeds net-new development.** `docs/EXPANSION_PROPOSAL_V6.md` (PR #64) is the pending
+> product decision meant to settle that purpose question; it is AWAITING USER DECISION and no
+> direction is picked unilaterally. Until an expansion track is approved, the near-term posture is
+> **harden and maintain** — fixing real in-game bug reports — which is exactly what the post-revival
+> PRs #67-#71 did (see "Shipped 2026-07-24 to 2026-07-25" below).
 
-**Final state:** Code and packaged builds are current through V5.8 (`mod.info` modversion 5.8, 2026-07-20; `CHANGELOG.md` is the authoritative shipped record). Workshop item 3767254910 was published at V3.3 on 2026-07-18 and DELISTED on 2026-07-21. Local Workshop staging (`sync_workshop.sh`) and the in-game "Update Item" flow were always user-only and were never run after V3.3, so the published Workshop build lagged the repo by several releases at delisting.
+**Repo state (2026-07-25):** `mod.info` modversion is still 5.8 (2026-07-20); version bumps are USER-ONLY, so the post-revival hardening PRs #67-#71 (2026-07-24 to 2026-07-25) landed on `main` UNVERSIONED and are AWAITING the USER-ONLY in-game smoke test before the next Workshop update. `CHANGELOG.md` remains the authoritative shipped record; its `[Unreleased]` section carries #67-#71. The GitHub repo `rodmen07/auto-pilot-pz` was archived at decommission and UNARCHIVED by the user on 2026-07-24 as part of the revival. Workshop item 3767254910 was published at V3.3 on 2026-07-18 and DELISTED on 2026-07-21; `sync_workshop.sh` and the in-game "Update Item" flow are USER-ONLY and have not been run since, so the Workshop build remains at its V3.3 state regardless of repo progress.
 
 **Direction (pre-pivot, being superseded):** The V3.4-V3.8 stabilize track (including V3.8 preparation, done 2026-07-20 — execution stays gated on Build 42.20) and the entire V4.0-approved expansion track (V4.1-V4.9) are COMPLETE. A user-directed scope cut (V5.0) and five bug-driven hardening releases (V5.1-V5.8) followed. Then a code-health split of `AutoPilot_Needs.lua` (four slices shipped 2026-07-20: eat/drink, sleep, endurance-critical rest, and the exercise/trainer block, 1848 → 706 lines). This file supersedes `EXPANSION_ROADMAP.md` (the old V1.1-V2.0 expansion plan) as of 2026-07-18.
 **Cadence:** each milestone is sized for one or two small PRs, ordered by dependency and user gates, never by calendar time — agent execution runs far faster than a planned weekly cadence (the V4.1-V5.8 arc below shipped in about a day and a half).
 
 ---
 
-## Current state (as of 2026-07-20)
+## Current state (as of 2026-07-25)
 
-AutoPilot Leveler is an auto-EXERCISE leveler for Project Zomboid Build 42 (pzversion 42.19.0, unstable branch):
+AutoPilot Leveler is an auto-EXERCISE leveler for Project Zomboid Build 42 (pzversion 42.19.0, unstable branch). Its identity is the open product question the V6 proposal exists to settle; the description below is the shipped V5.8 behavior plus the post-revival hardening:
 
 - Auto / Strength / Fitness focus, F10 arm/disarm (protected by the V4.5 ownership registry so the mod never touches an action it did not queue), F11 metrics panel with live status and a session-history trend line, an on-screen action/intention HUD, equipment exercises with a daily gear fetch from home containers (worn and carried containers are now searched too, not just top-level inventory), configurable weekly training programs, PZAPI.ModOptions sliders and rebindable keys registered on `Events.OnMainMenuEnter` with an `OnTick` fallback (V5.5 fix — they previously never reached the in-game menu).
 - Always-on survival FAIL-SAFE (eat, drink, sleep, flee, medical) with configurable hunger/thirst thresholds, an endurance-recovery floor for the 30-50 percent dead zone, death learning (DeathLog + Adaptive bounded threshold tuning), and combat where fight and flee share one engage guard (V5.6 fix — the queue was previously cleared every tick, so neither could complete).
 - OFF by default. MP-compatible, client-side only. Splitscreen support was removed in V3.2. Barricading and woodworking were removed in V5.0 (artifact of the old broader-survival scope).
-- 21 Lua modules under `42/media/lua/client/` (`AutoPilot_Barricade.lua` removed in V5.0, `AutoPilot_SessionHistory.lua` added in V4.2, `AutoPilot_Consumption.lua`/`AutoPilot_Sleep.lua`/`AutoPilot_Rest.lua`/`AutoPilot_Exercise.lua` split out of `AutoPilot_Needs` in a 2026-07-20 code-health pass — eat/drink, then sleep, then endurance-critical rest, then the exercise/trainer block, all verbatim moves; the rest move needed a same-day prior seam increment first since its cooldown state was shared with `check()`'s own gate, the exercise move did not since its shared touch points were already named functions); 14 Lua test suites, 1107 assertions, 0 failures (verified 2026-07-20); luacheck clean across 21 files; Python tooling suite green aside from two long-known-stale console-log assertions excluded from CI (tracked in the AutoPilot backlog `## Bugs`). `AutoPilot_Needs.lua` down to 706 lines from 1848 across the four slices — now well under the 1000-line code-health threshold.
+- 21 Lua modules under `42/media/lua/client/` (`AutoPilot_Barricade.lua` removed in V5.0, `AutoPilot_SessionHistory.lua` added in V4.2, `AutoPilot_Consumption.lua`/`AutoPilot_Sleep.lua`/`AutoPilot_Rest.lua`/`AutoPilot_Exercise.lua` split out of `AutoPilot_Needs` in a 2026-07-20 code-health pass — eat/drink, then sleep, then endurance-critical rest, then the exercise/trainer block, all verbatim moves; the rest move needed a same-day prior seam increment first since its cooldown state was shared with `check()`'s own gate, the exercise move did not since its shared touch points were already named functions); 14 Lua test suites, 1131 assertions, 0 failures (verified 2026-07-25; was 1107 at V5.8, grown by the post-revival regression and behavior-difference tests in PRs #67-#71); luacheck clean across 21 files; Python tooling suite green in CI (one run-log-dependent test, `TestRunLogSuspiciousPatterns`, is `@skipUnless(RUN_LOG.exists())` — it is skipped in CI and only runs, and can go red, when a real local run log is present; the old console-log assertions this line used to flag were fixed in PR #49). `AutoPilot_Needs.lua` down to 706 lines from 1848 across the four slices — now well under the 1000-line code-health threshold.
 
 ### Shipped 2026-07-18 (the pivot-and-stabilize burst)
 
@@ -67,10 +62,30 @@ All of V2.1 through V3.3 shipped on 2026-07-18; `CHANGELOG.md` is the authoritat
 - **V5.0 (PR #34):** user-directed scope cut — barricading and woodworking removed entirely (`AutoPilot_Barricade.lua` deleted, the priority-10 maintenance slot gone, telemetry schema v3 to v4).
 - **V5.2-V5.8:** auto-days prefer carried equipment over burpees; version visibility in the F11 panel and the Workshop description; an endurance-recovery floor for the 30-50 percent dead zone; two more real user-reported bugs fixed — mod options never reaching the in-game menu (now registered on `Events.OnMainMenuEnter`, was load-time-only before) and combat clearing its own action queue every tick so neither fighting nor fleeing could complete (fight and flee now share one engage guard); the user's tuned option defaults adopted; a rest bug where the character was reported "resting" while still standing, fixed by queuing one sit-and-rest action instead of two, plus a single shared activity string so the F11 panel and the HUD can no longer disagree.
 
+### Shipped 2026-07-24 to 2026-07-25 (revival: in-game bug hardening)
+
+The project was revived on 2026-07-24 and the user ran an in-game smoke test that surfaced five issues plus a fast-forward spot check. These landed as targeted fixes on `main`, UNVERSIONED (a Workshop update and version bump are USER-ONLY); every non-test change carries "Needs in-game smoke test before Workshop update." Full per-change detail is in `CHANGELOG.md`'s `[Unreleased]` section and the AutoPilot backlog `## Bugs`:
+
+- **#67 (`0b45024`) — sleep pain gate (HIGH, user-reported):** the fatigue→sleep branch in `AutoPilot_Needs.check()` was terminal, so a sore or in-pain character queued a sleep the engine refuses ("too much pain to sleep") and addressed no other need. `AutoPilot_Sleep.canSleepNow` now mirrors the engine gate (pain MOODLE ≥2 with fatigue ≤0.85, panic, nearby zombies, sleeping-tablet bypass); the branch is taken only when sleep will proceed, else it records a `fail_reason`, tries one pain remedy, and falls through to lower needs (also fixes the LOW telemetry-blindness bug 4).
+- **#68 (`6003365`) — dead Unhappy relief clause (MED):** a 0-4 moodle was compared against a 0-100 threshold, so unhappiness relief never fired; revived with a non-vacuous regression test (the prior test asserted against the constant's own impossible value).
+- **#69 (`2ba8d5a`) — rest-furniture redesign (MED, user-reported):** `doRest` now SITS on any furniture via the engine-correct walk-then-seat chain (`pathToSitOnFurniture` → `ISRestAction(…, useAnimations=true)`) and never sleeps; beds are valid rest furniture; all seating is equal priority (nearest wins). Fixes the "reads Resting while standing" and "sits on the ground with a bed in the room" reports.
+- **#70 (`9d7bbcc`) — fast-forward cadence (MED, user-reported):** `AutoPilot_Main.onTick` advances its decision counter by `getGameTime():getMultiplier()` instead of a flat +1, so the mod evaluates at a constant rate per game-minute at any speed; a real `speed` telemetry field (schema v5) replaces reliance on the misleading `ff` flag.
+- **#71 (`6f98119`) — QA, fast-forward clamp coverage (test-only):** first coverage of #70's zero-coverage `mult < 1` / non-number freeze guard; two behavior-difference assertions (0x paused, nil multiplier), proven non-vacuous by removing the clamp. No in-game smoke test required.
+
+Still open in the backlog `## Bugs`: the sleep-comfort half of bug 3 (`doSleep` should pick the highest-quality bed, not the nearest), the broader-moodle-coverage half of bug 5 (Stress/Discomfort management, with a product scope question), and the two LOW fast-forward items FF-3 (safehouse flee-in-place) and FF-4 (XP/hr display under fast-forward).
+
 ---
 
 ## Direction and standing non-goals
 
+> **REVIVAL NOTE (2026-07-24):** this section is binding guidance again after the revival — the
+> top-of-file "void as guidance" language is retracted. The harden-and-maintain posture below is
+> exactly what the post-revival PRs #67-#71 executed. The pre-revival PIVOT NOTE and 2026-07-21
+> direction-change records that follow are preserved as the last recorded product decisions;
+> whether the V7.0 territory they describe (Foraging / Combat / Explore / Skills, and later
+> barricading) survives the revival is part of the open V6/identity product question and is NOT
+> re-adjudicated here — that stays a user decision.
+>
 > **PIVOT NOTE (2026-07-21):** this whole section predates the identity pivot described at the top
 > of this file. The non-goals that SURVIVE the pivot unchanged are: no mod-fabricated `addXp()`,
 > no LLM sidecar, no splitscreen, and the V4.5 player-agency guarantee (never touch an action the
@@ -108,6 +123,7 @@ Build 42.20 was announced as the stable candidate on 2026-07-09, and 42.19 saves
 
 No expansion milestone is currently approved. The actionable next steps, tracked in the AutoPilot backlog (`d:\Projects\.claude\skills\autodev\backlogs\autopilot-pz.md`), ordered by dependency rather than a calendar:
 
+- **Harden and maintain (the near-term posture post-revival).** PRs #67-#71 cleared the HIGH sleep-starvation bug plus the rest-furniture, mood, and fast-forward issues from the user's 2026-07-24 in-game smoke test; all await the USER-ONLY in-game smoke test before a Workshop update. Remaining `## Bugs` items are the dependency-free next slices: the sleep-comfort half of bug 3 (`doSleep` should pick the highest-quality bed via `getBedQuality`, not the nearest), the broader-moodle-coverage half of bug 5 (Stress/Discomfort management, which also carries a product scope question), and the two LOW fast-forward items FF-3 and FF-4.
 - The `AutoPilot_Needs.lua` code-health split is DONE: four verbatim-move slices shipped 2026-07-20 (`AutoPilot_Consumption.lua` for eat/drink, `AutoPilot_Sleep.lua` for sleep, `AutoPilot_Rest.lua` for endurance-critical rest, `AutoPilot_Exercise.lua` for the exercise/trainer block; the rest move needed a same-day prior seam increment first, the exercise move did not since its shared touch points with `check()` — `syncSetsCounter`, `isInTrainingRun`, `enduranceResumeGate` — were already named functions, confirmed by re-reading `check()` before starting rather than assumed from the `doRest` precedent). `AutoPilot_Needs.lua` is down to 706 lines from 1848, now well under the 1000-line threshold. `AutoPilot_Inventory.lua` (1038 lines) was investigated and ruled OUT (10 percent commit share, see "Direction and standing non-goals" above); no further code-health candidate is currently open.
 - **`docs/EXPANSION_PROPOSAL_V6.md` drafted 2026-07-20, AWAITING USER DECISION**: three small candidates (sickness-aware exercise/scavenge gating, decision-reason visibility on the F11 panel, exercise equipment variety gated on a live table lookup), reviewed the same way `docs/EXPANSION_PROPOSAL_V4.md` was. No implementation until the Decision section is marked.
 - V3.8 execution, once unblocked (see above).
