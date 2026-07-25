@@ -2,11 +2,19 @@
 
 All notable changes to AutoPilot are documented here.
 
-## [Unreleased] - post-revival hardening (on `main`, not yet in a Workshop release)
+## [0.1.0] - 2026-07-25 - VERSION RESET TO PRE-1.0 (user decision)
 
-The project was revived on 2026-07-24 (full revival, all streams). These changes are merged to
-`main` but UNVERSIONED: `modversion` stays 5.8 because version bumps, tags, and Workshop uploads
-are USER-ONLY. Each non-test change needs an in-game smoke test before the next Workshop update.
+The version scheme was reset from `5.8` to a pre-1.0 semver baseline (`0.1.0`) by user decision on
+2026-07-25, signalling that the revived mod is in active rework and does not yet commit to a stable
+1.0. The prior `V1.x`-`V5.8` history below is retained as-is; `modversion` is now `0.1.0` across both
+`mod.info` files, `AutoPilot_Constants.VERSION`, and the README (the four-way sync guard was updated
+to accept semver `X.Y.Z`). A Workshop release carrying this still needs the USER-ONLY steps (tag,
+`sync_workshop.sh`, in-game smoke test, Update Item).
+
+The post-revival changes below are merged to `main` (PRs #67-#72: sleep pain-gate, unhappy relief,
+the rest-furniture redesign, the fast-forward cadence + `speed` telemetry, QA coverage, and the
+roadmap truth pass). Each non-test change still needs an in-game smoke test before the next Workshop
+update.
 
 ### Fixed
 
