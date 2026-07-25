@@ -1013,6 +1013,45 @@ do
     MockGameSpeed.set(1)  -- restore normal speed for any later tests
 end
 
+-- ── FF-1 guard: a bogus (<1 or non-number) multiplier must NOT freeze the mod ─
+-- onTick clamps mult to 1 when getGameTime():getMultiplier() reports < 1 (a paused
+-- game reads 0) or a non-number (a nil/garbage engine return).  Without that clamp
+-- the cadence advances by 0 (or errors on nil) and NEVER reaches the eval gate, so
+-- the whole mod silently stops deciding.  The FF-1 test above only covers 1x vs 5x,
+-- so this guard branch shipped (PR #70) with zero coverage: this is its first test.
+-- Behavior-difference proof (L-001): remove the clamp at AutoPilot_Main.lua and the
+-- speed-0 assertion below flips from PASS to FAIL (tickCounter stays 0, nothing
+-- logs), and the nil case throws an arithmetic-on-nil error inside onTick.
+print("\n-- Test: a 0x/nil game-speed multiplier is clamped so the mod never freezes")
+do
+    -- speed 0 (paused): covers the `mult < 1` half of the clamp.
+    reset()
+    _mockPlayers[0] = makePlayer(0)
+    arm()
+    MockGameSpeed.set(0)
+    AutoPilot.tickCounter = 0
+    _telemLog = {}
+    for _ = 1, AutoPilot_Constants.TICK_INTERVAL do
+        MockRealTime.advance(16); fireEvent("OnTick")
+    end
+    assert_true("at 0x (paused), TICK_INTERVAL frames still reach the gate (mult clamped to 1, no freeze)",
+        #_telemLog > 0)
+
+    -- nil multiplier (garbage engine return): covers the `type ~= number` half.
+    reset()
+    _mockPlayers[0] = makePlayer(0)
+    arm()
+    MockGameSpeed.set(nil)
+    AutoPilot.tickCounter = 0
+    _telemLog = {}
+    for _ = 1, AutoPilot_Constants.TICK_INTERVAL do
+        MockRealTime.advance(16); fireEvent("OnTick")
+    end
+    assert_true("a nil multiplier is clamped to 1 so the mod still evaluates (no error, no freeze)",
+        #_telemLog > 0)
+    MockGameSpeed.set(1)  -- restore normal speed for any later tests
+end
+
 -- ── Summary ───────────────────────────────────────────────────────────────────
 print(("\n=== Results: %d passed, %d failed ==="):format(PASS, FAIL))
 if FAIL > 0 then
