@@ -21,10 +21,14 @@ Any proposed policy change must be benchmarked against this document before prom
 | 9 | Boredom ≥ 30 or sadness ≥ 20 or unhappy moodle ≥ 40 | `read` then `go_outside` |
 | 10 | None of the above | `exercise` (strength/fitness alternating) |
 
-Threat check runs **before** the priority chain every tick:
-- Bleeding → always flee
+Threat check runs **before** the priority chain every tick. It is FLEE-ONLY
+(0.1.0): the mod never fights (B42 has no AI-attack API), so every branch below
+resolves to a flee away from the zombies, or a hold (`flee_blocked`) when no
+escape square is reachable:
+- Bleeding → flee
 - Unarmed + multiple zombies → flee
-- Negative stats > `FLEE_MOODLE_LIMIT` (2) → flee; otherwise fight
+- Encircled → flee through the widest gap
+- Negative stats > `FLEE_MOODLE_LIMIT` (2) → flee; otherwise flee (the default)
 
 ---
 

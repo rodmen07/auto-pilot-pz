@@ -49,8 +49,11 @@ This guide is for a technical user who wants to:
   live trainer status, and sets-per-day counter; the panel title reports the
   loaded mod version (V5.3), so a stale Workshop copy on a server is visible
   at a glance
-- Survival fail-safe: hunger, thirst, sleep, wounds, temperature; fight/flee
-  only when zombies actually engage (chasing/visible/close)
+- Survival fail-safe: hunger, thirst, sleep, wounds, temperature; and a
+  FLEE-ONLY threat response when zombies actually engage (chasing/visible/close).
+  The mod does NOT fight: Build 42 gives an AI-driven character no way to swing a
+  weapon, so combat is not viable for automation. It runs away from the threat
+  instead, and holds position only when no escape square is reachable.
 - Player control guarantees (V4.5): the mod only ever interrupts or clears
   actions it queued itself; anything you start manually (like an exercise
   from the fitness UI) is never touched, armed or disarmed. If you cancel a
@@ -58,7 +61,7 @@ This guide is for a technical user who wants to:
   minutes, "Training backoff after manual cancel" slider, 0 disables)
   instead of instantly re-queuing. The fail-safe stays always-on while
   armed, but it can only act on the mod's own actions; the one exception is
-  fight/flee, which still clears the queue when zombies actually engage.
+  the flee response, which still clears the queue when zombies actually engage.
 - Death learning: context snapshots on death + bounded threshold self-tuning
 - Configurable: sliders and rebindable keys under Options > Mods, listed as
   "AutoPilot Leveler". V5.5 fixed the registration bug that made this page
@@ -143,7 +146,7 @@ Leveler:
 
 Survival fail-safe:
 - AutoPilot_Needs.lua: priority state machine for survival needs and exercise
-- AutoPilot_Threat.lua: zombie detection and fight/flee
+- AutoPilot_Threat.lua: zombie detection and flee-only threat response
 - AutoPilot_Inventory.lua: food/drink/loot/equipment helpers
 - AutoPilot_Medical.lua: wound detection and treatment
 - AutoPilot_Home.lua: home anchor persistence and bounds logic

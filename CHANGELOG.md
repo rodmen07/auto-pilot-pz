@@ -11,13 +11,25 @@ The version scheme was reset from `5.8` to a pre-1.0 semver baseline (`0.1.0`) b
 to accept semver `X.Y.Z`). A Workshop release carrying this still needs the USER-ONLY steps (tag,
 `sync_workshop.sh`, in-game smoke test, Update Item).
 
-The post-revival changes below are merged to `main` (PRs #67-#72: sleep pain-gate, unhappy relief,
-the rest-furniture redesign, the fast-forward cadence + `speed` telemetry, QA coverage, and the
-roadmap truth pass). Each non-test change still needs an in-game smoke test before the next Workshop
-update.
+The post-revival changes below are merged to `main` (PRs #67-#74: sleep pain-gate, unhappy relief,
+the rest-furniture redesign, the fast-forward cadence + `speed` telemetry, QA coverage, the
+roadmap truth pass, and the flee-only combat rework). Each non-test change still needs an in-game
+smoke test before the next Workshop update.
 
 ### Fixed
 
+- **Combat is not viable for automation -- the threat response is now FLEE-ONLY (HIGH, user-reported).**
+  Build 42 exposes no attack API for an AI-driven character (no `ISAttack` timed action, no
+  companion/NPC combat); the character can be walked up to a zombie but can never actually swing. The
+  old "fight" path did exactly that and walked a healthy, armed character to its death (`action=dead`
+  against four zombies). `AutoPilot_Threat` now resolves every threat decision to a flee AWAY from the
+  zombie cluster (through the widest gap when encircled) and HOLDS position (reason `flee_blocked`)
+  when no escape square is reachable -- it never walks toward a zombie. `doFight` and the unused
+  `forceFight` are deleted; keeping the best weapon in hand stays `checkAndSwapWeapon`'s job so a
+  caught or player-controlled character is not left bare-handed. This also fixes FF-3: the old
+  `_fleeDestination` preferred the home anchor, which made a surrounded character shuffle one tile in
+  place (the home tile is usually the one it stands on) instead of running; flee now always moves
+  along the escape vector. (PR #74)
 - **Sleep-priority starvation while in pain/soreness (HIGH, user-reported).** The fatigue-to-sleep
   branch in `AutoPilot_Needs.check()` was terminal, so a sore or in-pain character queued a sleep the
   engine refuses ("too much pain to sleep") and never addressed any other need. `AutoPilot_Sleep.canSleepNow`

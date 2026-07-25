@@ -21,7 +21,8 @@ ISEquipWeaponAction = {
         return { type = "equip_weapon", weapon = weapon }
     end,
 }
--- V4.9: doFight moves a bagged weapon into the main inventory before equipping.
+-- checkAndSwapWeapon moves a bagged weapon into the main inventory before
+-- equipping; the stub is retained for modules loaded below that reference it.
 ISInventoryTransferAction = {
     new = function(_, _player, item, from, to)
         return { type = "transfer", item = item, from = from, to = to }
@@ -259,19 +260,11 @@ do
     assert_true("forceFlee does not crash", ok)
 end
 
--- 10. forceFight does not crash when zombie's square is nil.
-print("\n-- Test 10: forceFight does not crash with zombie that has no square")
-do
-    reset()
-    setZombies({ makeZombie(2, 2) })
-    local player = MockPlayer.new({})
-    player.getPrimaryHandItem = function(self) return nil end
-    local ok = pcall(function() AutoPilot_Threat.forceFight(player) end)
-    assert_true("forceFight does not crash", ok)
-end
+-- 10. (Removed in 0.1.0 with AutoPilot_Threat.forceFight -- the mod no longer
+-- fights; there is no B42 AI-attack API.  forceFlee is covered by Test 9.)
 
--- 11. Healthy player with weapon + one zombie → fight path, check returns true.
-print("\n-- Test 11: Healthy + weapon + one zombie → fight path")
+-- 11. Healthy player with weapon + one zombie → flee path, check returns true.
+print("\n-- Test 11: Healthy + weapon + one zombie → flee path")
 do
     reset()
     AutoPilot_Inventory._weapon = { getMaxDamage = function(self) return 5 end }
@@ -303,10 +296,10 @@ do
     assert_eq("dead zombie not counted", #result, 0)
 end
 
--- ── V4.9: transfer before equipping ───────────────────────────────────────────
+-- ── Weapon in fighting condition (used by the flee-decision cases below) ──────
 
--- A weapon in fighting condition: doFight only equips when the condition ratio
--- clears WEAPON_FIGHT_COND_MIN, so the stub needs condition accessors.
+-- A weapon whose condition ratio clears WEAPON_FIGHT_COND_MIN, so the threat
+-- module treats the character as "armed" when choosing a flee reason.
 local function makeUsableWeapon()
     return {
         getMaxDamage    = function(self) return 5 end,
@@ -315,75 +308,23 @@ local function makeUsableWeapon()
     }
 end
 
--- Index of the first queued action of a given type, or nil.
-local function indexOfType(t)
-    for i, a in ipairs(ISTimedActionQueue_calls) do
-        if a.type == t then return i end
-    end
-    return nil
-end
+-- Tests 13 & 14 (the transfer-before-equip that the removed doFight performed)
+-- are gone as of 0.1.0: combat is flee-only, so the threat module never equips a
+-- weapon itself.  Keeping the best weapon in hand is checkAndSwapWeapon's job and
+-- is covered by test_container_search Test 29 ("a bagged weapon transfers THEN is
+-- equipped").
 
--- 13. A weapon found inside a bag (V4.8 scope) must be transferred into the
--- main inventory BEFORE the equip action is queued.
-print("\n-- Test 13 (V4.9): a bagged weapon transfers before it is equipped")
-do
-    reset()
-    local bagContainer = { _tag = "bag" }
-    AutoPilot_Inventory._weapon     = makeUsableWeapon()
-    AutoPilot_Inventory._weaponCont = bagContainer
-    setZombies({ makeZombie(3, 3) })
-    local player = MockPlayer.new({
-        stats = {
-            HUNGER = 0.05, THIRST = 0.05, FATIGUE = 0.10,
-            PANIC  = 0,    PAIN   = 0,    SICKNESS = 0,
-            STRESS = 0,    SANITY = 0,
-        },
-    })
-    player.getPrimaryHandItem = function(self) return nil end
-
-    assert_true("check() returns true with zombie present",
-        AutoPilot_Threat.check(player))
-    local xfer  = indexOfType("transfer")
-    local equip = indexOfType("equip_weapon")
-    assert_true("a transfer was queued", xfer ~= nil)
-    assert_true("an equip was queued", equip ~= nil)
-    assert_true("the transfer is queued BEFORE the equip",
-        xfer ~= nil and equip ~= nil and xfer < equip)
-    assert_eq("the transfer source is the bag",
-        ISTimedActionQueue_calls[xfer].from, bagContainer)
-end
-
--- 14. A weapon already in the main inventory must NOT produce a transfer.
-print("\n-- Test 14 (V4.9): a main-inventory weapon queues no transfer")
-do
-    reset()
-    local player = MockPlayer.new({
-        stats = {
-            HUNGER = 0.05, THIRST = 0.05, FATIGUE = 0.10,
-            PANIC  = 0,    PAIN   = 0,    SICKNESS = 0,
-            STRESS = 0,    SANITY = 0,
-        },
-    })
-    player.getPrimaryHandItem = function(self) return nil end
-    AutoPilot_Inventory._weapon     = makeUsableWeapon()
-    AutoPilot_Inventory._weaponCont = player:getInventory()
-    setZombies({ makeZombie(3, 3) })
-
-    assert_true("check() returns true with zombie present",
-        AutoPilot_Threat.check(player))
-    assert_eq("no transfer action queued", indexOfType("transfer"), nil)
-    assert_true("the equip still happens", indexOfType("equip_weapon") ~= nil)
-end
-
--- ══ V5.6: fight and flee must ACTUALLY EXECUTE ═══════════════════════════════
+-- ══ Flee must EXECUTE, and combat must NEVER walk into zombies ════════════════
 -- Regression cover for the user-reported HIGH severity bug ("the fight/flee
--- mechanic is not working as expected").  Live run log: a 175-tick combat
--- streak with zombies=7 and endurance=52 FROZEN throughout, ending in
--- action=dead with bleeding climbing 0 -> 5 -> 7.  Nothing was executing:
--- check() cleared the action queue on every tick, so whatever it queued 0.75 s
--- earlier was destroyed before it could run, and with home auto-anchored the
--- fight fallback bounced back into the flee that had just failed and queued
--- nothing at all.
+-- mechanic is not working as expected").  Two live failures are pinned here:
+--   * A 175-tick combat streak with zombies=7 and endurance=52 FROZEN, ending
+--     in action=dead: check() cleared the queue every tick, so whatever it
+--     queued 0.75 s earlier was destroyed before it could run.  The queue model
+--     below reproduces that; Test 17 proves a live flee now survives the tick.
+--   * A healthy, armed character killed while "fighting" 4 zombies.  B42 exposes
+--     no AI-attack API, so the old fight path only ever walked the character to
+--     its death.  0.1.0 makes combat FLEE-ONLY; Tests 15/16/22 prove a trapped
+--     engage now HOLDS instead of walking into the horde.
 
 -- A queue model faithful enough to reproduce the spin: clear() really empties
 -- the queue, and isPlayerDoingAction() reports whether anything is left (the
@@ -414,7 +355,8 @@ local function makeSquareAt(x, y, z)
     }
 end
 
--- A zombie that owns a square, so the fight path has somewhere to walk to.
+-- A zombie that owns a square, so the engage logic has a real position to
+-- reason about (spread analysis, escape vector).
 local function makeZombieAt(x, y)
     local z  = makeZombie(x, y)
     local sq = makeSquareAt(x, y, 0)
@@ -451,36 +393,34 @@ local function engageReason()
     return "threat"
 end
 
--- 15. THE HEADLINE SPIN.  7 zombies, no escape square anywhere: a fight must be
--- queued AND must still be there on the next tick.
-print("\n-- Test 15 (V5.6): a fallback fight survives the next tick (the spin)")
+-- 15. THE TRAP (flee-only).  7 zombies, no escape square reachable anywhere.
+-- Pre-0.1.0 the mod fell back to walking INTO the horde (a "fight" that could
+-- never land a hit).  Now it must queue NOTHING -- standing still is strictly
+-- safer than walking into the zombies -- and report flee_blocked, this tick and
+-- the next.
+print("\n-- Test 15 (0.1.0): a trapped flee holds, it never fights")
 do
     reset(); installQueueModel()
     AutoPilot_Inventory._weapon = makeUsableWeapon()
-    setZombies(makeRing(7, 4))          -- 7 >= FLEE_HORDE_SIZE → flee branch
+    setZombies(makeRing(7, 4))          -- 7 >= FLEE_HORDE_SIZE
     local player = healthyPlayer()
 
     assert_true("tick 1: check() returns true", AutoPilot_Threat.check(player))
-    local queuedAfterTick1 = #ISTimedActionQueue_calls
-    assert_true("tick 1: the fallback fight queued something",
-        queuedAfterTick1 > 0)
-    assert_eq("tick 1: reported as fight_no_escape", engageReason(),
-        "fight_no_escape")
+    assert_eq("tick 1: nothing queued (no walk toward the horde)",
+        #ISTimedActionQueue_calls, 0)
+    assert_eq("tick 1: reported as flee_blocked", engageReason(), "flee_blocked")
 
-    local clearsAfterTick1 = ISTQ_clears
     assert_true("tick 2: check() returns true", AutoPilot_Threat.check(player))
-    assert_eq("tick 2: the queue was NOT cleared out from under the fight",
-        ISTQ_clears, clearsAfterTick1)
-    assert_eq("tick 2: the queued fight actions survived",
-        #ISTimedActionQueue_calls, queuedAfterTick1)
-    assert_eq("tick 2: reported as engage_running", engageReason(),
-        "engage_running")
+    assert_eq("tick 2: still nothing queued", #ISTimedActionQueue_calls, 0)
+    assert_eq("tick 2: still flee_blocked", engageReason(), "flee_blocked")
 end
 
--- 16. The same spin with HOME SET, which is the LIVE configuration: Main
--- auto-anchors home on the first armed cycle, so pre-V5.6 doFight redirected
--- into the failing doFlee and queued nothing at all.
-print("\n-- Test 16 (V5.6): home set + no escape square still queues a fight")
+-- 16. The same trap with HOME SET (the LIVE configuration: Main auto-anchors
+-- home on the first armed cycle).  As of 0.1.0 home no longer changes the flee
+-- destination -- flee always runs AWAY from the zombies, never toward a home
+-- anchor that usually sits on top of the player -- so a home-set trap holds
+-- exactly like Test 15 and still never fights.
+print("\n-- Test 16 (0.1.0): home set + no escape square holds, never fights")
 do
     reset(); installQueueModel()
     AutoPilot_Home._homeSet     = true
@@ -489,9 +429,9 @@ do
     local player = healthyPlayer()
 
     assert_true("check() returns true", AutoPilot_Threat.check(player))
-    assert_true("a fight was queued despite safehouse mode",
-        #ISTimedActionQueue_calls > 0)
-    assert_eq("reported as fight_no_escape", engageReason(), "fight_no_escape")
+    assert_eq("nothing queued despite safehouse mode",
+        #ISTimedActionQueue_calls, 0)
+    assert_eq("reported as flee_blocked", engageReason(), "flee_blocked")
 end
 
 -- 17. A SUCCESSFUL flee still sets its guard and is not re-cleared.
@@ -547,29 +487,39 @@ do
 end
 
 -- 19. A mod-queued NON-engage action (e.g. an exercise set) may still be
--- cleared to make room for the combat response.
-print("\n-- Test 19 (V5.6): the mod's own non-combat action is cleared for combat")
+-- cleared to make room for the flee response, which then replaces it.  An
+-- escape square is provided so the flee actually queues a walk (with none
+-- reachable the mod would clear the exercise and then hold -- see Test 15).
+print("\n-- Test 19 (0.1.0): the mod's own non-combat action is cleared to flee")
 do
     reset(); installQueueModel()
     AutoPilot_Inventory._weapon = makeUsableWeapon()
     setZombies(makeRing(7, 4))
     local player = healthyPlayer()
 
+    local escapeSq = makeSquareAt(20, 20, 0)
+    local origFind = AutoPilot_Utils.findNearestSquare
+    AutoPilot_Utils.findNearestSquare = function(_cx, _cy, _cz, _r, _pred)
+        return escapeSq
+    end
+
     local ownAction = AutoPilot_Utils.tagModAction({ type = "exercise" })
     table.insert(ISTimedActionQueue_calls, ownAction)
 
     assert_true("check() returns true", AutoPilot_Threat.check(player))
     assert_eq("the mod's own exercise was cleared once", ISTQ_clears, 1)
-    assert_true("a combat action replaced it", #ISTimedActionQueue_calls > 0)
+    assert_true("a flee walk replaced it", #ISTimedActionQueue_calls > 0)
     assert_false("the exercise is gone",
         ISTimedActionQueue_calls[1] == ownAction)
+
+    AutoPilot_Utils.findNearestSquare = origFind
 end
 
 -- 20. Every priority branch still selects the right intent, and now says so.
 print("\n-- Test 20 (V5.6): each priority branch emits its own telemetry reason")
 do
     -- An escape square IS available throughout this case, so each flee branch
-    -- reports its own decision rather than the fight_no_escape fallback.
+    -- reports its own decision rather than the flee_blocked trap fallback.
     local escapeSq = makeSquareAt(20, 20, 0)
     local origFind = AutoPilot_Utils.findNearestSquare
     AutoPilot_Utils.findNearestSquare = function(_cx, _cy, _cz, _r, _pred)
@@ -604,7 +554,7 @@ do
     AutoPilot_Inventory._weapon = makeUsableWeapon()
     setZombies(makeRing(5, 4))
     AutoPilot_Threat.check(healthyPlayer())
-    assert_eq("encircled → fight_encircled", engageReason(), "fight_encircled")
+    assert_eq("encircled → flee_encircled", engageReason(), "flee_encircled")
 
     -- Priority 5a: too many negative moodles.
     reset(); installQueueModel()
@@ -616,16 +566,16 @@ do
     assert_eq("moodle limit exceeded → flee_moodles", engageReason(),
         "flee_moodles")
 
-    -- Priority 5b: healthy, armed, one zombie → fight.
+    -- Priority 5b: healthy, armed, one zombie → the default flee.
     reset(); installQueueModel()
     AutoPilot_Inventory._weapon = makeUsableWeapon()
     setZombies({ makeZombieAt(3, 3) })
     AutoPilot_Threat.check(healthyPlayer())
-    assert_eq("healthy and armed → fight_default", engageReason(),
-        "fight_default")
+    assert_eq("healthy and armed → flee_default", engageReason(),
+        "flee_default")
 
-    -- And when the escape square disappears, a flee branch reports the
-    -- fallback instead of silently doing nothing.
+    -- And when the escape square disappears, the flee reports the trapped
+    -- fallback (flee_blocked) instead of silently doing nothing.
     AutoPilot_Utils.findNearestSquare = function(_cx, _cy, _cz, _r, _pred)
         return nil
     end
@@ -633,15 +583,17 @@ do
     AutoPilot_Inventory._weapon = makeUsableWeapon()
     setZombies(makeRing(AutoPilot_Constants.FLEE_HORDE_SIZE, 4))
     AutoPilot_Threat.check(healthyPlayer())
-    assert_eq("horde with no escape → fight_no_escape", engageReason(),
-        "fight_no_escape")
+    assert_eq("horde with no escape → flee_blocked", engageReason(),
+        "flee_blocked")
 
     AutoPilot_Utils.findNearestSquare = origFind
 end
 
--- 21. The encircled branch must NOT be redirected into a safehouse retreat:
--- priority 4 exists precisely because fleeing is unsafe when surrounded.
-print("\n-- Test 21 (V5.6): encircled fights through the gap even with home set")
+-- 21. Encircled still FLEES -- through the widest gap.  Priority 4 points the
+-- escape vector through the largest arc-gap in the ring, so the mod must report
+-- flee_encircled and queue a walk to the resolved escape square.  (Pre-0.1.0
+-- this branch "fought through the gap"; the mod no longer fights at all.)
+print("\n-- Test 21 (0.1.0): encircled flees through the widest gap")
 do
     reset(); installQueueModel()
     AutoPilot_Home._homeSet     = true
@@ -649,28 +601,29 @@ do
     setZombies(makeRing(5, 4))
     local player = healthyPlayer()
 
-    local homeSq   = makeSquareAt(0, 30, 0)
+    local escapeSq = makeSquareAt(0, 30, 0)
     local origFind = AutoPilot_Utils.findNearestSquare
     AutoPilot_Utils.findNearestSquare = function(_cx, _cy, _cz, _r, _pred)
-        return homeSq
+        return escapeSq
     end
 
     assert_true("check() returns true", AutoPilot_Threat.check(player))
-    assert_eq("still reported as fight_encircled", engageReason(),
-        "fight_encircled")
-    local fledHome = false
+    assert_eq("reported as flee_encircled", engageReason(), "flee_encircled")
+    local fledOut = false
     for _, a in ipairs(ISTimedActionQueue_calls) do
-        if a.type == "walk" and a.sq == homeSq then fledHome = true end
+        if a.type == "walk" and a.sq == escapeSq then fledOut = true end
     end
-    assert_false("no retreat walk was queued while encircled", fledHome)
+    assert_true("a walk toward the escape square was queued", fledOut)
 
     AutoPilot_Utils.findNearestSquare = origFind
 end
 
 -- 22. The escape destination must never be the tile the player already stands
--- on: a walk to your own square completes instantly and escapes nothing (the
--- home anchor IS that tile whenever the mod was armed on the spot).
-print("\n-- Test 22 (V5.6): the player's own square is not a flee destination")
+-- on: a walk to your own square completes instantly and escapes nothing.  When
+-- the only square the pathfinder offers IS the player's tile, the flee is
+-- rejected and the mod HOLDS (flee_blocked) -- it does not walk in place, and it
+-- does not fight.
+print("\n-- Test 22 (0.1.0): the player's own square is not a flee destination")
 do
     reset(); installQueueModel()
     AutoPilot_Home._homeSet     = true
@@ -690,8 +643,8 @@ do
         if a.type == "walk" and a.sq == ownSq then walkedInPlace = true end
     end
     assert_false("no zero-length walk was queued", walkedInPlace)
-    assert_eq("falls back to fighting instead", engageReason(),
-        "fight_no_escape")
+    assert_eq("holds instead (flee_blocked), never fights", engageReason(),
+        "flee_blocked")
 
     AutoPilot_Utils.findNearestSquare = origFind
 end

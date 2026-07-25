@@ -128,41 +128,11 @@ do
     assert_true("checkAndSwapWeapon called during Threat.check", AutoPilot_Inventory._swapCalled)
 end
 
--- ── Test 2: No-home fight equips best weapon if better than primary ───────────
-print("\n=== Combat Test 2: Fight path equips weapon when better than primary ===")
-do
-    ISTimedActionQueue_calls = {}
-    AutoPilot_Inventory._swapCalled = false
-
-    -- Real InventoryItems always expose condition accessors; getWeaponCondition
-    -- treats a weapon without them as broken (condition 0), so the mock must
-    -- provide them for the fight path to consider the weapon usable.
-    local weapon = {
-        getMaxDamage    = function(self) return 10 end,
-        getCondition    = function(self) return 10 end,
-        getConditionMax = function(self) return 10 end,
-    }
-    AutoPilot_Inventory._bestWeapon = weapon
-
-    local p = makePlayer({playerNum=3})
-    -- No home set for this player
-    p.getPrimaryHandItem = function(self) return nil end  -- unarmed
-
-    local zombie = makeZombie(3, 3, true)
-    local origGet = AutoPilot_Threat.getNearbyZombies
-    AutoPilot_Threat.getNearbyZombies = function(_) return {zombie} end
-
-    AutoPilot_Threat.check(p)
-
-    AutoPilot_Threat.getNearbyZombies = origGet
-
-    -- Should have queued equip then walk
-    local equippedWeapon = false
-    for _, a in ipairs(ISTimedActionQueue_calls) do
-        if a.type == "equip_weapon" then equippedWeapon = true end
-    end
-    assert_true("Equip action queued during fight (weapon available)", equippedWeapon)
-end
+-- ── Test 2: removed in 0.1.0 ─────────────────────────────────────────────────
+-- Was "Fight path equips weapon when better than primary".  Combat is flee-only
+-- now: the threat module never equips a weapon itself.  Keeping the best weapon
+-- in hand is checkAndSwapWeapon's job (fired before the engage decision -- see
+-- Test 1) and is covered by test_container_search Test 29.
 
 -- ── Test 3: Flee-blocked retry counter caps at MAX_COMBAT_RETRIES ─────────────
 print("\n=== Combat Test 3: Flee-blocked increments retry counter ===")
@@ -193,28 +163,33 @@ do
     assert_true("3 blocked flee attempts did not crash", true)
 end
 
--- ── Test 4: Safehouse mode redirects fight to flee (retreat resolvable) ──────
-print("\n=== Combat Test 4: Safehouse mode redirects fight to flee ===")
+-- ── Test 4: one zombie + home set flees to a reachable square ────────────────
+-- Pre-0.1.0 a single zombie would "fight" unless home redirected it to flee.
+-- Combat is flee-only now, so it always flees: with an escape square reachable
+-- the mod walks to it, never toward the zombie, and reports flee_default.
+print("\n=== Combat Test 4: one zombie + home set flees to a reachable square ===")
 do
     ISTimedActionQueue_calls = {}
     AutoPilot_Threat._engageActive = false
     AutoPilot_Threat._fleeActive   = false
     AutoPilot_Threat._fleeCooldown = 0
-    AutoPilot_Inventory._bestWeapon = { getMaxDamage = function() return 5 end }
+    AutoPilot_Inventory._bestWeapon = {
+        getMaxDamage    = function() return 5 end,
+        getCondition    = function() return 10 end,
+        getConditionMax = function() return 10 end,
+    }
 
     local p = makePlayer({playerNum=0, moodles = { ENDURANCE=0, Unhappy=0 }})
-    -- Home set → safehouse conservative mode
     AutoPilot_Home.set(p)
 
-    -- The retreat square must actually resolve, or there is nowhere to run to
-    -- and the V5.6 fail-safe correctly fights instead (see Test 5).
-    local retreatSq = makeSquare(20, 20, 0)
+    -- The escape square must resolve, or there is nowhere to run to and the mod
+    -- holds instead (see Test 5).
+    local escapeSq = makeSquare(20, 20, 0)
     local origFind = AutoPilot_Utils.findNearestSquare
     AutoPilot_Utils.findNearestSquare = function(_cx, _cy, _cz, _r, _pred)
-        return retreatSq
+        return escapeSq
     end
 
-    -- Only 1 zombie → would normally fight, but home set redirects to flee
     local zombie = makeZombie(4, 4, true)
     local origGet = AutoPilot_Threat.getNearbyZombies
     AutoPilot_Threat.getNearbyZombies = function(_) return {zombie} end
@@ -224,31 +199,29 @@ do
     AutoPilot_Threat.getNearbyZombies    = origGet
     AutoPilot_Utils.findNearestSquare    = origFind
 
-    -- With home set, doFight redirects to doFlee — no "walk to zombie" should appear
+    -- Combat is flee-only: a walk TOWARD the zombie must never appear.
     local walkedToZombie = false
-    local walkedToRetreat = false
+    local walkedToEscape = false
     for _, a in ipairs(ISTimedActionQueue_calls) do
-        -- A walk action toward (4,4) would indicate fight not flee
         if a.type == "walk" and a.sq and a.sq:getX() == 4 and a.sq:getY() == 4 then
             walkedToZombie = true
         end
-        if a.type == "walk" and a.sq == retreatSq then walkedToRetreat = true end
+        if a.type == "walk" and a.sq == escapeSq then walkedToEscape = true end
     end
-    assert_false("No direct walk-to-zombie in safehouse mode", walkedToZombie)
-    assert_true("Safehouse retreat walk queued", walkedToRetreat)
-    assert_eq("Safehouse redirect is reported as flee_safehouse",
+    assert_false("No walk-to-zombie (the mod never fights)", walkedToZombie)
+    assert_true("A flee walk to the escape square was queued", walkedToEscape)
+    assert_eq("Reported as flee_default",
         AutoPilot_Threat.getEngageReason and AutoPilot_Threat.getEngageReason() or "threat",
-        "flee_safehouse")
+        "flee_default")
 end
 
--- ── Test 5 (V5.6): an UNRESOLVABLE safehouse retreat must still act ──────────
--- Pre-V5.6 this was the fatal case: home is auto-anchored on the first armed
--- cycle, so doFight always redirected into doFlee; when doFlee could not
--- resolve a square, the horde fallback `if not doFlee() then doFight() end`
--- called that same failing flee a second time and queued NOTHING.  The
--- character stood still and was eaten (live log: 175 combat ticks, endurance
--- frozen at 52, bleeding 0 -> 7, then action=dead).
-print("\n=== Combat Test 5 (V5.6): unresolvable retreat falls back to fighting ===")
+-- ── Test 5 (0.1.0): an unresolvable escape HOLDS -- it never fights ──────────
+-- Pre-0.1.0 this was the fatal case, then its inverse: the mod fell back to
+-- walking INTO the horde.  Combat is flee-only now, so when no escape square
+-- resolves the mod must queue NOTHING (hold) and never walk toward a zombie.
+-- Standing still is strictly safer -- there is no B42 AI-attack API, so a walk
+-- toward a zombie only ends in action=dead.
+print("\n=== Combat Test 5 (0.1.0): unresolvable escape holds, never fights ===")
 do
     ISTimedActionQueue_calls = {}
     AutoPilot_Threat._engageActive = false
@@ -264,7 +237,7 @@ do
     p.getPrimaryHandItem = function(_self) return nil end
     AutoPilot_Home.set(p)
 
-    -- findNearestSquare stays stubbed to nil (top of file) → no retreat square.
+    -- findNearestSquare stays stubbed to nil (top of file) → no escape square.
     local zombie = makeZombie(4, 4, true)
     local origGet = AutoPilot_Threat.getNearbyZombies
     AutoPilot_Threat.getNearbyZombies = function(_) return {zombie} end
@@ -272,16 +245,16 @@ do
     AutoPilot_Threat.check(p)
     AutoPilot_Threat.getNearbyZombies = origGet
 
-    assert_true("something was queued instead of standing still",
-        #ISTimedActionQueue_calls > 0)
     local walkedToZombie = false
     for _, a in ipairs(ISTimedActionQueue_calls) do
         if a.type == "walk" and a.sq and a.sq:getX() == 4 and a.sq:getY() == 4 then
             walkedToZombie = true
         end
     end
-    assert_true("the character walks to the zombie when it cannot retreat",
-        walkedToZombie)
+    assert_false("the character never walks to the zombie", walkedToZombie)
+    assert_eq("it holds instead of fighting (flee_blocked)",
+        AutoPilot_Threat.getEngageReason and AutoPilot_Threat.getEngageReason() or "threat",
+        "flee_blocked")
 end
 
 -- ── Summary ───────────────────────────────────────────────────────────────────

@@ -90,7 +90,6 @@ AutoPilot_Threat = {
     getNearbyZombies      = function(_player) return {} end,
     countNegativeMoodles  = function(_player) return 0 end,
     check                 = function(_player) return false end,
-    forceFight            = function(_) end,
     forceFlee             = function(_) end,
 }
 
@@ -832,12 +831,12 @@ do
     assert_eq("combat action still logged as 'combat'", last and last.action, "combat")
     assert_eq("the engage reason reaches telemetry", last and last.reason, "flee_horde")
 
-    AutoPilot_Threat.getEngageReason = function() return "fight_encircled" end
+    AutoPilot_Threat.getEngageReason = function() return "flee_encircled" end
     _telemLog = {}
     tickN(1)
     last = _telemLog[#_telemLog]
     assert_eq("a different branch logs a different reason",
-        last and last.reason, "fight_encircled")
+        last and last.reason, "flee_encircled")
 
     -- Degraded surface: an older/absent accessor falls back to "threat"
     -- instead of erroring out of the survival cycle.
