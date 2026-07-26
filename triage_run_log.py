@@ -10,9 +10,9 @@ human-readable triage report:
   * Time split        - training / resting / survival / idle categories
   * Threat events     - threat ticks, episodes, max horde size, deaths
   * Sessions          - per-session STR/FIT level deltas and end status
-  * Suspicious patterns - conservative session-scoped heuristics: long
-                        single-action streaks, zero-XP training loops,
-                        repeated flee/combat cycles, and empty-loot
+  * Suspicious patterns - conservative session-scoped heuristics: action
+                        streaks not explained by an expected persistent
+                        state, repeated flee/combat cycles, and empty-loot
                         spirals ("none detected" when clean)
 
 A "session" is detected by a run_tick reset: AutoPilot_Telemetry increments
@@ -112,12 +112,54 @@ COMBAT_ACTIONS = {"combat", "fight", "flee"}
 # ── Suspicious-pattern thresholds ─────────────────────────────────────────────
 # Deliberately conservative: this is triage, not diagnosis.  Each detector
 # needs a pattern strong enough to be worth a human look before it fires.
-STREAK_MIN_TICKS = 40            # consecutive identical actions to flag a streak
-ZERO_XP_MIN_TRAINING_TICKS = 30  # training ticks in a session with no level gain
+STREAK_MIN_TICKS = 40            # counted (non-persistent) ticks to flag a streak
 COMBAT_CYCLE_MAX_GAP = 3         # max non-combat ticks between fights in a cycle
 COMBAT_CYCLE_MIN_CYCLES = 4      # combat re-entries needed to flag oscillation
 LOOT_SPIRAL_MIN_SCAVENGE = 15    # scavenge ticks needed to consider a spiral
 LOOT_SPIRAL_NEED_RISE = 15       # hunger or thirst rise across the session
+
+# ── Expected persistent states ────────────────────────────────────────────────
+# (action, reason) pairs that legitimately hold for hundreds of consecutive
+# ticks.  These are STATE lines, written by literal-label logTick() calls in
+# AutoPilot_Main's state gates while something outside the decision chain owns
+# the tick — never by setDecision(), which is how DECISIONS reach the log:
+#
+#   sleep/asleep         the character is actually asleep (AutoPilot_Main.lua
+#                        :141); a full night is ~700 lines (measured 722 in the
+#                        2026-07-26 session, a mechanically clean run).
+#   busy/foreign_action  a timed action the mod did NOT queue is running
+#                        (AutoPilot_Main.lua:203); the V4.5 ownership guarantee
+#                        means the mod never interrupts it, so a long manual
+#                        stretch (measured 854) is correct behaviour.
+#   idle/no_action       armed with nothing queued and nothing needed
+#                        (AutoPilot_Main.lua:260); measured 80.
+#
+# Deliberately NOT exempt, because each is bounded by design and a 40+ run of
+# it IS the defect the streak detector exists to catch:
+#
+#   busy/action_running  the queue-thrash guard clears the mod's own stuck
+#                        action after MAX_ACTION_STREAK (15) consecutive busy
+#                        evaluations — measured max in the 2026-07-26 session:
+#                        exactly 15 — so a 40+ run means the guard is not
+#                        engaging (docs/triage.md names this signature).
+#   cooldown/post_action bounded by the post-action cooldown (measured max 4);
+#                        a 40+ run means the cooldown is stuck.
+#   dead/player_died     written once per death by Telemetry.onDeath; a 40+
+#                        run means a death loop.
+#   any setDecision label  a decision re-issued 40+ consecutive cycles is the
+#                        sleep-starvation signature (the pre-PR-#67 log queued
+#                        sleep/fatigue_thresh every cycle while the engine
+#                        refused it).
+#
+# tests/test_triage_run_log.py carries a drift guard that parses the literal
+# logTick pairs out of the production Lua and fails when this table and the
+# deliberately-flagged list stop covering them exactly, so a new state label
+# cannot ship unadjudicated.
+EXPECTED_PERSISTENT_STATES = {
+    ("sleep", "asleep"),
+    ("busy", "foreign_action"),
+    ("idle", "no_action"),
+}
 
 
 def categorize_action(action: str) -> str:
@@ -306,58 +348,59 @@ def _first_last_int(session: list[dict[str, Any]],
 
 def detect_action_streaks(
         sessions: list[list[dict[str, Any]]]) -> list[SuspiciousFinding]:
-    """Flag runs of STREAK_MIN_TICKS+ consecutive identical actions."""
+    """Flag same-action runs not explained by an expected persistent state.
+
+    A run is a stretch of consecutive lines sharing one action label (so a
+    mixed-reason combat stretch still counts as one streak), but only lines
+    whose (action, reason) pair is NOT in EXPECTED_PERSISTENT_STATES count
+    toward the threshold.  Sleeping through the night is ~700 consecutive
+    sleep/asleep lines plus one sleep/fatigue_thresh decision — 1 counted
+    tick, silent — while the pre-PR-#67 sleep-starvation bug re-issued that
+    fatigue_thresh DECISION every cycle, which counts every line and fires.
+
+    Retired sibling, recorded so it is not re-invented: a zero-XP training
+    detector lived here until 2026-07-26.  It read the run log's str/fit
+    LEVEL fields, and PZ levels essentially never move within one session
+    (PR #89: all fourteen recorded sessions were level-flat, including
+    healthy ones), so it fired on every session ever logged.  The run log
+    carries no XP field by design (schema 5); XP-based session evidence
+    lives in auto_pilot_sessions.log schema 3 and the F11 panel.  Re-adding
+    a training-yield detector requires run-log XP fields (schema 6) first.
+    """
     findings: list[SuspiciousFinding] = []
-    hint = ("One action dominating for this long usually means the rotation "
-            "is stuck; check the reason/fail_reason fields around that "
-            "stretch of the log.")
+    hint = ("This many re-issued decisions (or unexpected states) in one "
+            "unbroken run usually means the rotation is stuck; read the "
+            "reason/fail_reason fields around that stretch of the log. "
+            "Expected persistent states (asleep, foreign actions, armed "
+            "idle) are already excluded from the count.")
     for index, session in enumerate(sessions, start=1):
-        actions = [entry.get("action", "idle") for entry in session]
-        prev: str | None = None
-        length = 0
-        for action in actions + [None]:     # None sentinel flushes the last run
-            if action == prev:
-                length += 1
-                continue
-            if prev is not None and length >= STREAK_MIN_TICKS:
+        start = 0
+        total = len(session)
+        while start < total:
+            action = session[start].get("action", "idle")
+            end = start
+            while end < total and session[end].get("action", "idle") == action:
+                end += 1
+            run = session[start:end]
+            counted: Counter[str] = Counter()
+            for entry in run:
+                reason = entry.get("reason", "")
+                if (action, reason) not in EXPECTED_PERSISTENT_STATES:
+                    counted[reason] += 1
+            counted_ticks = sum(counted.values())
+            if counted_ticks >= STREAK_MIN_TICKS:
+                top = ", ".join(
+                    f"'{reason or '(empty)'}' x{count}"
+                    for reason, count in counted.most_common(3))
                 findings.append(SuspiciousFinding(
                     pattern="action streak",
-                    detail=(f"session {index}: action '{prev}' repeated "
-                            f"{length} ticks in a row "
-                            f"(threshold {STREAK_MIN_TICKS})"),
+                    detail=(f"session {index}: action '{action}' held "
+                            f"{len(run)} consecutive tick(s), {counted_ticks} "
+                            f"of them counted (top reasons: {top}; "
+                            f"threshold {STREAK_MIN_TICKS})"),
                     hint=hint,
                 ))
-            prev = action
-            length = 1
-    return findings
-
-
-def detect_zero_xp_training(
-        sessions: list[list[dict[str, Any]]]) -> list[SuspiciousFinding]:
-    """Flag heavy-training sessions where neither STR nor FIT moved a level."""
-    findings: list[SuspiciousFinding] = []
-    hint = ("Levels are coarse (XP can grow inside a level), but this much "
-            "training with no level movement is worth a look at the F11 XP "
-            "panel.")
-    for index, session in enumerate(sessions, start=1):
-        training = sum(
-            1 for entry in session
-            if categorize_action(entry.get("action", "idle")) == "training")
-        if training < ZERO_XP_MIN_TRAINING_TICKS:
-            continue
-        str_first, str_last = _first_last_int(session, "str")
-        fit_first, fit_last = _first_last_int(session, "fit")
-        if None in (str_first, str_last, fit_first, fit_last):
-            continue    # old-schema lines: not enough evidence to flag
-        if str_last == str_first and fit_last == fit_first:
-            findings.append(SuspiciousFinding(
-                pattern="zero-XP training",
-                detail=(f"session {index}: {training} training tick(s) with "
-                        f"STR {str_first} -> {str_last} and "
-                        f"FIT {fit_first} -> {fit_last} "
-                        f"(threshold {ZERO_XP_MIN_TRAINING_TICKS})"),
-                hint=hint,
-            ))
+            start = end
     return findings
 
 
@@ -435,7 +478,6 @@ def detect_suspicious(
     """Run every suspicious-pattern detector and concatenate the findings."""
     findings: list[SuspiciousFinding] = []
     findings.extend(detect_action_streaks(sessions))
-    findings.extend(detect_zero_xp_training(sessions))
     findings.extend(detect_combat_cycles(sessions))
     findings.extend(detect_loot_spirals(sessions))
     return findings

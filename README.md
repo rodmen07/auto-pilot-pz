@@ -238,9 +238,10 @@ python triage_run_log.py
 It reads `~/Zomboid/Lua/auto_pilot_run.log` by default (pass a path to triage
 another file) and prints: action mix, top action transitions, a
 training/resting/survival/idle time split, threat events, and per-session
-STR/FIT level deltas. A final "Suspicious patterns" section flags long
-single-action streaks, zero-XP training loops, repeated flee/combat cycles,
-and empty-loot scavenge spirals, each with a one-line hint; a clean log prints
+STR/FIT level deltas. A final "Suspicious patterns" section flags action
+streaks not explained by an expected persistent state (sleeping, a
+player-owned action, armed idle), repeated flee/combat cycles, and
+empty-loot scavenge spirals, each with a one-line hint; a clean log prints
 "none detected". The heuristics are deliberately conservative (triage, not
 diagnosis). Read-only, stdlib-only; thresholds are constants at the top of
 the script.

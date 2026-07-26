@@ -12,14 +12,19 @@ backward-compat control (old logs must keep parsing) and the v3/v4 variants
 are covered inline in TestSchemaV3WoodDoc and TestSchemaV4NoWood.
 
 A second fixture (tests/fixtures/run_log_v2_suspicious.log) is a four-session
-log where each session trips exactly one suspicious-pattern detector: a
-45-tick exercise streak, a 32-tick zero-XP training loop, a combat-bandage
-oscillation with 4 re-entries, and a 16-tick empty-loot scavenge spiral.
-The main fixture doubles as the clean control: no detector may fire on it.
+log written when each session tripped exactly one suspicious-pattern
+detector: a 45-tick exercise streak, a 32-tick zero-XP training loop, a
+combat-bandage oscillation with 4 re-entries, and a 16-tick empty-loot
+scavenge spiral.  The zero-XP detector was RETIRED 2026-07-26 (see the
+tombstone note in TestSuspiciousPatterns), so session 2 now doubles as a
+below-threshold training control: 32 exercise ticks must NOT trip the streak
+detector.  The main fixture doubles as the clean control: no detector may
+fire on it.
 """
 
 from __future__ import annotations
 
+import re
 import tempfile
 import unittest
 from pathlib import Path
@@ -514,30 +519,43 @@ class TestSuspiciousPatterns(unittest.TestCase):
         f = findings[0]
         self.assertEqual(f.pattern, "action streak")
         self.assertIn("session 1", f.detail)
-        self.assertIn("'exercise' repeated 45 ticks", f.detail)
+        self.assertIn("'exercise' held 45 consecutive tick(s)", f.detail)
+        self.assertIn("45 of them counted", f.detail)
         self.assertTrue(f.hint)
 
     def test_streak_silent_on_clean_fixture(self) -> None:
         self.assertEqual(tr.detect_action_streaks(self.clean_sessions), [])
 
-    def test_zero_xp_fires_on_bad_fixture(self) -> None:
-        findings = tr.detect_zero_xp_training(self.bad_sessions)
+    # ── Tombstone: detect_zero_xp_training (retired 2026-07-26) ──────────────
+    # The zero-XP training detector read the run log's str/fit LEVEL fields,
+    # and PZ levels essentially never move within one session (PR #89: all
+    # fourteen recorded sessions were level-flat, healthy ones included), so
+    # it fired on every session ever logged — a guard that cries wolf by
+    # construction.  The run log deliberately carries no XP field (schema 5,
+    # pinned by tests/test_session_xp.lua Test 4); XP evidence lives in
+    # auto_pilot_sessions.log schema 3 and the F11 panel.  Its three tests
+    # (fires-on-bad-fixture, silent-on-clean, needs-both-levels-flat) were
+    # deleted with it.  Re-adding a training-yield detector requires run-log
+    # XP fields (schema 6) first — see the backlog follow-up opened by PR #89.
+
+    def test_zero_xp_detector_stays_retired(self) -> None:
+        """The retired detector must not resurface without schema-6 XP data.
+
+        Guards both the API (no detect_zero_xp_training attribute) and the
+        output (no zero-XP pattern from detect_suspicious on the fixture
+        that used to trip it).
+        """
+        self.assertFalse(hasattr(tr, "detect_zero_xp_training"))
+        patterns = [f.pattern for f in tr.detect_suspicious(self.bad_sessions)]
+        self.assertNotIn("zero-XP training", patterns)
+
+    def test_below_threshold_training_run_is_silent(self) -> None:
+        """Session 2's 32 consecutive exercise ticks stay under the streak
+        threshold (40), so the retired detector's old fixture session now
+        proves the streak detector does not absorb its false positive."""
+        findings = tr.detect_action_streaks(self.bad_sessions)
+        self.assertNotIn("session 2", findings[0].detail)
         self.assertEqual(len(findings), 1)
-        f = findings[0]
-        self.assertEqual(f.pattern, "zero-XP training")
-        self.assertIn("session 2", f.detail)
-        self.assertIn("32 training tick(s)", f.detail)
-        self.assertIn("STR 6 -> 6", f.detail)
-        self.assertIn("FIT 6 -> 6", f.detail)
-        self.assertTrue(f.hint)
-
-    def test_zero_xp_silent_on_clean_fixture(self) -> None:
-        self.assertEqual(tr.detect_zero_xp_training(self.clean_sessions), [])
-
-    def test_zero_xp_needs_both_levels_flat(self) -> None:
-        """Session 1 trains 45 ticks but FIT rises, so no zero-XP finding."""
-        findings = tr.detect_zero_xp_training(self.bad_sessions)
-        self.assertNotIn("session 1", findings[0].detail)
 
     def test_combat_cycle_fires_on_bad_fixture(self) -> None:
         findings = tr.detect_combat_cycles(self.bad_sessions)
@@ -571,14 +589,13 @@ class TestSuspiciousPatterns(unittest.TestCase):
         findings = tr.detect_suspicious(self.bad_sessions)
         self.assertEqual(
             [f.pattern for f in findings],
-            ["action streak", "zero-XP training",
-             "flee/combat cycle", "empty-loot spiral"],
+            ["action streak", "flee/combat cycle", "empty-loot spiral"],
         )
 
     def test_summarize_populates_suspicious(self) -> None:
         entries, skipped = tr.parse_run_log(FIXTURE_SUSPICIOUS)
         summary = tr.summarize(entries, skipped)
-        self.assertEqual(len(summary.suspicious), 4)
+        self.assertEqual(len(summary.suspicious), 3)
 
     def test_clean_summary_has_no_findings(self) -> None:
         entries, skipped = tr.parse_run_log(FIXTURE)
@@ -586,6 +603,190 @@ class TestSuspiciousPatterns(unittest.TestCase):
 
     def test_empty_log_has_no_findings(self) -> None:
         self.assertEqual(tr.summarize([]).suspicious, [])
+
+
+# ── Persistent-state exemption tests (the guard-cries-wolf fix, 2026-07-26) ──
+# The 2026-07-26 in-game session was mechanically clean (zero mod errors,
+# zero fail_reasons, zero retries), yet the old action-keyed streak detector
+# produced 19 findings on it: sleep held 723 ticks (the character was
+# ASLEEP), busy held up to 854 (the PLAYER owned the queue, V4.5), idle held
+# 80 (armed with nothing to do).  Each synthetic session below is shaped
+# after a measured run from that log, so these are regression tests for the
+# MED bug "the guard cries wolf", and each of the three exemption tests
+# FAILS against the pre-fix detector.
+
+def _ticks(action: str, reason: str, count: int) -> list[dict[str, object]]:
+    """Build *count* synthetic session entries for one (action, reason)."""
+    return [{"action": action, "reason": reason, "run_tick": i, "player": 0}
+            for i in range(count)]
+
+
+class TestPersistentStateExemption(unittest.TestCase):
+    """Expected persistent states never fire; re-issued decisions still do."""
+
+    def test_full_night_asleep_is_silent(self) -> None:
+        """One sleep decision plus 722 asleep state lines is a normal night
+        (measured shape of the 2026-07-26 session), not a stuck rotation."""
+        session = (_ticks("sleep", "fatigue_thresh", 1)
+                   + _ticks("sleep", "asleep", 722))
+        self.assertEqual(tr.detect_action_streaks([session]), [])
+
+    def test_long_foreign_action_is_silent(self) -> None:
+        """854 busy/foreign_action lines: the player owns the queue and the
+        V4.5 guarantee forbids interrupting — correct behaviour, no flag."""
+        session = _ticks("busy", "foreign_action", 854)
+        self.assertEqual(tr.detect_action_streaks([session]), [])
+
+    def test_armed_idle_is_silent(self) -> None:
+        """80 idle/no_action lines: armed with nothing queued and nothing
+        needed is the designed idle loop, not a defect."""
+        session = _ticks("idle", "no_action", 80)
+        self.assertEqual(tr.detect_action_streaks([session]), [])
+
+    def test_reissued_sleep_decision_fires(self) -> None:
+        """45 consecutive sleep/fatigue_thresh DECISIONS is the pre-PR-#67
+        sleep-starvation signature (the mod queued sleep every cycle while
+        the engine refused it) and must keep firing."""
+        findings = tr.detect_action_streaks(
+            [_ticks("sleep", "fatigue_thresh", 45)])
+        self.assertEqual(len(findings), 1)
+        self.assertIn("'sleep'", findings[0].detail)
+        self.assertIn("fatigue_thresh", findings[0].detail)
+
+    def test_stuck_action_running_fires(self) -> None:
+        """busy/action_running is NOT exempt: the thrash guard clears the
+        mod's own action after MAX_ACTION_STREAK (15) consecutive busy
+        evaluations (measured max in the clean session: exactly 15), so a
+        45-tick run means the guard is not engaging — the docs/triage.md
+        defect signature."""
+        findings = tr.detect_action_streaks(
+            [_ticks("busy", "action_running", 45)])
+        self.assertEqual(len(findings), 1)
+        self.assertIn("action_running", findings[0].detail)
+
+    def test_mixed_reason_combat_streak_fires(self) -> None:
+        """A 264-tick combat stretch with alternating reasons (the shape of
+        the 2026-07-24 death session) is ONE action run and must fire: the
+        run is keyed by ACTION, so reason changes inside it cannot reset the
+        count."""
+        session: list[dict[str, object]] = []
+        for block in range(12):
+            reason = ("engage_running" if block % 2 == 0
+                      else "engage_cooldown")
+            session += _ticks("combat", reason, 22)
+        findings = tr.detect_action_streaks([session])
+        self.assertEqual(len(findings), 1)
+        self.assertIn("'combat' held 264 consecutive tick(s)", findings[0].detail)
+
+    def test_threshold_counts_only_non_persistent_lines(self) -> None:
+        """The threshold applies to COUNTED (non-persistent) lines, not run
+        length: 39 re-issued decisions inside a long night stay silent, 40
+        fire, even though both runs are 700+ lines long."""
+        below = (_ticks("sleep", "fatigue_thresh", 39)
+                 + _ticks("sleep", "asleep", 700))
+        at = (_ticks("sleep", "fatigue_thresh", 40)
+              + _ticks("sleep", "asleep", 700))
+        self.assertEqual(tr.detect_action_streaks([below]), [])
+        findings = tr.detect_action_streaks([at])
+        self.assertEqual(len(findings), 1)
+        self.assertIn("40 of them counted", findings[0].detail)
+
+    def test_exemption_is_pair_scoped_not_action_scoped(self) -> None:
+        """Only the exact (action, reason) pair is exempt: 45 idle lines
+        with an unexpected reason still fire, so a new idle-flavoured state
+        cannot silently inherit the exemption."""
+        findings = tr.detect_action_streaks(
+            [_ticks("idle", "mystery_state", 45)])
+        self.assertEqual(len(findings), 1)
+
+    def test_real_log_shapes_all_sessions_combined(self) -> None:
+        """The full measured 2026-07-26 shape in one session list: every
+        streak the old detector flagged, silent; nothing else fires."""
+        sessions = [
+            _ticks("idle", "no_action", 80)
+            + _ticks("sleep", "fatigue_thresh", 1)
+            + _ticks("sleep", "asleep", 722)
+            + _ticks("busy", "foreign_action", 147),
+            _ticks("busy", "foreign_action", 854)
+            + _ticks("idle", "no_action", 45),
+        ]
+        self.assertEqual(tr.detect_action_streaks(sessions), [])
+
+
+class TestPersistentStateDriftGuard(unittest.TestCase):
+    """EXPECTED_PERSISTENT_STATES must stay in lockstep with the Lua (L-003).
+
+    The exemption table lives in triage_run_log.py; the states it names are
+    written by literal-label logTick() calls in the production Lua.  This
+    guard parses BOTH sources so that (a) a typo'd exemption pair the mod
+    never writes fails the build (the MoodleType.Unhappy class: a wrong
+    name that silently never matches), and (b) a NEW state label added to
+    the Lua fails the build until it is adjudicated as exempt or flagged.
+    Decision labels are unaffected: they reach logTick via setDecision, so
+    the literal-pair regex never matches them (combat's reason is a
+    variable at the callsite, which is why it stays flagged).
+    """
+
+    LUA_CLIENT_DIR = (Path(__file__).parent.parent
+                      / "42" / "media" / "lua" / "client")
+    LOGTICK_LITERAL = re.compile(
+        r'logTick\(\s*\w+\s*,\s*"([a-z_]+)"\s*,\s*"([a-z_]+)"\s*\)')
+
+    # State pairs deliberately NOT exempt: each is bounded by design, so a
+    # 40+ run of it IS the defect the streak detector exists to catch.
+    FLAGGED_STATE_PAIRS = {
+        # Thrash guard caps the mod's own action at MAX_ACTION_STREAK (15).
+        ("busy", "action_running"),
+        # Post-action cooldown is a few cycles (measured max 4).
+        ("cooldown", "post_action"),
+        # Written once per death by Telemetry.onDeath; 40+ = death loop.
+        ("dead", "player_died"),
+    }
+
+    def _literal_pairs(self) -> set[tuple[str, str]]:
+        files = sorted(self.LUA_CLIENT_DIR.glob("AutoPilot_*.lua"))
+        self.assertGreater(
+            len(files), 0,
+            "blind guard: no production Lua modules found — fix the path "
+            "before trusting this guard's silence")
+        found: set[tuple[str, str]] = set()
+        for f in files:
+            for m in self.LOGTICK_LITERAL.finditer(
+                    f.read_text(encoding="utf-8")):
+                found.add((m.group(1), m.group(2)))
+        self.assertGreaterEqual(
+            len(found), 4,
+            "blind guard: the logTick literal-pair regex matched almost "
+            "nothing; if the callsite shape changed, update the regex "
+            "rather than trusting silence")
+        return found
+
+    def test_every_lua_state_pair_is_adjudicated(self) -> None:
+        found = self._literal_pairs()
+        adjudicated = tr.EXPECTED_PERSISTENT_STATES | self.FLAGGED_STATE_PAIRS
+        self.assertEqual(
+            found - adjudicated, set(),
+            "state pair(s) written by the production Lua are not "
+            "adjudicated — add each to EXPECTED_PERSISTENT_STATES or to "
+            "FLAGGED_STATE_PAIRS with a recorded reason")
+
+    def test_every_exempt_pair_is_real(self) -> None:
+        found = self._literal_pairs()
+        self.assertEqual(
+            tr.EXPECTED_PERSISTENT_STATES - found, set(),
+            "exempt pair(s) the production Lua never writes — a typo here "
+            "would silently reopen the crying-wolf bug for the real pair")
+
+    def test_every_flagged_pair_is_real(self) -> None:
+        found = self._literal_pairs()
+        self.assertEqual(
+            self.FLAGGED_STATE_PAIRS - found, set(),
+            "flagged pair(s) the production Lua never writes — retire the "
+            "entry or fix the spelling")
+
+    def test_exempt_and_flagged_do_not_overlap(self) -> None:
+        self.assertEqual(
+            tr.EXPECTED_PERSISTENT_STATES & self.FLAGGED_STATE_PAIRS, set())
 
 
 # ── format_report tests ───────────────────────────────────────────────────────
@@ -616,10 +817,11 @@ class TestFormatReport(unittest.TestCase):
         report = tr.format_report(tr.summarize(entries, skipped),
                                   FIXTURE_SUSPICIOUS)
         self.assertIn("[action streak]", report)
-        self.assertIn("[zero-XP training]", report)
         self.assertIn("[flee/combat cycle]", report)
         self.assertIn("[empty-loot spiral]", report)
-        self.assertEqual(report.count("hint:"), 4)
+        # The retired zero-XP detector must not resurface in the report.
+        self.assertNotIn("[zero-XP training]", report)
+        self.assertEqual(report.count("hint:"), 3)
         self.assertNotIn("none detected", report)
 
     def test_empty_summary_report_does_not_raise(self) -> None:
