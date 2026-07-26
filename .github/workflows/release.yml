@@ -29,27 +29,61 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Verify version tag matches mod.info
+        # The tag arrives through the environment instead of a `${{ }}`
+        # interpolation inside the script body, for two reasons.
+        #   1. Security: git permits `;`, `$` and backticks in a ref name, so a
+        #      tag interpolated straight into a shell script is the documented
+        #      Actions script-injection shape, and this job holds
+        #      `contents: write`.
+        #   2. Testability: with the tag in an env var the script runs outside
+        #      Actions unchanged, which is what `tests/test_release_gate.py`
+        #      does on every PR. This step previously ran ONLY on a real tag
+        #      push (USER-ONLY here), so nothing had ever executed it, and it
+        #      had been unreleasable since the modversion reset to 0.1.0.
+        env:
+          TAG_NAME: ${{ github.ref_name }}
         run: |
-          # Extract the version number from the tag (strip leading 'v' and any
-          # build metadata after a hyphen, e.g. v1.1.0 → 1.1, v1.1.0-beta1 → 1.1).
-          TAG_VER="${{ github.ref_name }}"
-          TAG_VER="${TAG_VER#v}"              # strip leading v
-          TAG_MAJOR_MINOR="${TAG_VER%%.*}"   # e.g. "1" from "1.1.0"
-          TAG_REST="${TAG_VER#*.}"           # e.g. "1.0" from "1.1.0"
-          TAG_MINOR="${TAG_REST%%.*}"        # e.g. "1" from "1.0"
-          TAG_DOTVER="${TAG_MAJOR_MINOR}.${TAG_MINOR}"  # e.g. "1.1"
+          # Compare the tag against 42/mod.info's `modversion=` after padding
+          # both to major.minor.patch, so the two-component scheme this repo
+          # used historically (5.8) and the three-component scheme it uses now
+          # (0.1.0) both work.
+          #
+          # The previous version truncated the TAG to major.minor and compared
+          # that against the RAW modversion, so once modversion had three
+          # components no tag could match it at all: the left side can never
+          # contain two dots, so "0.1" != "0.1.0" for every possible tag name.
+          pad_to_three() {
+            _v="$1"
+            case "$_v" in
+              *.*.*) : ;;                 # already major.minor.patch or longer
+              *.*)   _v="${_v}.0" ;;      # major.minor
+              *)     _v="${_v}.0.0" ;;    # major only
+            esac
+            printf '%s' "$_v"
+          }
+
+          TAG_VER="${TAG_NAME#v}"      # strip leading v:            v0.1.0 -> 0.1.0
+          TAG_VER="${TAG_VER%%-*}"     # strip prerelease/metadata:  0.1.0-beta1 -> 0.1.0
 
           MOD_VER="$(grep '^modversion=' 42/mod.info | cut -d= -f2 | tr -d '[:space:]')"
-
-          echo "Tag version (major.minor): ${TAG_DOTVER}"
-          echo "mod.info modversion:       ${MOD_VER}"
-
-          if [ "${TAG_DOTVER}" != "${MOD_VER}" ]; then
-            echo "ERROR: Version mismatch — tag says ${TAG_DOTVER} but 42/mod.info says ${MOD_VER}."
-            echo "Update modversion in 42/mod.info before tagging."
+          if [ -z "${MOD_VER}" ]; then
+            echo "ERROR: no modversion= line found in 42/mod.info."
             exit 1
           fi
-          echo "Version check PASSED: tag and mod.info both report ${MOD_VER}."
+
+          TAG_NORM="$(pad_to_three "${TAG_VER}")"
+          MOD_NORM="$(pad_to_three "${MOD_VER}")"
+
+          echo "Tag:                 ${TAG_NAME}  (version ${TAG_VER}, normalized ${TAG_NORM})"
+          echo "42/mod.info version: ${MOD_VER}  (normalized ${MOD_NORM})"
+
+          if [ "${TAG_NORM}" != "${MOD_NORM}" ]; then
+            echo "ERROR: Version mismatch. Tag ${TAG_NAME} normalizes to ${TAG_NORM}, but"
+            echo "42/mod.info says ${MOD_VER} (normalized ${MOD_NORM})."
+            echo "Update modversion in 42/mod.info before tagging, or push a matching tag."
+            exit 1
+          fi
+          echo "Version check PASSED: tag and mod.info both report ${MOD_NORM}."
 
       - name: Build mod archive
         run: |
