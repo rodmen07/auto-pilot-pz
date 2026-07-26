@@ -9,6 +9,26 @@ the next Workshop update (the USER-ONLY tag / `sync_workshop.sh` / Update Item f
 
 ### Fixed
 
+- **Unhappiness relief was impossible: the moodle constant was misspelled for Build 42.** `doMoodRelief`
+  and `getMoodleSnapshot` read `MoodleType.Unhappy`. B42 names every MoodleType constant in
+  SCREAMING_SNAKE_CASE, so the real constant is `MoodleType.UNHAPPY` (engine callsite:
+  `shared/TimedActions/ISBaseTimedAction.lua:102`; a whole-install grep of `media/lua` finds no
+  CamelCase MoodleType constant at all -- only the TRANSLATION keys `Moodles_Unhappy_lvl1..4` keep the
+  old spelling, and those are not the enum). The CamelCase name resolved to `nil` in-game,
+  `safeMoodleLevel` degraded that to 0, and the unhappy level was therefore 0 on every call: an
+  unhappy-but-not-bored character entered no relief at all, and the tasty-food-for-unhappiness arm was
+  unreachable. This is the same defect class as the Literacy gate below, and it survived the 2026-07-24
+  threshold fix (PR #68) because that fix corrected the comparison, not the lookup.
+- **Enum drift can no longer ship green.** Both of the above are the same shape: production read an
+  engine enum member that does not exist, the lookup yielded `nil` rather than an error, every reader
+  degraded `nil` to a harmless 0, and the mock defined the same wrong name so the suites exercised a
+  member only the tests had. `tests/test_engine_symbols.lua` now scans every production module for
+  `MoodleType.X` / `CharacterStat.X` / `Perks.X` / `CharacterTrait.X` and fails if the member is not
+  modelled in `tests/lua_mock_pz.lua`, the repo's record of the verified 42.19 surface. The guard
+  hard-fails on zero discovered modules or zero references so it cannot go blind, and it carries its
+  own always-on negative controls (the pre-fix `MoodleType.Unhappy` and `Perks.Literacy` spellings must
+  both still be reported). `CharacterStat.PANIC` / `.SICKNESS` / `.STRESS` moved out of
+  `test_threat_logic.lua` into the shared mock, because a suite-local enum key is invisible to the guard.
 - **Reading was impossible: the literacy gate asked for a skill that does not exist.** `doRead` decided
   whether the character could read from `player:getPerkLevel(Perks.Literacy)`. There is no Literacy
   SKILL in Build 42.19 -- a whole-install grep of `media/lua` for "Literacy" returns zero hits -- so the

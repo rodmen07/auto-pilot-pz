@@ -250,12 +250,16 @@
 --          F11 panel and the V4.4 action HUD are proved to agree).
 --
 -- Enums and definition tables:
---   [M]  CharacterStat   HUNGER/THIRST/FATIGUE/ENDURANCE/PAIN/BOREDOM/SANITY;
---          PANIC/SICKNESS/STRESS are suite-local (test_threat_logic);
---          safeStat degrades missing keys to 0 by design
---   [M]  MoodleType   ENDURANCE/Unhappy/PAIN/PANIC (PAIN and PANIC added for
+--   [M]  CharacterStat   HUNGER/THIRST/FATIGUE/ENDURANCE/PAIN/BOREDOM/SANITY/
+--          PANIC/SICKNESS/STRESS (the last three were suite-local in
+--          test_threat_logic until 2026-07-25; a suite-local enum key hides the
+--          member from the enum-drift guard, so every member production reads
+--          now lives here); safeStat degrades missing keys to 0 by design
+--   [M]  MoodleType   ENDURANCE/UNHAPPY/PAIN/PANIC (PAIN and PANIC added for
 --          AutoPilot_Sleep.canSleepNow, which mirrors the engine sleep gate;
---          getMoodleLevel returns 0 for any key a test does not set)
+--          getMoodleLevel returns 0 for any key a test does not set).  B42
+--          spells these SCREAMING_SNAKE_CASE — modelling "Unhappy" here kept a
+--          nil-in-game read looking alive in the suites until 2026-07-25
 --   [M]  BodyPartType   MAX / ToIndex (getDisplayName is suite-local in
 --          test_medical_logic; leg-part keys like UpperLeg_L are absent, so
 --          the squat-stiffness gate pcall-degrades to "not stiff")
@@ -301,6 +305,8 @@
 
 -- ── CharacterStat enum ────────────────────────────────────────────────────────
 -- B42 replaced all direct stat getters with player:getStats():get(CharacterStat.X).
+-- Every key here is a name the live 42.19 install actually uses; test_engine_symbols
+-- asserts production code never reads one that is absent.
 CharacterStat = {
     HUNGER    = "HUNGER",
     THIRST    = "THIRST",
@@ -309,12 +315,30 @@ CharacterStat = {
     PAIN      = "PAIN",
     BOREDOM   = "BOREDOM",
     SANITY    = "SANITY",
+    -- Read by AutoPilot_Threat's NEGATIVE_STAT_CHECKS and by
+    -- AutoPilot_Needs.getMoodleSnapshot.  These used to be added suite-locally
+    -- by test_threat_logic, which hid them from the enum-drift guard; verified
+    -- present in the live install (CharacterStat.PANIC, .SICKNESS and .STRESS
+    -- all appear in media/lua) and modelled globally now.
+    PANIC     = "PANIC",
+    SICKNESS  = "SICKNESS",
+    STRESS    = "STRESS",
 }
 
 -- ── MoodleType enum ───────────────────────────────────────────────────────────
+-- B42 names every MoodleType constant in SCREAMING_SNAKE_CASE.  Verified live in
+-- the 42.19 install: MoodleType.UNHAPPY and .DRUNK at
+-- shared/TimedActions/ISBaseTimedAction.lua:102-105, .ENDURANCE/.HEAVY_LOAD/.PAIN
+-- at client/ISUI/ISFitnessUI.lua:215-234, .PAIN/.PANIC at
+-- client/ISUI/ISWorldObjectContextMenu.lua:1054-1058, .FOOD_EATEN at
+-- shared/TimedActions/ISEatFoodAction.lua:14.  A whole-install grep of media/lua
+-- finds no CamelCase MoodleType constant at all — only the TRANSLATION keys
+-- (Moodles_Unhappy_lvl1..4) keep the old spelling, and those are not the enum.
+-- This mock previously modelled "Unhappy", a name the engine does not have, so
+-- AutoPilot_Needs read nil in-game while the suites read a live moodle.
 MoodleType = {
     ENDURANCE = "ENDURANCE",
-    Unhappy   = "Unhappy",
+    UNHAPPY   = "UNHAPPY",
     -- Real engine moodle types read by the sleep gate
     -- (ISWorldObjectContextMenu.onSleepWalkToComplete); AutoPilot_Sleep.canSleepNow
     -- mirrors that gate, so tests set these to drive it.
@@ -870,7 +894,7 @@ end
 -- Example:
 --   local p = MockPlayer.new({
 --       stats   = { HUNGER = 0.30, THIRST = 0.05, ENDURANCE = 0.90 },
---       moodles = { ENDURANCE = 0, Unhappy = 0 },
+--       moodles = { ENDURANCE = 0, UNHAPPY = 0 },
 --       bleeding = false,
 --   })
 
