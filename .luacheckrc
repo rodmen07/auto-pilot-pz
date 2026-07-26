@@ -55,6 +55,10 @@ globals = {
     -- signature: ISRadioAction:new(mode, character, device, secondaryItem)
     -- (client/RadioCom/ISRadioAction.lua:173).
     "ISRadioAction",
+    -- Towel/dishcloth drying action.  Real 42.19 signature:
+    -- ISDryMyself:new(character, item)
+    -- (shared/TimedActions/ISDryMyself.lua:112).
+    "ISDryMyself",
     "ISTakeWaterAction",
     "ISInventoryTransferAction",
     "ISWearClothing",
@@ -78,6 +82,7 @@ globals = {
     "AutoPilot_Inventory",
     "AutoPilot_Medical",
     "AutoPilot_Media",
+    "AutoPilot_Comfort",
     "AutoPilot_Home",
     "AutoPilot_Map",
     "AutoPilot_Telemetry",

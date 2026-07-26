@@ -9,6 +9,35 @@ the next Workshop update (the USER-ONLY tag / `sync_workshop.sh` / Update Item f
 
 ### Added
 
+- **Drying off with a towel (`AutoPilot_Comfort.lua`, 23rd module).** The mod had no wetness surface at
+  all: a whole-mod grep over `42/media/lua/client` and `tests/` for
+  `wetness|towel|dishcloth|drymyself|isWet` returned exactly one hit, and it was a test using
+  `CharacterStat.WETNESS` as its example of a stat the mock deliberately does NOT model. So a character
+  soaked by rain stayed soaked while carrying the bath towel that clears it outright — one more entry on
+  the user's 2026-07-24 accumulating-moodles list ("the mod reads only 3 MoodleTypes ... and never
+  references Stress, Sadness/Depression, Heavy Load, Uncomfortable, Wet, Sick"). Wet is the item on that
+  list whose relief the engine exposes to Lua as a queueable action, so it is the one this slice takes.
+  The action is the engine's own `ISDryMyself:new(character, item)`
+  (`shared/TimedActions/ISDryMyself.lua:112`), verified live before the arm was written: it is valid only
+  while the cloth is carried with uses left and `CharacterStat.WETNESS > 0` (`:5-15`), and `:complete`
+  clears wetness outright with `decreaseBodyWetness(WETNESS)` (`:65`). It is FINITE — its duration comes
+  from the cloth's remaining uses (`:104`) — so this arm can never park the character the way a terminal
+  branch can. The cloths are exactly `BathTowel` and `DishCloth`, the engine's own pair
+  (`client/ISUI/ISInventoryPaneContextMenu.lua:190`), and the fullest one is preferred because
+  `ISDryMyself:update` force-stops when a cloth runs out mid-action. Like the engine's menu path (`:2758`)
+  the towel is moved to the main inventory first.
+  **The scale was settled at source, because that is what kills arms in this mod.** `CharacterStat.WETNESS`
+  is 0-100, not 0-1: `ISStatsAndBody.lua:75` registers it with an EXPLICIT slider step of 1, the marker
+  every 0-100 stat there carries (PAIN, PANIC, BOREDOM, UNHAPPINESS, DISCOMFORT, ZOMBIE_INFECTION,
+  ZOMBIE_FEVER, FOOD_SICKNESS), while the genuinely 0.0-1.0 stats (STRESS, SANITY, SICKNESS, MORALE,
+  ANGER) take `addSliderOptionEnum`'s default step of 0.01 (`:153-164`). The module divides by 100 and the
+  tunable `WETNESS_DRY_THRESHOLD` is a 0-1 fraction (default 0.30), so a 5-percent-damp character is not
+  towelled off and a soaked one is — the regression test that fails in both directions if that division is
+  ever dropped.
+  Two deliberate limits: the arm refuses while the character stands outdoors in the rain, and it sits
+  BELOW both rest steps in the priority chain, so a resting character is never stood up to dry off — the
+  chain order provides that guarantee with no extra condition.
+
 - **Boredom and unhappiness relief from a television or radio (`AutoPilot_Media.lua`, 22nd module).**
   The mod had no media surface at all (whole-mod grep for `IsoWaveSignal|IsoRadio|getDeviceData|
   ISRadioAction|DeviceData`: zero hits), so a bored character had exactly two answers, reading a book

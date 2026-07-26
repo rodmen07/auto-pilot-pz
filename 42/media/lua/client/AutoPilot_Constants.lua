@@ -357,6 +357,15 @@ AutoPilot_Constants.MEDIA_SEARCH_DIST     = 20
 -- Detection is never cooled down; only the queueing path is.
 AutoPilot_Constants.MEDIA_COOLDOWN_MS     = 60000
 
+-- Comfort: drying off (the Wet moodle).  Expressed as a 0-1 FRACTION of
+-- CharacterStat.WETNESS, which the engine reports on a 0-100 scale
+-- (ISStatsAndBody.lua:75 registers it with an explicit slider step of 1, the
+-- marker every 0-100 stat carries there, while the 0.0-1.0 stats take the
+-- default step of 0.01).  AutoPilot_Comfort divides by 100 before comparing, so
+-- 0.30 means "30 percent wet".  Kept deliberately high: a towel is consumed by
+-- the drying action, so this is for a soaked character, not a damp one.
+AutoPilot_Constants.WETNESS_DRY_THRESHOLD = 0.30
+
 -- Phase 3: Foraging / supply run radii
 AutoPilot_Constants.LOOT_RADIUS_HOME   = 80    -- normal home-area loot radius (capped for scan cost)
 AutoPilot_Constants.LOOT_RADIUS_SUPPLY = 150   -- expanded radius for supply runs (rare; hitch accepted)

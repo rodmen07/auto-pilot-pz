@@ -339,6 +339,52 @@ class TestCategoryMapping(unittest.TestCase):
     def test_unknown_action_maps_to_idle(self) -> None:
         self.assertEqual(tr.categorize_action("unknown_action_xyz"), "idle")
 
+    def test_every_live_lua_action_label_is_categorized(self) -> None:
+        """Every label the RUNTIME can emit must be known to this map.
+
+        Drift guard reading BOTH sources rather than a hand-kept list: the Lua
+        REASON_CLASS table in AutoPilot_Telemetry.lua is the writer, this map is
+        the reader, and an unknown label silently falls through to "idle" -- so a
+        brand-new behaviour is triaged as the character having done NOTHING.
+        That had already happened: `media` shipped 2026-07-25 and was invisible
+        to triage until this test was written, which also broke the follow-up
+        that planned to measure the media arm with this very tool.
+
+        Deliberately ONE-DIRECTIONAL.  The reverse check would be wrong here:
+        this tool reads HISTORICAL logs and keeps retired labels (`barricade`,
+        removed from the mod in V5.0) that the Lua table no longer defines.
+        """
+        import re
+
+        lua_path = (
+            Path(__file__).parent.parent
+            / "42" / "media" / "lua" / "client"
+            / "AutoPilot_Telemetry.lua"
+        )
+        if not lua_path.exists():
+            self.skipTest("AutoPilot_Telemetry.lua not found")
+
+        pattern = re.compile(r'^\s+(\w+)\s*=\s*"(\w+)"')
+        lua_keys: set[str] = set()
+        in_table = False
+        for line in lua_path.read_text(encoding="utf-8").splitlines():
+            if "REASON_CLASS" in line and "=" in line and "{" in line:
+                in_table = True
+                continue
+            if in_table:
+                match = pattern.match(line)
+                if match:
+                    lua_keys.add(match.group(1))
+                if "}" in line and "{" not in line:
+                    break
+
+        self.assertTrue(lua_keys, "could not parse REASON_CLASS from the Lua source")
+        missing = sorted(lua_keys - set(tr.ACTION_CATEGORY))
+        self.assertEqual(
+            missing, [],
+            f"action labels the runtime emits but triage cannot categorize: {missing}",
+        )
+
 
 # ── split_sessions tests ──────────────────────────────────────────────────────
 

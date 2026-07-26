@@ -79,6 +79,7 @@ local REASON_CLASS = {
     media      = "wellness",
     outside    = "wellness",
     clothing   = "wellness",
+    dry        = "wellness",
     happiness  = "wellness",
     exercise   = "exercise",
     recover    = "recover",

@@ -654,6 +654,30 @@ function AutoPilot_Needs.check(player)
             "[Needs] Endurance recovered to %.0f%%; ending rest.", endurance * 100))
     end
 
+    -- 6c. Dry off.  Being soaked is a physical need, not a mood, so it sits
+    -- above step 7 -- but BELOW the two rest steps above, and that ordering is
+    -- the whole guard: a character in an endurance rest or an active rest hold
+    -- returns before reaching this line, so drying can never stand a resting
+    -- character up and undo the seat that V5.4/V5.8 work to keep.  No extra
+    -- condition is needed for that; the chain order provides it.
+    --
+    -- The engine's own action (ISDryMyself) is finite, so this cannot park the
+    -- cycle; see AutoPilot_Comfort's header for the verified engine surface.
+    if AutoPilot_Comfort then
+        local dried, dryState = AutoPilot_Comfort.doDryOff(player, isRaining())
+        if dried then
+            AutoPilot_Telemetry.setDecision("dry", "wet")
+            _setActivity("drying off")
+            return true
+        end
+        if dryState == "no_cloth" then
+            -- Worth a run-log line: the character IS soaked and the mod has no
+            -- answer, which is the difference between "not wet" and "wet with
+            -- nothing to dry with".  The chain continues either way.
+            AutoPilot_Telemetry.setDecision("dry", "no_towel")
+        end
+    end
+
     -- 7. Bored or Unhappy -> prefer tasty food, then read, then go outside.
     -- Kept above exercise: unhappiness slows every action (worse XP/hour) and
     -- these are quick one-shot fixes.  The body moved to doMoodRelief so the
