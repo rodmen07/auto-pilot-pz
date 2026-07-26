@@ -15,8 +15,22 @@ local PLACE_SEARCH_DIST     = AutoPilot_Constants.PLACE_SEARCH_DIST
 local SEARCH_RESULTS_MAX    = AutoPilot_Constants.SEARCH_RESULTS_MAX
 local INVENTORY_SUMMARY_MAX = AutoPilot_Constants.INVENTORY_SUMMARY_MAX
 
--- Helper: check if food item is safe to eat (not rotten, frozen, raw, or unhappy-inducing).
-local function isFoodSafe(item)
+-- V6.0-1: the SAFETY gate, split out of the old single isFoodSafe predicate.
+-- Rejects only food the character must not eat AT ALL: rotten, frozen, still
+-- needing cooking, poisonous, or tainted.  Hunger never overrides it.
+--
+-- Poison and taint are new here and both are verified engine surfaces, not
+-- assumed: item:getPoisonPower() at install client/ISUI/ISInventoryPane.lua
+-- :2094,2097 and client/Foraging/ISForageIcon.lua:24, item:isTainted() at
+-- client/ISUI/ISInventoryPane.lua:2310,2349 (both guarded there on
+-- instanceof(item, "Food"), same as here).  Reading getPoisonPower directly
+-- rather than player:isKnownPoison(item) is the milestone's Q2 default: a
+-- foraging-illiterate character who eats a poisonous berry dies just as dead.
+--
+-- Every new getter is pcall-wrapped exactly like getUnhappyChange below,
+-- because the Lua suites build item stubs that define only the getters in use
+-- today; an unguarded call would break four suites this slice must not touch.
+local function isFoodEdible(item)
     if not item or not item:isFood() or item:isRotten() then return false end
     local frozen = false
     pcall(function() frozen = item:isFrozen() end)
@@ -26,28 +40,66 @@ local function isFoodSafe(item)
         needsCooking = item:isIsCookable() and not item:isCooked()
     end)
     if needsCooking then return false end
-    local unhappy = 0
-    pcall(function() unhappy = item:getUnhappyChange() or 0 end)
-    local boring = 0
-    pcall(function() boring = item:getBoredomChange() or 0 end)
-    return unhappy <= 0 and boring <= 0
+    local poison = 0
+    pcall(function() poison = item:getPoisonPower() or 0 end)
+    if poison > 0 then return false end
+    local tainted = false
+    pcall(function() tainted = item:isTainted() end)
+    if tainted then return false end
+    return true
 end
 
--- Returns the best safe-to-eat food item by calorie count.
+--- V6.0-1: the PREFERENCE score, the other half of the old isFoodSafe.
+--- Lower is better; 0 means the food carries no malus at all.
+---
+--- Only POSITIVE changes are penalties.  A food that REDUCES unhappiness or
+--- boredom scores the same 0 as an inert ration, because ranking the bonus is
+--- the mood arm's job (preferTastyFood), not the hunger path's.
+---
+--- These are item deltas on the engine's own unbounded item scale (Pasta
+--- carries UnhappyChange 40), NOT 0.0-1.0 character stats, so the milestone's
+--- scale-agnostic rule does not apply to them; see docs/MILESTONE_V6_0.md
+--- section 4.1.  Public because V6.0-2 ranks looting with the same helper.
+--- @return number  0 for malus-free food, higher for worse, huge for nil
+function AutoPilot_Inventory.foodMalusScore(item)
+    if not item then return math.huge end
+    local unhappy, boring = 0, 0
+    pcall(function() unhappy = item:getUnhappyChange() or 0 end)
+    pcall(function() boring  = item:getBoredomChange() or 0 end)
+    return math.max(unhappy, 0) + math.max(boring, 0)
+end
+
+-- The MOOD arm's gate: edible AND completely malus-free.  preferTastyFood must
+-- never worsen the moodle it was invoked for (tests/test_mood_food_choice.lua
+-- Test 2), so it keeps the stricter predicate the hunger path used to share.
+-- The hunger path deliberately no longer uses this: rejecting joyless food
+-- outright made 46 non-cookable vanilla foods permanently inedible to the mod
+-- and could starve a character carrying only pasta and ramen.
+local function isFoodSafe(item)
+    return isFoodEdible(item) and AutoPilot_Inventory.foodMalusScore(item) <= 0
+end
+
+-- Returns the best edible food item by calorie count.
 -- V4.8: searches worn/carried sub-containers too (see AutoPilot_Utils).
 -- V4.9: also returns the container holding the winner, so the caller can move
 -- it into the main inventory before eating.  Callers that want only the item
 -- are unaffected (Lua drops extra return values).
+-- V6.0-1: malus-free food is preferred over malus-carrying food; calories
+-- decide within a malus tier.  Malus food is eaten only when nothing better is
+-- carried, so the mod ranks rather than starves.
 -- @return item|nil, container|nil
 function AutoPilot_Inventory.getBestFood(player)
     local best = nil
     local bestCont = nil
+    local bestMalus = math.huge
     local bestCal = -999
 
     AutoPilot_Utils.iteratePlayerItems(player, function(item, container)
-        if isFoodSafe(item) then
+        if isFoodEdible(item) then
+            local malus = AutoPilot_Inventory.foodMalusScore(item)
             local cal = item:getCalories() or 0
-            if cal > bestCal then
+            if malus < bestMalus or (malus == bestMalus and cal > bestCal) then
+                bestMalus = malus
                 bestCal = cal
                 best = item
                 bestCont = container
@@ -59,22 +111,26 @@ function AutoPilot_Inventory.getBestFood(player)
 end
 
 --- Choose best food item for current hunger level to avoid large overeating.
+--- V6.0-1: malus-free food is preferred; hunger fit decides within a tier.
 --- @return item|nil, container|nil  (V4.9: container holding the winner)
 function AutoPilot_Inventory.getBestFoodForHunger(player, currentHunger)
     local target = (currentHunger or 0) * 100
     local best = nil
     local bestCont = nil
+    local bestMalus = math.huge
     local bestDelta = math.huge
 
     AutoPilot_Utils.iteratePlayerItems(player, function(item, container)
-        if isFoodSafe(item) then
+        if isFoodEdible(item) then
+            local malus = AutoPilot_Inventory.foodMalusScore(item)
             local hungerChange = 0
             pcall(function() hungerChange = math.abs(item:getHungerChange() or 0) end)
 
             local maxAcceptable = math.max(25, target * 1.5)
             if hungerChange <= maxAcceptable then
                 local delta = math.abs(target - hungerChange)
-                if delta < bestDelta then
+                if malus < bestMalus or (malus == bestMalus and delta < bestDelta) then
+                    bestMalus = malus
                     bestDelta = delta
                     best = item
                     bestCont = container
@@ -94,6 +150,7 @@ end
 --- Phase 3: Select the best food item considering player weight.
 --- Underweight: prioritise high-calorie food; overweight: prefer low-calorie.
 --- Applies the same frozen/needs-cooking safety filters as getBestFood.
+--- V6.0-1: malus-free food is preferred; the weight score decides within a tier.
 --- Returns an IsoObject food item, or nil.
 --- @return item|nil, container|nil  (V4.9: container holding the winner)
 function AutoPilot_Inventory.selectFoodByWeight(player)
@@ -105,9 +162,11 @@ function AutoPilot_Inventory.selectFoodByWeight(player)
 
     local best, bestScore = nil, nil
     local bestCont = nil
+    local bestMalus = math.huge
 
     AutoPilot_Utils.iteratePlayerItems(player, function(item, container)
-        if isFoodSafe(item) then
+        if isFoodEdible(item) then
+            local malus = AutoPilot_Inventory.foodMalusScore(item)
             local calories = 0
             pcall(function() calories = item:getCalories() or 0 end)
             local hunger = 0
@@ -122,8 +181,11 @@ function AutoPilot_Inventory.selectFoodByWeight(player)
                 score = math.abs(hunger)                -- just satisfy hunger
             end
 
-            if bestScore == nil or score > bestScore then
+            if bestScore == nil
+                or malus < bestMalus
+                or (malus == bestMalus and score > bestScore) then
                 best, bestScore = item, score
+                bestMalus = malus
                 bestCont = container
             end
         end
@@ -822,11 +884,16 @@ end
 --- unhappiness win, making the moodle this arm treats worse; the old gate here
 --- (isFood and not isRotten) was also weaker than this module's own isFoodSafe,
 --- so mood relief could eat frozen or raw-cookable food the hunger path refuses.
---- isFoodSafe rejects rotten, frozen, uncooked-cookable, and any POSITIVE
---- unhappy or boredom change, so reusing it is what makes "never worsen either
---- moodle" true.  On top of it a candidate must help at least one of the two (0
---- on both is inert).  Boredom stays the tie-break, which keeps the old choice
---- when no food carries an unhappiness value at all.
+--- isFoodSafe rejects rotten, frozen, uncooked-cookable, poisonous and tainted
+--- food, and any POSITIVE unhappy or boredom change, so reusing it is what makes
+--- "never worsen either moodle" true.  On top of it a candidate must help at
+--- least one of the two (0 on both is inert).  Boredom stays the tie-break,
+--- which keeps the old choice when no food carries an unhappiness value at all.
+--- V6.0-1 NOTE: isFoodSafe is now the MOOD arm's gate alone.  The hunger path
+--- moved to the looser isFoodEdible plus a malus RANKING, because refusing
+--- joyless food outright could starve a character who was carrying food; the
+--- mood arm keeps the strict predicate on purpose, since eating a food that
+--- raises unhappiness to treat unhappiness is a contradiction, not a trade-off.
 --- V4.9: also returns the container holding it.
 --- @return item|nil, container|nil
 function AutoPilot_Inventory.preferTastyFood(player)
