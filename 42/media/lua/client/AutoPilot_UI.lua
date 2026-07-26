@@ -265,7 +265,14 @@ function AutoPilot_UI:render()
         -- cannot disagree the way the user's screenshot caught them doing.
         local intention = nil
         pcall(function()
-            if AutoPilot and AutoPilot.getActionIntention then
+            -- V6.0-3 (C2): prefer the composed reason line — the SAME single
+            -- source the action HUD renders — so the panel says
+            -- "Eating (hungry)" exactly when the HUD does.  The bare
+            -- intention stays as the fallback for an older Main (the MP
+            -- Lua-reload case this pcall pattern already hardens against).
+            if AutoPilot and AutoPilot.getActionLine then
+                intention = AutoPilot.getActionLine(player)
+            elseif AutoPilot and AutoPilot.getActionIntention then
                 intention = AutoPilot.getActionIntention(player)
             end
         end)

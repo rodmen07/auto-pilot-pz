@@ -42,6 +42,14 @@ local _pendingStage   = {}   -- [playerNum] -> priority tier label
 local _pendingFail    = {}   -- [playerNum] -> fail_reason label
 local _pendingRetry   = {}   -- [playerNum] -> retry_count at decision time
 
+-- V6.0-3 (C2): what the most recent LOGGED cycle recorded, surviving the
+-- pending-state clear at the end of logTick().  The pending stores above are
+-- consumed by logTick mid-cycle, but the F11 panel and the action HUD render
+-- AFTER the cycle returns, so the read side needs the logged values, not the
+-- pending ones.
+local _lastReason     = {}   -- [playerNum] -> reason of the last logged cycle
+local _lastFail       = {}   -- [playerNum] -> fail_reason of the last logged cycle
+
 -- ── Helpers ────────────────────────────────────────────────────────────────────
 
 local function _pn(player)
@@ -271,6 +279,14 @@ function AutoPilot_Telemetry.logTick(player, action, reason)
     _pendingFail[pnum]   = ""
     _pendingRetry[pnum]  = 0
 
+    -- V6.0-3 (C2): keep the logged reason readable after the pending clear.
+    -- Note fail_reason is read from the PENDING store even when action/reason
+    -- were passed as literal overrides (the idle/no_action gate in Main), so a
+    -- blocked sleep that fell through to nothing still surfaces its
+    -- "pain_block"/"panic" here — exactly the "why is it doing nothing" case.
+    _lastReason[pnum] = reason
+    _lastFail[pnum]   = fail_reason
+
     local s   = _collectStats(player)
     -- NOTE: `ff` is a ZOMBIE-PRESENCE flag (active = a zombie was in this cycle's
     -- cached scan), NOT fast-forward -- a historical misnomer that has misled
@@ -341,6 +357,22 @@ end
 function AutoPilot_Telemetry.getPendingAction(player)
     local pnum = player and _pn(player) or 0
     return _pendingAction[pnum] or "idle"
+end
+
+--- V6.0-3 (C2): the decision reason recorded by the player's most recent
+-- logged cycle (defaults to player 0).  Mirrors getPendingAction: a pure
+-- per-player read with a safe default that never mutates or clears state.
+-- A non-empty fail_reason wins over the decision reason because it answers
+-- "why is it doing nothing" (e.g. a sleep the engine refused: "pain_block",
+-- "panic").  This is the read side the F11 panel and the action HUD render
+-- through AutoPilot.reasonLine.
+-- @param player  IsoPlayer|nil
+-- @return string  reason token, or "" when no cycle has been logged yet
+function AutoPilot_Telemetry.getDecisionReason(player)
+    local pnum = player and _pn(player) or 0
+    local fail = _lastFail[pnum] or ""
+    if fail ~= "" then return fail end
+    return _lastReason[pnum] or ""
 end
 
 --- Return the current run-tick count for a player (defaults to player 0).
