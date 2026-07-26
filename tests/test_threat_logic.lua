@@ -10,10 +10,11 @@ dofile("tests/lua_mock_pz.lua")
 -- ── Load constants ────────────────────────────────────────────────────────────
 dofile("42/media/lua/client/AutoPilot_Constants.lua")
 
--- Extend CharacterStat with stats used by Threat's NEGATIVE_STAT_CHECKS
-CharacterStat.PANIC    = "PANIC"
-CharacterStat.SICKNESS = "SICKNESS"
-CharacterStat.STRESS   = "STRESS"
+-- CharacterStat.PANIC / .SICKNESS / .STRESS (Threat's NEGATIVE_STAT_CHECKS) used
+-- to be added here, suite-locally.  They now live in lua_mock_pz.lua: a
+-- suite-local enum key is invisible to tests/test_engine_symbols.lua, which is
+-- the guard that a member production reads actually exists in B42, so any key
+-- defined only in one suite is a member the guard cannot see.
 
 -- Additional timed-action stubs required by Threat
 ISEquipWeaponAction = {

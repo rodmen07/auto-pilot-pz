@@ -272,7 +272,7 @@ do
             BOREDOM   = 0,
             SANITY    = 0,
         },
-        moodles = { ENDURANCE = 0, Unhappy = 0 },
+        moodles = { ENDURANCE = 0, UNHAPPY = 0 },
         perks   = { Strength = 3, Fitness = 3 },
     })
     AutoPilot_Needs.check(player)    -- skipExercise = false
@@ -356,7 +356,7 @@ do
             BOREDOM   = 0,
             SANITY    = 0,
         },
-        moodles = { ENDURANCE = 0, Unhappy = 0 },
+        moodles = { ENDURANCE = 0, UNHAPPY = 0 },
         perks   = { Strength = 3, Fitness = 3 },
     })
     local result = AutoPilot_Needs.check(player)
@@ -423,7 +423,7 @@ do
             BOREDOM   = 0,
             SANITY    = 0,
         },
-        moodles = { ENDURANCE = 0, Unhappy = 0 },
+        moodles = { ENDURANCE = 0, UNHAPPY = 0 },
         perks = { Strength = 4, Fitness = 4 },
     })
     local result = AutoPilot_Needs.check(player)
@@ -582,7 +582,7 @@ do
             BOREDOM   = 0,
             SANITY    = 0,
         },
-        moodles = { ENDURANCE = 0, Unhappy = 0 },
+        moodles = { ENDURANCE = 0, UNHAPPY = 0 },
     })
     local result = AutoPilot_Needs.check(player, true)  -- skipExercise=true
     assert_true("check() returns true when adjustClothing fires", result)
@@ -656,7 +656,7 @@ do
         },
         moodles = {
             ENDURANCE = 0,
-            Unhappy   = AutoPilot_Constants.HAPPINESS_LOW_THRESHOLD,
+            UNHAPPY   = AutoPilot_Constants.HAPPINESS_LOW_THRESHOLD,
         },
     })
     local result = AutoPilot_Needs.check(player, true)  -- skipExercise=true
@@ -675,7 +675,7 @@ local function exercisePlayer()
     return MockPlayer.new({
         stats   = { HUNGER = 0.05, THIRST = 0.05, FATIGUE = 0.05,
                     ENDURANCE = 0.90 },
-        moodles = { ENDURANCE = 0, Unhappy = 0 },
+        moodles = { ENDURANCE = 0, UNHAPPY = 0 },
     })
 end
 
@@ -771,7 +771,7 @@ do
     local p = MockPlayer.new({
         stats   = { HUNGER = 0.05, THIRST = 0.05, FATIGUE = 0.05,
                     ENDURANCE = 0.90 },
-        moodles = { ENDURANCE = 0, Unhappy = 0 },
+        moodles = { ENDURANCE = 0, UNHAPPY = 0 },
         hasItems = true,   -- inventory:contains(...) reports gear carried
     })
     assert_true("strength set queues with gear",
@@ -788,7 +788,7 @@ do
     local p = MockPlayer.new({
         stats   = { HUNGER = 0.05, THIRST = 0.05, FATIGUE = 0.05,
                     ENDURANCE = 0.90 },
-        moodles = { ENDURANCE = 0, Unhappy = 0 },
+        moodles = { ENDURANCE = 0, UNHAPPY = 0 },
         hasItems = false,
     })
     assert_true("strength set queues without gear",
@@ -1379,7 +1379,7 @@ local function autoExercisePlayer(gear)
     return MockPlayer.new({
         stats    = { HUNGER = 0.05, THIRST = 0.05, FATIGUE = 0.05,
                      ENDURANCE = 0.90 },
-        moodles  = { ENDURANCE = 0, Unhappy = 0 },
+        moodles  = { ENDURANCE = 0, UNHAPPY = 0 },
         hasItems = gear and true or false,
     })
 end
@@ -1555,7 +1555,7 @@ local function drivenPlayer(endurance, moodle)
                     ENDURANCE = endurance }
     local p = MockPlayer.new({
         stats   = stats,
-        moodles = { ENDURANCE = moodle or 0, Unhappy = 0 },
+        moodles = { ENDURANCE = moodle or 0, UNHAPPY = 0 },
     })
     p.setEndurance = function(_self, e) stats.ENDURANCE = e end
     return p
@@ -1582,7 +1582,7 @@ local function windedPlayer(endurance, moodle)
             FATIGUE   = 0.02,
             ENDURANCE = endurance,
         },
-        moodles = { ENDURANCE = moodle or 0, Unhappy = 0 },
+        moodles = { ENDURANCE = moodle or 0, UNHAPPY = 0 },
     })
 end
 
@@ -1795,7 +1795,7 @@ do
     AutoPilot_Inventory.getBestFood = function(_player) return foodItem end
     local hungry = MockPlayer.new({
         stats = { HUNGER = 0.25, THIRST = 0.02, FATIGUE = 0.02, ENDURANCE = 0.40 },
-        moodles = { ENDURANCE = 0, Unhappy = 0 },
+        moodles = { ENDURANCE = 0, UNHAPPY = 0 },
     })
     assert_true("hunger claims the cycle mid-rest", AutoPilot_Needs.check(hungry))
     assert_eq("eating outranks the rest hold", last_action_type(), "eat")
@@ -1807,7 +1807,7 @@ do
         function(_player) return { getName = function() return "WaterBottle" end } end
     local thirsty = MockPlayer.new({
         stats = { THIRST = 0.30, HUNGER = 0.02, FATIGUE = 0.02, ENDURANCE = 0.40 },
-        moodles = { ENDURANCE = 0, Unhappy = 0 },
+        moodles = { ENDURANCE = 0, UNHAPPY = 0 },
     })
     assert_true("thirst claims the cycle mid-rest", AutoPilot_Needs.check(thirsty))
     assert_eq("drinking outranks the rest hold", last_action_type(), "eat")
@@ -1821,7 +1821,7 @@ do
     ISTimedActionQueue_calls = {}
     local sleepy = MockPlayer.new({
         stats = { HUNGER = 0.02, THIRST = 0.02, FATIGUE = 0.80, ENDURANCE = 0.40 },
-        moodles = { ENDURANCE = 0, Unhappy = 0 },
+        moodles = { ENDURANCE = 0, UNHAPPY = 0 },
     })
     -- doSleep finds no bed here, so it returns false; what matters is that the
     -- rest hold did NOT swallow the cycle before the sleep branch ran.
@@ -1957,7 +1957,7 @@ do
     local thirsty = MockPlayer.new({
         stats   = { HUNGER = 0.02, THIRST = 0.95, FATIGUE = 0.02,
                     ENDURANCE = 1.00 },
-        moodles = { ENDURANCE = 0, Unhappy = 0 },
+        moodles = { ENDURANCE = 0, UNHAPPY = 0 },
     })
     AutoPilot_Needs.check(thirsty)
     assert_eq("the count resets on the very first cycle after a respawn",
@@ -2516,14 +2516,23 @@ do
         last_action_type(), nil)
 end
 
--- ── Unhappy relief dead-clause regression (2026-07-24) ───────────────────────
--- The Unhappy moodle is a 0-4 LEVEL, but HAPPINESS_LOW_THRESHOLD was 40, so the
--- unhappy relief branch in check() could never fire (0-4 is never >= 40).  Test 23
--- above only "passed" because it set the moodle to the constant's own value, an
--- impossible in-game level, so it referenced the bug instead of catching it.  This
--- case uses a REALISTIC Unhappy level (2) and proves relief now fires; it FAILS on
--- the pre-fix constant (2 < 40 -> the branch is skipped and check() reaches exercise).
-print("\n-- Test: a realistic Unhappy moodle level (2) triggers mood relief")
+-- ── Unhappy relief dead-clause regression (2026-07-24, deepened 2026-07-25) ──
+-- Cause 1 (fixed 2026-07-24, PR #68): the unhappy moodle is a 0-4 LEVEL, but
+-- HAPPINESS_LOW_THRESHOLD was 40, so the unhappy relief branch in check() could
+-- never fire (0-4 is never >= 40).  Test 23 above only "passed" because it set the
+-- moodle to the constant's own value, an impossible in-game level, so it referenced
+-- the bug instead of catching it.  This case uses a REALISTIC level (2).
+--
+-- Cause 2 (fixed 2026-07-25): correcting the threshold was not enough, because the
+-- moodle was read as MoodleType.Unhappy and B42 spells the constant
+-- MoodleType.UNHAPPY (engine: shared/TimedActions/ISBaseTimedAction.lua:102).  The
+-- CamelCase name resolved to nil in-game, safeMoodleLevel degraded it to 0, and the
+-- branch stayed dead anyway.  This suite could not see that, because lua_mock_pz.lua
+-- modelled the same wrong name -- the mock supplied a moodle only the tests had.
+-- The mock now models UNHAPPY only, so this case fails on EITHER cause: revert the
+-- threshold and 2 < 40 skips the branch; revert the constant and the level reads 0.
+-- tests/test_engine_symbols.lua is the guard that stops cause 2 coming back.
+print("\n-- Test: a realistic unhappy moodle level (2) triggers mood relief")
 do
     reset()
     resetRest()
@@ -2536,13 +2545,19 @@ do
     -- unlike Test 23 which also set BOREDOM=50).
     local p = MockPlayer.new({
         stats   = { HUNGER = 0.05, THIRST = 0.05, FATIGUE = 0.05, ENDURANCE = 1.0, BOREDOM = 0 },
-        moodles = { Unhappy = 2 },
+        moodles = { UNHAPPY = 2 },
     })
     local result = AutoPilot_Needs.check(p)
     AutoPilot_Inventory.preferTastyFood = function(_player) return nil end
-    assert_true("check() acts on a realistic Unhappy moodle (level 2)", result)
-    assert_eq("queues 'eat' (mood relief) for Unhappy 2, not exercise/idle",
+    assert_true("check() acts on a realistic unhappy moodle (level 2)", result)
+    assert_eq("queues 'eat' (mood relief) for unhappy 2, not exercise/idle",
         last_action_type(), "eat")
+    -- The reporting half of the same defect: getMoodleSnapshot's `sad` key is fed
+    -- by the same lookup, so while the constant was misspelled it read 0 no matter
+    -- how miserable the character was.  (That snapshot is NOT the telemetry run
+    -- log, which keeps its own field list -- see the SCOPE NOTE on the function.)
+    assert_eq("the state snapshot reports the unhappy level, not 0",
+        AutoPilot_Needs.getMoodleSnapshot(p).sad, 2)
 end
 
 -- ── Rest seating-data preference (bug 2 core, 2026-07-24) ────────────────────

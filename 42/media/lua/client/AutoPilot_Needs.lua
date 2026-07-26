@@ -309,9 +309,18 @@ end
 local function doMoodRelief(player, seatedOnly)
     -- NOTE: CharacterStat.SANITY reads HIGH when healthy, so it must not be used
     -- as a "sadness" signal (it made this branch fire nearly every idle cycle).
-    -- The Unhappy moodle level is the correct low-mood source.
+    -- The unhappy moodle level is the correct low-mood source.
+    --
+    -- The constant is MoodleType.UNHAPPY, not MoodleType.Unhappy.  B42 renamed
+    -- every MoodleType constant to SCREAMING_SNAKE_CASE; the engine's own gate
+    -- reads getMoodleLevel(MoodleType.UNHAPPY) at
+    -- shared/TimedActions/ISBaseTimedAction.lua:102, and a whole-install grep
+    -- of media/lua for "MoodleType.Unhappy" returns zero.  The CamelCase name
+    -- resolved to nil, so safeMoodleLevel degraded to 0 on every call and the
+    -- unhappy arm of this function could never run in-game (only the
+    -- translation KEYS, Moodles_Unhappy_lvl1..4, kept the old spelling).
     local boredom    = AutoPilot_Utils.safeStat(player, CharacterStat.BOREDOM)
-    local unhappyLvl = safeMoodleLevel(player, MoodleType.Unhappy)
+    local unhappyLvl = safeMoodleLevel(player, MoodleType.UNHAPPY)
     if boredom < BOREDOM_STAT_THRESHOLD
         and unhappyLvl < AutoPilot_Constants.HAPPINESS_LOW_THRESHOLD then
         return false
@@ -724,6 +733,12 @@ end
 
 -- Returns a snapshot of current stat levels for state reporting.
 -- B42: Uses player:getStats():get(CharacterStat.XXX) pattern.
+--
+-- SCOPE NOTE (verified 2026-07-25, do not inherit): this snapshot is NOT the
+-- telemetry run log.  AutoPilot_Telemetry writes its own field list and does not
+-- call this function.  The only in-mod caller is printStatus below, which has no
+-- callers of its own and whose `print` is noop-shadowed at the top of this file,
+-- so nothing currently observes the returned table outside the test suites.
 function AutoPilot_Needs.getMoodleSnapshot(player)
     return {
         hungry   = math.floor(AutoPilot_Utils.safeStat(player, CharacterStat.HUNGER) * 100),
@@ -734,9 +749,11 @@ function AutoPilot_Needs.getMoodleSnapshot(player)
         sick     = math.floor(AutoPilot_Utils.safeStat(player, CharacterStat.SICKNESS)),
         stressed = math.floor(AutoPilot_Utils.safeStat(player, CharacterStat.STRESS)),
         bored    = math.floor(AutoPilot_Utils.safeStat(player, CharacterStat.BOREDOM)),
-        -- SANITY reads high when healthy; the Unhappy moodle (0-4) is the real
+        -- SANITY reads high when healthy; the UNHAPPY moodle (0-4) is the real
         -- low-mood signal. Keep the "sad" key for log-parser compatibility.
-        sad      = safeMoodleLevel(player, MoodleType.Unhappy),
+        -- MoodleType.UNHAPPY, not .Unhappy — see doMoodRelief for the engine
+        -- citation; the CamelCase spelling made this read 0 unconditionally.
+        sad      = safeMoodleLevel(player, MoodleType.UNHAPPY),
     }
 end
 

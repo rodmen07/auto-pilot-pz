@@ -122,7 +122,7 @@ local function restingPlayer(cfg)
             BOREDOM   = cfg.boredom or 0,
             SANITY    = 0,
         },
-        moodles = { ENDURANCE = 0, Unhappy = cfg.unhappy or 0 },
+        moodles = { ENDURANCE = 0, UNHAPPY = cfg.unhappy or 0 },
         traits  = cfg.traits,
         tooDark = cfg.tooDark,
     })

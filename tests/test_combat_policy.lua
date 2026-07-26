@@ -179,7 +179,7 @@ do
         getConditionMax = function() return 10 end,
     }
 
-    local p = makePlayer({playerNum=0, moodles = { ENDURANCE=0, Unhappy=0 }})
+    local p = makePlayer({playerNum=0, moodles = { ENDURANCE=0, UNHAPPY=0 }})
     AutoPilot_Home.set(p)
 
     -- The escape square must resolve, or there is nowhere to run to and the mod
@@ -233,7 +233,7 @@ do
         getConditionMax = function() return 10 end,
     }
 
-    local p = makePlayer({playerNum=0, moodles = { ENDURANCE=0, Unhappy=0 }})
+    local p = makePlayer({playerNum=0, moodles = { ENDURANCE=0, UNHAPPY=0 }})
     p.getPrimaryHandItem = function(_self) return nil end
     AutoPilot_Home.set(p)
 
