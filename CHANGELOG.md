@@ -9,6 +9,36 @@ the next Workshop update (the USER-ONLY tag / `sync_workshop.sh` / Update Item f
 
 ### Added
 
+- **A carry-capacity gate on looting (`AutoPilot_Utils.hasCarryRoom`).** The mod had no weight sense at
+  all. A whole-mod grep of `42/media/lua/client` for
+  `getMaxWeight|getCapacityWeight|getEffectiveCapacity|HEAVY_LOAD|encumb` returned exactly one hit, and
+  it was a COMMENT in `AutoPilot_Comfort` listing moodles the mod does not manage. Every loot path
+  queued its transfer regardless of what the character already carried, and proactive scavenging is a
+  background chore on a cooldown that never stops, so the mod could load a character down indefinitely —
+  Heavy Load being one more entry on the user's 2026-07-24 accumulating-moodles list. It is worse than
+  cosmetic here: vanilla REFUSES to let an overloaded character exercise, disabling the fitness start
+  button with `Tooltip_TooHeavyFitness` at `MoodleType.HEAVY_LOAD > 2`
+  (`client/ISUI/ISFitnessUI.lua:219`), so an unbounded looter can loot the mod out of its own training
+  loop.
+  The gate reads the engine rather than guessing: the HEAVY_LOAD moodle is the engine's own verdict on
+  "too heavy" (the weight-to-moodle mapping is Java-side and not visible from Lua), and the per-item test
+  is `ItemContainer:hasRoomFor(character, item)`, exactly as the foraging pickup menu uses it
+  (`client/Foraging/ISBaseIcon.lua:127`), with `getCapacityWeight() + weight <=
+  getEffectiveCapacity(character)` as the arithmetic fallback — the same comparison the engine itself
+  uses to decide a picked-up item goes on the ground instead (`shared/ActionManager.lua:11`,
+  `ISBaseIcon.lua:105`). New tunable `HEAVY_LOAD_LOOT_LIMIT` (default 2, one level below the vanilla
+  fitness cutoff, with a test that fails if it ever drifts above it).
+  Three deliberate properties. It REFUSES A PICKUP and never drops, moves, or destroys anything the
+  character carries, so the worst case is the vanilla answer to a full pack. It FAILS OPEN: any engine
+  build that gives no usable capacity reading loots exactly as before, because a renamed API must never
+  stall the survival loop. And emergency medical looting is exempt: `emergencyMedicalLoot` passes an
+  explicit `allowOverload`, and `AutoPilot_Medical`'s own bandage grab queues its transfer directly and
+  is not routed through the gate at all — bleeding out beats encumbrance, and a bandage weighs almost
+  nothing. Every other pickup path is gated at one seam
+  (`_queueTransfer`), including the currently-uncalled public `bulkLoot`, which is gated per item.
+  Transfers that only move an item from a worn bag into the main inventory are deliberately NOT gated:
+  they change nothing about what the character is carrying.
+
 - **Drying off with a towel (`AutoPilot_Comfort.lua`, 23rd module).** The mod had no wetness surface at
   all: a whole-mod grep over `42/media/lua/client` and `tests/` for
   `wetness|towel|dishcloth|drymyself|isWet` returned exactly one hit, and it was a test using

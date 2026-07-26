@@ -272,8 +272,10 @@
 --          test_threat_logic until 2026-07-25; a suite-local enum key hides the
 --          member from the enum-drift guard, so every member production reads
 --          now lives here); safeStat degrades missing keys to 0 by design
---   [M]  MoodleType   ENDURANCE/UNHAPPY/PAIN/PANIC (PAIN and PANIC added for
---          AutoPilot_Sleep.canSleepNow, which mirrors the engine sleep gate;
+--   [M]  MoodleType   ENDURANCE/UNHAPPY/PAIN/PANIC/HEAVY_LOAD (PAIN and PANIC
+--          added for AutoPilot_Sleep.canSleepNow, which mirrors the engine
+--          sleep gate; HEAVY_LOAD for AutoPilot_Utils.hasCarryRoom, which
+--          mirrors the vanilla fitness gate at ISFitnessUI.lua:219;
 --          getMoodleLevel returns 0 for any key a test does not set).  B42
 --          spells these SCREAMING_SNAKE_CASE — modelling "Unhappy" here kept a
 --          nil-in-game read looking alive in the suites until 2026-07-25
@@ -309,7 +311,8 @@
 -- plus the V3.2 engagement counters (getNumChasingZombies /
 -- getNumVeryCloseZombies / getNumVisibleZombies), getMoodles():getMoodleLevel,
 -- getBodyDamage():getBodyParts, getInventory() (getItems / contains /
--- getFirstTypeRecurse / getItemCount), getPerkLevel, getPlayerNum,
+-- getFirstTypeRecurse / getItemCount / getCapacityWeight /
+-- getEffectiveCapacity / hasRoomFor), getPerkLevel, getPlayerNum,
 -- getX/getY/getZ, getCurrentSquare, getXp():getXP/:getMultiplier,
 -- getHoursSurvived, getModData/transmitModData,
 -- getFitness():init/:setCurrentExercise, tooDarkToRead, isDead/isAsleep,
@@ -429,6 +432,12 @@ MoodleType = {
     -- mirrors that gate, so tests set these to drive it.
     PAIN      = "PAIN",
     PANIC     = "PANIC",
+    -- Read by AutoPilot_Utils.hasCarryRoom: the engine's own verdict on "the
+    -- character is carrying too much".  Verified live at
+    -- client/ISUI/ISFitnessUI.lua:219, which disables the vanilla fitness OK
+    -- button (Tooltip_TooHeavyFitness) at level > 2 — i.e. vanilla will not let
+    -- an overloaded character exercise, which is this mod's main job.
+    HEAVY_LOAD = "HEAVY_LOAD",
 }
 
 -- ── CharacterTrait enum ───────────────────────────────────────────────────────
@@ -962,8 +971,15 @@ FitnessExercises = {
 MockContainer = {}
 
 --- An ItemContainer holding `items` (a plain array of item tables).
-function MockContainer.new(items)
+--- `cap` is an optional carry-capacity config for the Heavy Load gate:
+---   cap.carried   number  current getCapacityWeight()      (default 0)
+---   cap.capacity  number  getEffectiveCapacity(character)  (default 50)
+---   cap.hasRoom   boolean forced hasRoomFor() answer       (default computed)
+--- Defaults model an empty pack with room to spare, so every suite written
+--- before the gate existed keeps looting exactly as it did.
+function MockContainer.new(items, cap)
     local arr = items or {}
+    cap = cap or {}
     return {
         _items   = arr,
         getItems = function(_self)
@@ -971,6 +987,26 @@ function MockContainer.new(items)
                 size = function(_s) return #arr end,
                 get  = function(_s, i) return arr[i + 1] end,
             }
+        end,
+        -- ── Carry-capacity surface (verified live in the 42.19 install) ──
+        -- ItemContainer:getCapacityWeight() and :getEffectiveCapacity(chr) are
+        -- the pair the engine itself compares to decide a character is
+        -- overloaded: shared/ActionManager.lua:11 drops a picked-up item on the
+        -- ground when getCapacityWeight() > getEffectiveCapacity(character),
+        -- and client/Foraging/ISBaseIcon.lua:105 uses the same comparison as
+        -- its "player inventory has space" test.
+        getCapacityWeight    = function(_self) return cap.carried or 0 end,
+        getEffectiveCapacity = function(_self, _chr) return cap.capacity or 50 end,
+        -- ItemContainer:hasRoomFor(character, item) — the engine's per-item
+        -- capacity test, used by the foraging pickup menu at
+        -- client/Foraging/ISBaseIcon.lua:127 and by the inventory pane at
+        -- client/ISUI/ISInventoryPane.lua:2057.  It is overloaded in the engine
+        -- (a raw weight is also accepted: ISWorldObjectContextMenu.lua:1298).
+        hasRoomFor = function(_self, _chr, item)
+            if cap.hasRoom ~= nil then return cap.hasRoom end
+            local w = 0
+            pcall(function() w = item:getActualWeight() or 0 end)
+            return ((cap.carried or 0) + w) <= (cap.capacity or 50)
         end,
         add = function(_self, item)
             table.insert(arr, item)
@@ -1094,6 +1130,18 @@ function MockPlayer.new(cfg)
         -- Vanilla equipment-exercise gate; tests set cfg.hasItems or override.
         contains = function(self, _fullType, _recurse)
             return cfg.hasItems == true
+        end,
+        -- Carry-capacity surface, same engine citations as MockContainer.new
+        -- above (ActionManager.lua:11, ISBaseIcon.lua:105/127).  Defaults model
+        -- an unencumbered character: cfg.carriedWeight / cfg.carryCapacity /
+        -- cfg.hasRoom drive AutoPilot_Utils.hasCarryRoom.
+        getCapacityWeight    = function(self) return cfg.carriedWeight or 0 end,
+        getEffectiveCapacity = function(self, _chr) return cfg.carryCapacity or 50 end,
+        hasRoomFor = function(self, _chr, item)
+            if cfg.hasRoom ~= nil then return cfg.hasRoom end
+            local w = 0
+            pcall(function() w = item:getActualWeight() or 0 end)
+            return ((cfg.carriedWeight or 0) + w) <= (cfg.carryCapacity or 50)
         end,
         -- Recursive type/count lookups (V2.1-verified surface).  Retained
         -- after V5.0 removed their last production caller: they are real
