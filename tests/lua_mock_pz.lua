@@ -94,6 +94,12 @@
 --          string first and a table third so a transposed call fails loudly
 --          here instead of silently doing nothing in-game.  Exercised by
 --          test_media_relief.
+--   [MA] ISDryMyself:new(character, item)
+--          the engine's own towel action, verified live at
+--          shared/TimedActions/ISDryMyself.lua:112.  It is FINITE (duration
+--          derived from the cloth's remaining uses, :104) and clears wetness
+--          outright on :complete (:65), which is what makes it safe as an
+--          AutoPilot arm.  Exercised by test_dry_off.
 --   [S]  ISEquipWeaponAction:new(character, item, time, primary)
 --          test_threat_logic / test_combat_policy / test_container_search
 --          (ISBarricadeAction left this record in V5.0 with the barricading
@@ -334,6 +340,14 @@ CharacterStat = {
     PANIC     = "PANIC",
     SICKNESS  = "SICKNESS",
     STRESS    = "STRESS",
+    -- Read by AutoPilot_Comfort.wetness.  Verified present in the live install
+    -- (client/ISUI/ISInventoryPaneContextMenu.lua:190,
+    -- shared/TimedActions/ISDryMyself.lua:8).  SCALE: 0-100, not 0-1 --
+    -- ISStatsAndBody.lua:75 registers it with an EXPLICIT slider step of 1, the
+    -- marker every 0-100 stat there carries, while the 0.0-1.0 stats
+    -- (STRESS/SICKNESS/SANITY) take addSliderOptionEnum's default step of 0.01.
+    -- Suites therefore set this stat in 0-100 units, exactly as the game does.
+    WETNESS   = "WETNESS",
 }
 
 -- ── MoodleType enum ───────────────────────────────────────────────────────────
@@ -518,6 +532,22 @@ ISRadioAction = {
             device    = device,
             secondary = secondaryItem,
         }
+    end,
+}
+
+-- Real 42.19 signature (shared/TimedActions/ISDryMyself.lua:112):
+--   ISDryMyself:new(character, item)
+-- The item is a BathTowel or DishCloth and is CONSUMED: :update consumes uses
+-- and force-stops when they run out, :complete calls
+-- decreaseBodyWetness(WETNESS) for a full clear.  isValid additionally requires
+-- the item to be in the character's own inventory, which is why both the
+-- engine's menu path (ISInventoryPaneContextMenu.dryMyself, :2758) and
+-- AutoPilot_Comfort transfer it to the main inventory first.  Asserting the
+-- item catches a transposed call here rather than in-game.
+ISDryMyself = {
+    new = function(_, character, item)
+        assert(item ~= nil, "ISDryMyself:new expects the cloth as 2nd arg")
+        return { type = "dry", character = character, item = item }
     end,
 }
 

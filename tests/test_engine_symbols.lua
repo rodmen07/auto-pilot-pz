@@ -210,8 +210,19 @@ do
     local trait = violationsIn("player:hasTrait(CharacterTrait.ILLITERATE)")
     assert_eq("the real trait CharacterTrait.ILLITERATE is accepted", #trait, 0)
 
-    local stat = violationsIn("safeStat(p, CharacterStat.WETNESS)")
-    assert_eq("an unmodelled stat (CharacterStat.WETNESS) is reported", #stat, 1)
+    -- A REAL engine stat the mod does not read, so the mock does not model it.
+    -- CharacterStat.ANGER exists in 42.19 (ISStatsAndBody.lua:51) but no
+    -- production line references it.  This example used to be
+    -- CharacterStat.WETNESS, which stopped being unmodelled when
+    -- AutoPilot_Comfort started reading it for the dry-off arm; the control is
+    -- worthless unless the named member really is absent from the mock.
+    local stat = violationsIn("safeStat(p, CharacterStat.ANGER)")
+    assert_eq("an unmodelled stat (CharacterStat.ANGER) is reported", #stat, 1)
+
+    -- ...and the newly-modelled one is now accepted, which is the other half of
+    -- the same control: the scanner must not report a member the mock has.
+    local wet = violationsIn("safeStat(p, CharacterStat.WETNESS)")
+    assert_eq("the now-modelled CharacterStat.WETNESS is accepted", #wet, 0)
 end
 
 -- ── 5. Comments are not code ─────────────────────────────────────────────────

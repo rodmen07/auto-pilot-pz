@@ -215,6 +215,7 @@ _ACTION_CLASS_MAP: dict[str, str] = {
     "media":    "wellness",
     "outside":  "wellness",
     "clothing": "wellness",
+    "dry":      "wellness",
     "happiness":"wellness",
     "exercise": "exercise",
     "recover":  "recover",

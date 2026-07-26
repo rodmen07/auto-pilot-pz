@@ -87,6 +87,8 @@ ACTION_CATEGORY: dict[str, str] = {
     "clothing":  "survival",
     "read":      "survival",    # wellness upkeep (boredom/unhappiness)
     "outside":   "survival",    # wellness upkeep
+    "media":     "survival",    # wellness upkeep (tv/radio; Lua side landed in PR #82)
+    "dry":       "survival",    # wellness upkeep (towel drying, Needs step 6c)
     "happiness": "survival",    # legacy REASON_CLASS label
     "loot":      "survival",    # legacy REASON_CLASS label
     "scavenge":  "survival",    # Needs step 9 (class=survival since PR #19; class=idle in logs predating it)
