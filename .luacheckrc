@@ -51,6 +51,10 @@ globals = {
     "ISApplyBandage",
     "ISDisinfect",
     "ISReadABook",
+    -- Device power/channel action for televisions and radios.  Real 42.19
+    -- signature: ISRadioAction:new(mode, character, device, secondaryItem)
+    -- (client/RadioCom/ISRadioAction.lua:173).
+    "ISRadioAction",
     "ISTakeWaterAction",
     "ISInventoryTransferAction",
     "ISWearClothing",
@@ -73,6 +77,7 @@ globals = {
     "AutoPilot_Threat",
     "AutoPilot_Inventory",
     "AutoPilot_Medical",
+    "AutoPilot_Media",
     "AutoPilot_Home",
     "AutoPilot_Map",
     "AutoPilot_Telemetry",

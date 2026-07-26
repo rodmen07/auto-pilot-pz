@@ -76,6 +76,7 @@ local REASON_CLASS = {
     flee       = "combat",
     combat     = "combat",
     read       = "wellness",
+    media      = "wellness",
     outside    = "wellness",
     clothing   = "wellness",
     happiness  = "wellness",

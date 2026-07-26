@@ -337,6 +337,26 @@ AutoPilot_Constants.HAPPINESS_LOW_THRESHOLD  = 2    -- Unhappy moodle level (0-4
 -- food for the unhappier levels and let reading cover the milder ones.
 AutoPilot_Constants.HAPPINESS_FOOD_PRIORITY  = 2
 
+-- Media relief (television / radio).  A switched-on device only relieves a
+-- character standing inside the engine's broadcast box, so these two numbers
+-- are not independent: MEDIA_BROADCAST_RANGE is dictated by the engine and
+-- MEDIA_SEARCH_DIST only decides how far the mod is willing to walk to reach it.
+--
+-- MEDIA_BROADCAST_RANGE mirrors ISRadioInteractions.playerInRange
+-- (shared/RadioCom/ISRadioInteractions.lua:173, verified live against the 42.19
+-- install): same floor, and +/- 5 tiles on both axes.  It is an ENGINE
+-- CONSTANT, not a policy knob -- raising it does not widen the engine's box, it
+-- only makes the mod believe in relief it is not receiving.
+AutoPilot_Constants.MEDIA_BROADCAST_RANGE = 5
+-- How far to look for a device worth walking to.  Deliberately much smaller
+-- than the 80-tile loot/bed scans: relief is a convenience, not a survival
+-- need, and a long walk for a television is a worse answer than reading.
+AutoPilot_Constants.MEDIA_SEARCH_DIST     = 20
+-- Game-time ms between media approach attempts, so a device that will not stay
+-- on (no power at that spot, an interrupted walk) cannot produce a walk loop.
+-- Detection is never cooled down; only the queueing path is.
+AutoPilot_Constants.MEDIA_COOLDOWN_MS     = 60000
+
 -- Phase 3: Foraging / supply run radii
 AutoPilot_Constants.LOOT_RADIUS_HOME   = 80    -- normal home-area loot radius (capped for scan cost)
 AutoPilot_Constants.LOOT_RADIUS_SUPPLY = 150   -- expanded radius for supply runs (rare; hitch accepted)
