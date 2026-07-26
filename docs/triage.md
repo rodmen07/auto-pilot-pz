@@ -204,30 +204,41 @@ and each finding is a flag for a human to look at, never a verdict. Each
 finding prints as `[pattern] detail` plus a one-line hint. Thresholds are
 named constants at the top of `triage_run_log.py`.
 
-### Automated detectors (the four the tool runs)
+### Automated detectors (the three the tool runs)
 
 | Pattern tag | Signature | Threshold |
 |---|---|---|
-| `[action streak]` | One action label repeated 40+ consecutive ticks within a session. | `STREAK_MIN_TICKS = 40` |
-| `[zero-XP training]` | 30+ training ticks in a session while neither STR nor FIT moved a level (needs `str`/`fit` fields present). | `ZERO_XP_MIN_TRAINING_TICKS = 30` |
+| `[action streak]` | One action label held 40+ consecutive ticks within a session, counting only lines whose `(action, reason)` pair is not an expected persistent state (`sleep/asleep`, `busy/foreign_action`, `idle/no_action` — see `EXPECTED_PERSISTENT_STATES`). | `STREAK_MIN_TICKS = 40` |
 | `[flee/combat cycle]` | Combat re-entered 4+ times, each within 3 non-combat ticks of the previous fight ending (combat = `combat`/`fight`/`flee`). | `COMBAT_CYCLE_MIN_CYCLES = 4`, `COMBAT_CYCLE_MAX_GAP = 3` |
 | `[empty-loot spiral]` | 15+ scavenge ticks in a session while hunger or thirst still rose by 15+ points. | `LOOT_SPIRAL_MIN_SCAVENGE = 15`, `LOOT_SPIRAL_NEED_RISE = 15` |
 
 What each one usually means:
 
-- **action streak**: the rotation is stuck on one thing. Read the
-  `reason`/`fail_reason` fields around that stretch of the raw log. Note
-  that a long `sleep` streak overnight is expected; the detector still
-  reports it and the human dismisses it.
-- **zero-XP training**: levels are coarse (XP grows inside a level), but
-  this much training with no level movement deserves a look at the F11
-  XP panel (session gain and XP/hour resolve what the level fields
-  cannot).
+- **action streak**: the rotation is stuck on one thing — a DECISION
+  re-issued every cycle with no progress (the pre-PR-#67 sleep-starvation
+  signature: `sleep/fatigue_thresh` queued every cycle while the engine
+  refused it), or a bounded state that failed to end (`busy/action_running`
+  past the thrash guard, a stuck `cooldown/post_action`). Read the
+  `reason`/`fail_reason` fields around that stretch of the raw log.
+  Sleeping through the night, a long player-owned (`foreign_action`)
+  stretch, and armed idle no longer fire — before 2026-07-26 they did,
+  which produced 19 findings on a mechanically clean session and trained
+  everyone to ignore the detector.
 - **flee/combat cycle**: the survivor keeps getting pulled back into a
   fight right after patching up; the area may be too hot for the current
   flee threshold, so consider relocating home.
 - **empty-loot spiral**: loot trips are coming back empty while needs
   climb; nearby containers may be depleted, so a new home area may help.
+
+Retired detector, recorded so it is not re-invented: `[zero-XP training]`
+(retired 2026-07-26) flagged 30+ training ticks with no STR/FIT level
+movement. PZ levels essentially never move within one session (all fourteen
+recorded sessions were level-flat, healthy ones included — PR #89), so it
+fired on every session ever logged. The run log deliberately carries no XP
+field (schema 5); per-session XP evidence lives in
+`auto_pilot_sessions.log` (schema 3, PR #89) and the F11 panel.
+Re-adding a training-yield detector requires run-log XP fields (schema 6)
+first — see the backlog follow-up opened by PR #89.
 
 ### Signatures worth a manual look (not auto-detected)
 
@@ -238,18 +249,21 @@ points that way.
   `action=busy,reason=foreign_action`. A running timed action the mod
   did not queue: the player, another mod, or a vanilla internal queue
   owns the character, and the mod (by the V4.5 guarantee) never clears,
-  interrupts, or streak-counts it. Long armed stretches of these are
-  usually correct behavior (for example the player exercising manually),
-  not a bug; but a "mod does nothing while armed" report whose log is
-  wall-to-wall `foreign_action` means something else is holding the
-  queue, and identifying that something is the investigation.
-- **`busy`/`action_running` streaks past the thrash guard**: signature
-  is more than about 15 consecutive
-  `action=busy,reason=action_running` lines. The queue-thrash guard
-  clears the mod's own stuck action after `MAX_ACTION_STREAK` (15)
-  consecutive busy evaluations (about 11 s), so a much longer unbroken
-  run of `action_running` means the guard is not engaging; that would
-  be a code defect worth a report.
+  interrupts, or streak-counts it — and since 2026-07-26 the streak
+  detector exempts it too (`EXPECTED_PERSISTENT_STATES`). Long armed
+  stretches of these are usually correct behavior (for example the
+  player exercising manually), not a bug; but a "mod does nothing while
+  armed" report whose log is wall-to-wall `foreign_action` means
+  something else is holding the queue, and identifying that something
+  is the investigation.
+- **`busy`/`action_running` streaks in the 16-39 band**: the queue-thrash
+  guard clears the mod's own stuck action after `MAX_ACTION_STREAK` (15)
+  consecutive busy evaluations (about 11 s; measured max in a clean
+  session: exactly 15), so any longer unbroken run of `action_running`
+  means the guard is not engaging — a code defect worth a report. Runs
+  of 40+ are auto-flagged by the streak detector (`action_running` is
+  deliberately NOT in `EXPECTED_PERSISTENT_STATES`); the 16-39 band
+  still needs this manual grep.
 - **Training backoff gaps (V4.5)**: no dedicated log line exists. The
   backoff is visible only indirectly: `exercise`/`training` lines stop
   for up to `EXERCISE_BACKOFF_MINUTES` game minutes (Options slider,
