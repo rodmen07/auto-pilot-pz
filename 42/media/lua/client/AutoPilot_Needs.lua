@@ -797,8 +797,15 @@ function AutoPilot_Needs.getMoodleSnapshot(player)
         tired    = math.floor(AutoPilot_Utils.safeStat(player, CharacterStat.FATIGUE) * 100),
         panicked = math.floor(AutoPilot_Utils.safeStat(player, CharacterStat.PANIC)),
         injured  = safeMoodleLevel(player, MoodleType.PAIN),
-        sick     = math.floor(AutoPilot_Utils.safeStat(player, CharacterStat.SICKNESS)),
-        stressed = math.floor(AutoPilot_Utils.safeStat(player, CharacterStat.STRESS)),
+        -- SICKNESS and STRESS are 0.0-1.0 stats, so they need the same * 100 as
+        -- hunger/thirst/fatigue to report a percentage.  Without it math.floor
+        -- truncated every value under 1.0 to 0 and both keys read 0 forever.
+        -- PANIC and BOREDOM are already 0-100 integers and must NOT be scaled.
+        -- The per-stat scales are recorded in tests/lua_mock_pz.lua's
+        -- CharacterStatScale, and tests/test_stat_scales.lua checks this
+        -- function's two expression shapes against it.
+        sick     = math.floor(AutoPilot_Utils.safeStat(player, CharacterStat.SICKNESS) * 100),
+        stressed = math.floor(AutoPilot_Utils.safeStat(player, CharacterStat.STRESS) * 100),
         bored    = math.floor(AutoPilot_Utils.safeStat(player, CharacterStat.BOREDOM)),
         -- SANITY reads high when healthy; the UNHAPPY moodle (0-4) is the real
         -- low-mood signal. Keep the "sad" key for log-parser compatibility.

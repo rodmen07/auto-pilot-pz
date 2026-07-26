@@ -237,18 +237,118 @@ do
 end
 
 -- 8. countNegativeMoodles returns 0 when all stats are fine.
+--
+-- NOTE (2026-07-26 scale audit): this fixture used to be the whole reason the
+-- SICKNESS/STRESS scale bug survived.  Setting a stat to 0 passes under EITHER
+-- scale, so a fixture built only from healthy zeroes can never distinguish a
+-- reachable entry from an unreachable one.  Test 8b below is the other half:
+-- every entry elevated, each in its own engine units.
 print("\n-- Test 8: countNegativeMoodles with all stats fine → 0")
 do
     reset()
     local player = MockPlayer.new({
         stats = {
-            HUNGER   = 0.05, THIRST  = 0.05, FATIGUE = 0.10,
-            PANIC    = 0,    PAIN    = 0,    SICKNESS = 0,
-            STRESS   = 0,    SANITY  = 0,
+            -- 0.0-1.0 stats
+            HUNGER   = 0.05, THIRST = 0.05, FATIGUE = 0.10,
+            SICKNESS = 0.00, STRESS = 0.00,
+            -- 0-100 stats
+            PANIC    = 0,    PAIN   = 0,
         },
     })
     local count = AutoPilot_Threat.countNegativeMoodles(player)
     assert_eq("countNegativeMoodles returns 0 when all fine", count, 0)
+end
+
+-- 8b. EVERY entry in NEGATIVE_STAT_CHECKS must be reachable.
+--
+-- Each stat is set just above its threshold in the units the ENGINE uses for
+-- that stat (CharacterStatScale in lua_mock_pz.lua records which is which), so
+-- an entry flagged with the wrong scale cannot reach its threshold and the
+-- count comes up short.  Before the 2026-07-26 fix this returned 5, not 7:
+-- SICKNESS and STRESS are 0.0-1.0 stats that were flagged 0-100, so
+-- countNegativeMoodles divided them by 100 a second time (0.25 → 0.0025 against
+-- a 0.20 threshold; 0.50 → 0.005 against 0.40) and neither could ever count.
+print("\n-- Test 8b: every NEGATIVE_STAT_CHECKS entry is reachable on its real scale")
+do
+    reset()
+    local player = MockPlayer.new({
+        stats = {
+            -- 0.0-1.0 stats, each just over its threshold
+            HUNGER   = 0.50,  -- ≥ 0.40
+            THIRST   = 0.50,  -- ≥ 0.40
+            FATIGUE  = 0.70,  -- ≥ 0.60
+            SICKNESS = 0.25,  -- ≥ 0.20  (was unreachable: 0.25/100 = 0.0025)
+            STRESS   = 0.50,  -- ≥ 0.40  (was unreachable: 0.50/100 = 0.005)
+            -- 0-100 stats, each just over its threshold after the /100
+            PANIC    = 50,    -- 50/100 = 0.50 ≥ 0.40
+            PAIN     = 40,    -- 40/100 = 0.40 ≥ 0.30
+        },
+    })
+    local count = AutoPilot_Threat.countNegativeMoodles(player)
+    assert_eq("all seven entries count when every stat is elevated", count, 7)
+end
+
+-- 8c. The two rescaled entries each count on their own.
+--
+-- 8b would still pass at 7 if some other entry double-counted, so each repaired
+-- entry gets an isolating case: a character whose ONLY elevated stat is the one
+-- under test must score exactly 1.  These are the assertions that fail if
+-- either isNormalized flag is flipped back to false.
+print("\n-- Test 8c: SICKNESS and STRESS each count in isolation")
+do
+    reset()
+    local sick = MockPlayer.new({
+        stats = { HUNGER = 0.05, THIRST = 0.05, FATIGUE = 0.10,
+                  SICKNESS = 0.35, STRESS = 0.00, PANIC = 0, PAIN = 0 },
+    })
+    assert_eq("a sick-but-otherwise-fine character scores 1",
+        AutoPilot_Threat.countNegativeMoodles(sick), 1)
+
+    local stressed = MockPlayer.new({
+        stats = { HUNGER = 0.05, THIRST = 0.05, FATIGUE = 0.10,
+                  SICKNESS = 0.00, STRESS = 0.60, PANIC = 0, PAIN = 0 },
+    })
+    assert_eq("a stressed-but-otherwise-fine character scores 1",
+        AutoPilot_Threat.countNegativeMoodles(stressed), 1)
+
+    -- And the boundary the old code could never cross: a stat below its
+    -- threshold but well above 0 must still NOT count, so the fix did not
+    -- simply make everything count.
+    local mildlySick = MockPlayer.new({
+        stats = { HUNGER = 0.05, THIRST = 0.05, FATIGUE = 0.10,
+                  SICKNESS = 0.15, STRESS = 0.30, PANIC = 0, PAIN = 0 },
+    })
+    assert_eq("sub-threshold sickness and stress still score 0",
+        AutoPilot_Threat.countNegativeMoodles(mildlySick), 0)
+end
+
+-- 8d. SANITY is no longer counted at all.
+--
+-- It was removed rather than rescaled because it is polarity-inverted: it reads
+-- HIGH when the character is healthy, so a `value >= threshold` entry scores a
+-- perfectly sane character as negative (or, on the 0.0-1.0 scale it is actually
+-- kept on, never scores anybody).  A healthy character at full sanity must
+-- score 0 here.
+--
+-- HONEST LIMIT, measured: reinstating the old entry does NOT fail this case.
+-- Putting `{ SANITY, 0.40, isNormalized = false }` back leaves this suite at
+-- 57/0, because the old entry was unreachable -- 1.00/100 = 0.01 is under any
+-- threshold, which is the whole point.  A behavioural fixture cannot detect a
+-- gate that never fires; that is why the guard for this one is STATIC, in
+-- test_stat_scales Test 4 ("SANITY is not a >= threshold entry"), which does
+-- fail on reinstatement.  This case documents the intended behaviour and
+-- covers the OTHER direction: a future rescale to `isNormalized = true` would
+-- score a fully sane character 1 and fail here.
+print("\n-- Test 8d: SANITY does not contribute to the negative count")
+do
+    reset()
+    local player = MockPlayer.new({
+        stats = { HUNGER = 0.05, THIRST = 0.05, FATIGUE = 0.10,
+                  SICKNESS = 0.00, STRESS = 0.00, PANIC = 0, PAIN = 0,
+                  SANITY = 1.00 },  -- fully sane
+    })
+    assert_eq("full sanity does not count as a negative stat",
+        AutoPilot_Threat.countNegativeMoodles(player), 0)
 end
 
 -- 9. forceFlee does not crash even when no walkable square is found.

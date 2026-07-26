@@ -350,6 +350,66 @@ CharacterStat = {
     WETNESS   = "WETNESS",
 }
 
+-- ── CharacterStat SCALE record ────────────────────────────────────────────────
+-- The scale each stat is measured on, machine-readable so a test can check it.
+--
+-- WHY THIS EXISTS.  test_engine_symbols guards that a stat member EXISTS.  It
+-- cannot guard that production reads it on the right SCALE, and B42 mixes the
+-- two: some CharacterStat members are 0.0-1.0 fractions, others are 0-100
+-- integers, and safeStat returns whichever the engine holds without comment.
+-- Comparing a 0-1 stat against a 0-100 threshold yields a gate that can never
+-- fire; comparing a 0-100 stat against a 0-1 threshold yields one that always
+-- fires.  Neither crashes, neither lints, and neither fails a suite whose
+-- fixture happens to leave the stat at 0 -- exactly how three entries of
+-- AutoPilot_Threat.NEGATIVE_STAT_CHECKS stayed wrong from the B42 port until
+-- 2026-07-26.  tests/test_stat_scales.lua reads this table and the production
+-- table together, so the two can no longer drift silently.
+--
+-- HOW EACH VALUE WAS ESTABLISHED, against the live 42.19 install:
+--
+--   * The debug stat editor is the enumerating source.  In
+--     client/DebugUIs/DebugMenu/General/ISStatsAndBody.lua every stat is
+--     registered with addSliderOptionEnum(stat [, step]); the helper (:153-164)
+--     defaults `step` to 0.01 and takes min/max from the Java enum itself.
+--     Every stat that really is a 0-100 integer is registered with an EXPLICIT
+--     step of 1 (PAIN :53, PANIC :55, BOREDOM :65, UNHAPPINESS :69,
+--     DISCOMFORT :73, WETNESS :75, ZOMBIE_INFECTION/:87 ZOMBIE_FEVER :89,
+--     FOOD_SICKNESS :91, INTOXICATION :49, POISON :103); every 0.0-1.0 stat
+--     takes the default (HUNGER :35, THIRST :39, FATIGUE :41, ENDURANCE :43,
+--     STRESS :59, SANITY :71, SICKNESS :85).
+--   * Corroborated independently for the three that were wrong in this mod:
+--     - SICKNESS: shared/Foraging/forageSystem.lua:1741-1746 (getBodyPenalty)
+--       reads SICKNESS UNDIVIDED while dividing PAIN, FOOD_SICKNESS and
+--       INTOXICATION by 100 on the adjacent lines, then math.max-es all four
+--       into a 0-1 penalty.  And shared/TimedActions/ISDrinkFromBottle.lua:88
+--       compares `stats:getSickness() < 0.3` on the same line as
+--       `stats:get(CharacterStat.POISON) < 20`.
+--     - STRESS: forageSystem.lua:1762-1768 (getPanicPenalty) divides PANIC by
+--       100 and does NOT divide STRESS, then math.max-es the two.
+--     - SANITY: default slider step, and no other Lua consumer exists in the
+--       whole install (a grep of media/lua for CharacterStat.SANITY returns the
+--       single ISStatsAndBody registration).  This mod's own in-game
+--       observation is recorded at AutoPilot_Needs.doMoodRelief: sanity reads
+--       HIGH when healthy, so it is polarity-inverted relative to every other
+--       entry here and cannot be used with a `>=` "this is bad" threshold.
+--
+-- Adding a CharacterStat member therefore has TWO costs, not one: verify the
+-- name against the install (test_engine_symbols) and record its scale here
+-- (test_stat_scales).  Suites set fixture values in these units.
+CharacterStatScale = {
+    HUNGER    = "0-1",
+    THIRST    = "0-1",
+    FATIGUE   = "0-1",
+    ENDURANCE = "0-1",
+    SICKNESS  = "0-1",
+    STRESS    = "0-1",
+    SANITY    = "0-1",
+    PAIN      = "0-100",
+    PANIC     = "0-100",
+    BOREDOM   = "0-100",
+    WETNESS   = "0-100",
+}
+
 -- ── MoodleType enum ───────────────────────────────────────────────────────────
 -- B42 names every MoodleType constant in SCREAMING_SNAKE_CASE.  Verified live in
 -- the 42.19 install: MoodleType.UNHAPPY and .DRUNK at
@@ -950,7 +1010,13 @@ end
 -- Creates a lightweight mock IsoPlayer with configurable state.
 --
 -- Parameters (all optional):
---   cfg.stats    table  CharacterStat key → value (0.0–1.0)
+--   cfg.stats    table  CharacterStat key → value, in that stat's OWN units.
+--                       B42 mixes two scales and so does this mock: see
+--                       CharacterStatScale above for which member is a 0.0-1.0
+--                       fraction (HUNGER/THIRST/FATIGUE/ENDURANCE/SICKNESS/
+--                       STRESS/SANITY) and which is a 0-100 integer
+--                       (PAIN/PANIC/BOREDOM/WETNESS).  Setting one in the wrong
+--                       units yields a fixture that silently exercises nothing.
 --   cfg.moodles  table  MoodleType key → integer level
 --   cfg.perks    table  Perks key → integer level
 --   cfg.traits   table  CharacterTrait value → true (e.g. { Illiterate = true })
