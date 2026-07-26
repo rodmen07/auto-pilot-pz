@@ -276,7 +276,16 @@ end
 -- adjacent before transferring; this function prepends a walk-to when the
 -- container is more than 2 tiles away.
 -- Returns true on success, false when PZ refuses the action (MP-unsafe path).
-local function _queueTransfer(player, item, container, label)
+-- allowOverload=true skips the carry-capacity gate.  Reserved for transfers the
+-- mod must make even at the cost of a Heavy Load moodle (bleeding out beats
+-- encumbrance); every discretionary pickup leaves it nil and is gated.
+local function _queueTransfer(player, item, container, label, allowOverload)
+    if not allowOverload and not AutoPilot_Utils.hasCarryRoom(player, item) then
+        print("[Inventory] Skipping " .. label
+            .. " — carrying too much already (Heavy Load / no capacity).")
+        return false
+    end
+
     -- Resolve the world square of the container (nil for player-inventory containers).
     local contSq
     local ok_p, parent = pcall(function() return container:getParent() end)
@@ -315,7 +324,7 @@ end
 -- Phase 3: Generic predicate-based loot. Finds the first item matching predicate
 -- within radius. ignoreHome=true ignores home bounds (supply runs).
 -- Returns true if a transfer was queued.
-local function _lootNearbyByPredicate(player, predicate, radius, ignoreHome)
+local function _lootNearbyByPredicate(player, predicate, radius, ignoreHome, allowOverload)
     local found, foundContainer = nil, nil
     _iterateContainersNearby(player, radius, function(item, container)
         if predicate(item) then
@@ -326,13 +335,15 @@ local function _lootNearbyByPredicate(player, predicate, radius, ignoreHome)
         return false
     end, ignoreHome)
     if found then
-        return _queueTransfer(player, found, foundContainer, "supply run")
+        return _queueTransfer(player, found, foundContainer, "supply run", allowOverload)
     end
     return false
 end
 
 --- Emergency medical loot: grab the first bandage-capable item within
---- MEDICAL_LOOT_RADIUS, ignoring home bounds (bleeding out beats containment).
+--- MEDICAL_LOOT_RADIUS, ignoring home bounds (bleeding out beats containment)
+--- and ignoring the carry-capacity gate (bleeding out also beats a Heavy Load
+--- moodle: a bandage weighs almost nothing and the alternative is death).
 --- Returns true when a transfer was queued.
 function AutoPilot_Inventory.emergencyMedicalLoot(player)
     local pred = function(item)
@@ -340,7 +351,7 @@ function AutoPilot_Inventory.emergencyMedicalLoot(player)
         return ok and can == true
     end
     return _lootNearbyByPredicate(player, pred,
-        AutoPilot_Constants.MEDICAL_LOOT_RADIUS, true)
+        AutoPilot_Constants.MEDICAL_LOOT_RADIUS, true, true)
 end
 
 --- Loot food/drink in an expanded radius for supply runs.
@@ -856,13 +867,17 @@ AutoPilot_Inventory.BULK_LOOT_KEYWORDS = {
 
 --- Bulk loot a container: transfer ALL items matching any keyword in the list.
 --- Returns the count of items transferred.
+--- Carry-capacity gated per item, like every other pickup path: a bulk grab is
+--- the easiest way to overload a character in one action.  (No production
+--- caller today — a whole-mod grep finds only this definition — but it is a
+--- public function, so the gate lives here rather than in a future caller.)
 function AutoPilot_Inventory.bulkLoot(player, container, keywords)
     if not container then return 0 end
     local inv   = player:getInventory()
     local count = 0
     for i = 0, container:getItems():size() - 1 do
         local item = container:getItems():get(i)
-        if item then
+        if item and AutoPilot_Utils.hasCarryRoom(player, item) then
             local name = ""
             pcall(function() name = item:getType():lower() end)
             for _, kw in ipairs(keywords) do

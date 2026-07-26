@@ -29,6 +29,80 @@ function AutoPilot_Utils.safeStat(player, charStat)
     return 0
 end
 
+-- ── Carry capacity ────────────────────────────────────────────────────────────
+
+--- Safe B42 moodle-level getter (0 when the moodle type or the Moodles object
+--- is unavailable, matching the per-module readers in Needs and Exercise).
+-- @return number  0-4 moodle level; 0 on any error.
+local function safeMoodleLevel(player, moodleType)
+    local ok, lvl = pcall(function()
+        return player:getMoodles():getMoodleLevel(moodleType)
+    end)
+    if ok and type(lvl) == "number" then return lvl end
+    return 0
+end
+
+--- True when `item` can be picked up without overloading the character.
+--
+-- Until this existed the mod had NO weight sense at all: every loot transfer
+-- was queued regardless of what the character was already carrying, so its own
+-- proactive scavenging could pile on Heavy Load — one of the unmanaged moodles
+-- in the 2026-07-24 "negative moodles accumulate" report — and vanilla refuses
+-- to let a heavily loaded character exercise at all
+-- (client/ISUI/ISFitnessUI.lua:219), which is the mod's main job.
+--
+-- Two independent verified-surface checks, either of which refuses:
+--
+--   1. MoodleType.HEAVY_LOAD level >= AutoPilot_Constants.HEAVY_LOAD_LOOT_LIMIT.
+--      The engine's own verdict on "too heavy"; the weight-to-moodle mapping is
+--      Java-side, so this is read rather than recomputed.
+--   2. ItemContainer:hasRoomFor(character, item) — the engine's per-item
+--      capacity test, exactly as the foraging pickup menu uses it
+--      (client/Foraging/ISBaseIcon.lua:127), backed by the same overload line
+--      the engine drops items on: getCapacityWeight() + weight must stay within
+--      getEffectiveCapacity(character) (shared/ActionManager.lua:11,
+--      client/Foraging/ISBaseIcon.lua:105).
+--
+-- FAILS OPEN by design: if the engine gives no usable capacity reading, this
+-- returns true and the mod loots exactly as it did before.  A missing or
+-- renamed API must never stall the survival loop — the same reasoning as
+-- safeStat degrading to 0.
+--
+-- @param player IsoPlayer
+-- @param item   InventoryItem being considered for pickup (may be nil)
+-- @return boolean true when the pickup is allowed.
+function AutoPilot_Utils.hasCarryRoom(player, item)
+    if player == nil then return true end
+
+    local limit = AutoPilot_Constants and AutoPilot_Constants.HEAVY_LOAD_LOOT_LIMIT
+    if type(limit) == "number"
+        and safeMoodleLevel(player, MoodleType and MoodleType.HEAVY_LOAD) >= limit then
+        return false
+    end
+
+    local inv
+    local okInv = pcall(function() inv = player:getInventory() end)
+    if not okInv or inv == nil then return true end
+
+    -- Engine per-item test first: it knows about container rules this mod does
+    -- not model.  Only an explicit false refuses; nil (method absent) falls
+    -- through to the arithmetic below.
+    local room
+    local okRoom = pcall(function() room = inv:hasRoomFor(player, item) end)
+    if okRoom and room == false then return false end
+
+    -- Arithmetic fallback, for an engine build where hasRoomFor is unavailable.
+    local carried, capacity, weight
+    pcall(function() carried  = inv:getCapacityWeight() end)
+    pcall(function() capacity = inv:getEffectiveCapacity(player) end)
+    pcall(function() weight   = item:getActualWeight() end)
+    if type(carried) ~= "number" or type(capacity) ~= "number" or capacity <= 0 then
+        return true
+    end
+    if type(weight) ~= "number" then weight = 0 end
+    return (carried + weight) <= capacity
+end
+
 -- ── Mod-action ownership registry (V4.5) ──────────────────────────────────────
 -- Identity tracking for every timed action THIS MOD queues, so the safety
 -- paths in Main (urgent-need interrupt, queue-thrash guard, F10 panic stop)

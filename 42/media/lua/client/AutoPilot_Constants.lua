@@ -416,6 +416,19 @@ AutoPilot_Constants.SCAVENGE_COOLDOWN_CYCLES  = 80    -- ~1 min between trips
 AutoPilot_Constants.SCAVENGE_STUCK_LIMIT      = 3     -- attempts w/o supply gain
 AutoPilot_Constants.SCAVENGE_BACKOFF_CYCLES   = 1200  -- ~15 min after giving up
 
+-- Carry capacity ------------------------------------------------------------
+-- Discretionary looting stops once the character is carrying this much.  The
+-- MoodleType.HEAVY_LOAD level is the ENGINE's own verdict on "too heavy" (the
+-- weight-to-moodle mapping itself is Java-side and not readable from Lua), so
+-- the mod reads the moodle rather than guessing a weight fraction.
+--
+-- Vanilla forbids EXERCISING at level > 2 (client/ISUI/ISFitnessUI.lua:219
+-- disables the fitness OK button with Tooltip_TooHeavyFitness), so 2 stops the
+-- mod one level before it would loot itself out of its own training loop.  0
+-- would refuse all discretionary loot; a value above the engine's highest
+-- moodle level disables the gate entirely.
+AutoPilot_Constants.HEAVY_LOAD_LOOT_LIMIT = 2
+
 -- Main loop timing (aliases) -----------------------------------------------
 -- TICK_INTERVAL and ACTION_COOLDOWN_CYCLES govern the main evaluation cadence:
 --   OnTick fires ~20 times per real second.
