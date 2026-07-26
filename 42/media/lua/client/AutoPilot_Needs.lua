@@ -26,7 +26,7 @@
 --   6. Exhausted     -> rest in place (endurance critically low, but not sleepy)
 --   7. Scavenge      -> proactive supply top-up before stats drop
 --   8. Explore       -> frontier scouting and supply runs
---   9. Bored/Sad     -> read literature, then go outside
+--   9. Bored/Sad     -> read literature, then a tv/radio, then go outside
 --  10. Idle          -> exercise (strength/fitness alternating by level)
 
 AutoPilot_Needs = {}
@@ -356,9 +356,29 @@ local function doMoodRelief(player, seatedOnly)
 
     if seatedOnly then
         -- Going outside walks; it is not available to a seated character.
+        -- Neither is media relief: switching a television on means standing up
+        -- and walking to within the engine's own 1.5-tile interaction distance
+        -- (server/ISObjectClickHandler.lua:241), which ends the sit.
         return false
     end
+
+    -- Media relief: a television or radio, the third arm.  Placed after reading
+    -- because a carried book needs no walk at all, and before going outdoors
+    -- because indoors is safer and because walking outdoors FORFEITS media
+    -- relief outright (ISRadioInteractions.checkPlayer returns early when the
+    -- device square and the player square disagree on isOutside()).
+    local mediaQueued, mediaState = AutoPilot_Media.doMediaRelief(player)
+    if mediaQueued then return true, mediaState end
+
     if boredom >= BOREDOM_STAT_THRESHOLD then
+        if mediaState == "tuned" then
+            -- A device is already playing within range: relief is accruing
+            -- where the character stands.  Queue nothing and let the chain fall
+            -- through to lower needs, rather than walking out of the broadcast
+            -- box to relieve the same moodle less safely.
+            print("[Needs] A device is playing in range; not walking outdoors.")
+            return false
+        end
         AutoPilot_Telemetry.setDecision("outside", "boredom")
         if doGoOutside(player) then return true, "outside" end
     end

@@ -86,6 +86,14 @@
 --          SKILL level, which does not exist in 42.19 (see Perks below), so it
 --          returned false in-game too.  It now reads the real trait via
 --          hasTrait(CharacterTrait.ILLITERATE) and the suites reach the action.
+--   [MA] ISRadioAction:new(mode, character, device, secondaryItem)
+--          television/radio device action.  Real 42.19 signature verified live
+--          at client/RadioCom/ISRadioAction.lua:173; the mode string is the
+--          FIRST argument, not the character, and the engine dispatches on it
+--          ("ToggleOnOff" -> performToggleOnOff, :43).  The mock asserts a
+--          string first and a table third so a transposed call fails loudly
+--          here instead of silently doing nothing in-game.  Exercised by
+--          test_media_relief.
 --   [S]  ISEquipWeaponAction:new(character, item, time, primary)
 --          test_threat_logic / test_combat_policy / test_container_search
 --          (ISBarricadeAction left this record in V5.0 with the barricading
@@ -164,7 +172,10 @@
 --   [S]  getPlayer()   test_main_logic (Main's fallback resolver only)
 --   [S]  instanceof(item, className)   V5.1: now modelled, because the carried
 --          -inventory walk type-checks with it before probing a container.
---          Models "InventoryContainer" (bag items) and "HandWeapon".  The
+--          Models "InventoryContainer" (bag items), "HandWeapon" and
+--          "IsoWaveSignal" (world tv/radio, added 2026-07-25 with
+--          AutoPilot_Media; the engine's own world-device menu tests for that
+--          same parent class at ISRadioAndTvMenu.lua:7).  The
 --          gap it replaced is exactly why V4.8's error spam reached a live
 --          client: a mock CAN NOT reproduce PZ logging a Java exception that
 --          pcall swallows, so the type check has to be asserted directly
@@ -487,6 +498,29 @@ ISSitOnGround = {
     end,
 }
 
+-- Real 42.19 signature (client/RadioCom/ISRadioAction.lua:173):
+--   ISRadioAction:new(mode, character, device, secondaryItem)
+-- The engine dispatches on `mode` (self["perform"..self.mode]), so a call that
+-- transposes mode and character does nothing at all in-game while still
+-- constructing a perfectly valid-looking action object.  Assert the slots.
+ISRadioAction = {
+    new = function(_, mode, character, device, secondaryItem)
+        assert(type(mode) == "string",
+            "ISRadioAction:new expects the mode string first (got "
+            .. type(mode) .. ")")
+        assert(type(device) == "table",
+            "ISRadioAction:new expects the device object third (got "
+            .. type(device) .. ")")
+        return {
+            type      = "radio",
+            mode      = mode,
+            character = character,
+            device    = device,
+            secondary = secondaryItem,
+        }
+    end,
+}
+
 ISWalkToTimedAction = {
     new = function(_, player, sq)
         return {
@@ -647,6 +681,13 @@ function instanceof(item, className)
     end
     if className == "HandWeapon" then
         return item._isHandWeapon == true
+    end
+    -- "IsoWaveSignal" is the engine's parent class for world televisions AND
+    -- radios; it is the exact class the engine's own world-device menu tests
+    -- for (client/ISUI/ISRadioAndTvMenu.lua:7), which is why AutoPilot_Media
+    -- asks about it rather than about "IsoRadio".
+    if className == "IsoWaveSignal" then
+        return item._isWaveSignal == true
     end
     return false
 end

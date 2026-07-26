@@ -7,6 +7,27 @@ All notable changes to AutoPilot are documented here.
 Merged to `main` after the 0.1.0 version reset, still unversioned. Needs an in-game smoke test before
 the next Workshop update (the USER-ONLY tag / `sync_workshop.sh` / Update Item flow is unchanged).
 
+### Added
+
+- **Boredom and unhappiness relief from a television or radio (`AutoPilot_Media.lua`, 22nd module).**
+  The mod had no media surface at all (whole-mod grep for `IsoWaveSignal|IsoRadio|getDeviceData|
+  ISRadioAction|DeviceData`: zero hits), so a bored character had exactly two answers, reading a book
+  and walking outdoors, and the user's 2026-07-24 report named the gap directly ("there is a TV/radio in
+  the room the mod never uses for boredom relief"). The new arm sits between those two: it finds a
+  television or radio on the character's own floor within `MEDIA_SEARCH_DIST` (20 tiles), walks to it,
+  and switches it on with the engine's own power action,
+  `ISRadioAction:new("ToggleOnOff", character, device)`.
+  The relief itself is the engine's broadcast-code system, verified live in the 42.19 install before the
+  arm was written: `Events.OnDeviceText` → `ISRadioInteractions.playerInRange` (same floor, ±5 tiles on
+  both axes) → `checkPlayer` → `Interactions.BOR` → `stats:add(CharacterStat.BOREDOM, ...)`, and
+  `media/radio/RadioData.xml` carries 3729 broadcast lines with a boredom-reducing `BOR-1` code (plus
+  802+ `UHP-1` unhappiness and 402+ `STS-1` stress lines).
+  Two deliberate limits: the arm only ever claims a cycle when it actually queued something, so a device
+  that broadcasts nothing can never park the character in front of it (the sleep-starvation failure
+  shape); and while a device is already playing in range the mod will not walk outdoors, because
+  `checkPlayer` refuses to run codes across an inside/outside boundary, so going out would forfeit the
+  relief. Seated characters are unaffected: switching a device on means standing up.
+
 ### Fixed
 
 - **Unhappiness relief picked its food by the wrong moodle, and could make the character unhappier.**

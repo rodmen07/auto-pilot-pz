@@ -73,6 +73,7 @@ AutoPilot_Home = {
     getNearestInside = function(_player, _pred) return nil end,
 }
 
+dofile("42/media/lua/client/AutoPilot_Media.lua")
 dofile("42/media/lua/client/AutoPilot_Consumption.lua")
 dofile("42/media/lua/client/AutoPilot_Sleep.lua")
 dofile("42/media/lua/client/AutoPilot_Rest.lua")
@@ -305,6 +306,127 @@ do
     checkWhileHolding(player)
     assert_eq("a read action is still queued when the trait cannot be read",
         last_action_type(), "read")
+end
+
+print("\n=== Media relief, the third arm (reached from check(), not just unit-tested) ===")
+
+-- AutoPilot_Media's own rules are covered in tests/test_media_relief.lua.  What
+-- these three cases exist to prove is the WIRING: that check() actually reaches
+-- the arm when reading fails, and that a device already playing in range stops
+-- the character walking outdoors (walking outdoors forfeits media relief
+-- outright, because ISRadioInteractions.checkPlayer returns early when the
+-- device square and the player square disagree on isOutside()).
+local _decisions = {}
+local function recordDecisions()
+    _decisions = {}
+    AutoPilot_Telemetry.setDecision = function(action, _reason)
+        _decisions[#_decisions + 1] = action
+    end
+end
+local function decided(action)
+    for _, a in ipairs(_decisions) do
+        if a == action then return true end
+    end
+    return false
+end
+
+-- A television at (dx, 0) that is either playing or switched off.  Every other
+-- square stays empty, exactly as the default mock cell behaves.
+local function placeTelevision(dx, isOn)
+    local data = {
+        getIsTurnedOn       = function(_self) return isOn == true end,
+        getIsBatteryPowered = function(_self) return false end,
+        getPower            = function(_self) return 0 end,
+        canBePoweredHere    = function(_self) return true end,
+        getIsTelevision     = function(_self) return true end,
+    }
+    local dev
+    local sq = {
+        getX = function(_self) return dx end,
+        getY = function(_self) return 0 end,
+        getZ = function(_self) return 0 end,
+        getObjects = function(_self)
+            return { size = function(_s) return 1 end,
+                     get  = function(_s, _i) return dev end }
+        end,
+    }
+    dev = {
+        _isWaveSignal = true,
+        getSprite     = function(_self) return {} end,
+        getModData    = function(_self) return {} end,
+        getDeviceData = function(_self) return data end,
+        getSquare     = function(_self) return sq end,
+    }
+    getCell = function()
+        return {
+            getGridSquare = function(_self, x, y, z)
+                if x == dx and y == 0 and z == 0 then return sq end
+                return nil
+            end,
+        }
+    end
+end
+
+local function noDevices()
+    getCell = function()
+        return { getGridSquare = function(_self, _x, _y, _z) return nil end }
+    end
+end
+
+-- A bored character standing up (endurance above the rest target, so no hold
+-- and no sit-to-recover) with nothing to read anywhere.
+local function boredStandingPlayer()
+    return restingPlayer({
+        endurance = 0.99,
+        boredom   = AutoPilot_Constants.BOREDOM_THRESHOLD + 10,
+    })
+end
+
+-- ── 10. check() reaches the media arm when reading is unavailable ────────────
+print("\n-- Test 10: bored, no book, a tv two tiles away -> switches it on")
+do
+    reset()
+    recordDecisions()
+    AutoPilot_Media.resetCooldownForTest()
+    ISTimedActionQueue_calls = {}
+    AutoPilot_Rest.clearRestHold()
+    placeTelevision(2, false)
+
+    AutoPilot_Needs.check(boredStandingPlayer())
+    assert_true("the media decision is recorded", decided("media"))
+    assert_eq("the power toggle is queued", count_type("radio"), 1)
+    assert_false("and the character does not walk outdoors", decided("outside"))
+end
+
+-- ── 11. A playing device in range keeps the character indoors ────────────────
+print("\n-- Test 11: a tv already playing in range suppresses going outdoors")
+do
+    reset()
+    recordDecisions()
+    AutoPilot_Media.resetCooldownForTest()
+    ISTimedActionQueue_calls = {}
+    AutoPilot_Rest.clearRestHold()
+    placeTelevision(2, true)
+
+    AutoPilot_Needs.check(boredStandingPlayer())
+    assert_false("no outdoor decision is taken", decided("outside"))
+    assert_eq("nothing is queued for the device it is already receiving",
+        count_type("radio"), 0)
+end
+
+-- ── 12. Negative control: with no device, the mod still goes outdoors ────────
+print("\n-- Test 12: no device -> the pre-existing outdoor arm still fires")
+do
+    reset()
+    recordDecisions()
+    AutoPilot_Media.resetCooldownForTest()
+    ISTimedActionQueue_calls = {}
+    AutoPilot_Rest.clearRestHold()
+    noDevices()
+
+    AutoPilot_Needs.check(boredStandingPlayer())
+    assert_true("the outdoor decision is taken when there is no device",
+        decided("outside"))
 end
 
 -- ── Summary ───────────────────────────────────────────────────────────────────
