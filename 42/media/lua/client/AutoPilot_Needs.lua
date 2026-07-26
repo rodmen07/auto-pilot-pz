@@ -326,8 +326,15 @@ local function doMoodRelief(player, seatedOnly)
         return false
     end
 
-    -- Phase 3: when unhappy, prefer food that reduces boredom first
-    if unhappyLvl >= AutoPilot_Constants.HAPPINESS_LOW_THRESHOLD then
+    -- Phase 3: when unhappy enough, prefer mood food before reading.
+    -- This gate is HAPPINESS_FOOD_PRIORITY, not HAPPINESS_LOW_THRESHOLD: the
+    -- threshold above decides whether relief runs AT ALL, this one decides
+    -- whether relief is allowed to spend food on it.  The constant had been
+    -- defined and documented since Phase 3 but read by nothing, so the two
+    -- levels were silently the same knob; they default to the same value, so
+    -- the default behaviour is unchanged and raising it now reserves food for
+    -- the unhappier levels while reading still covers the milder ones.
+    if unhappyLvl >= AutoPilot_Constants.HAPPINESS_FOOD_PRIORITY then
         local tastyFood, tastyCont = AutoPilot_Inventory.preferTastyFood(player)
         if tastyFood then
             AutoPilot_Telemetry.setDecision("eat", "unhappy")

@@ -796,23 +796,46 @@ end
 -- Phase 3: Happiness / unhappiness helpers
 -- ---------------------------------------------------------------------------
 
---- Find the food item in inventory with the best boredom-reduction value.
---- Prefers items with the most negative getBoredomChange() (reduces boredom most).
---- Returns an item, or nil if no boredom-reducing food is in inventory.
+--- Find the food item in inventory that best relieves LOW MOOD.
+---
+--- Its only caller is the UNHAPPY arm of AutoPilot_Needs.doMoodRelief, so the
+--- primary ranking key is getUnhappyChange(), not getBoredomChange().  Sign
+--- convention verified live against the 42.19 install, not assumed: the item
+--- tooltip flags a food as good exactly when `item:getUnhappyChange() < 0`
+--- (client/ISUI/ISInventoryPaneContextMenu.lua:2079-2082, the same shape as the
+--- thirst row one block above), and ISReadABook only lowers
+--- CharacterStat.UNHAPPINESS when `self.item:getUnhappyChange() < 0.0`
+--- (shared/TimedActions/ISReadABook.lua:72).  So MORE NEGATIVE = better.
+---
+--- Ranking on boredom alone let a food that reduced boredom while RAISING
+--- unhappiness win, making the moodle this arm treats worse; the old gate here
+--- (isFood and not isRotten) was also weaker than this module's own isFoodSafe,
+--- so mood relief could eat frozen or raw-cookable food the hunger path refuses.
+--- isFoodSafe rejects rotten, frozen, uncooked-cookable, and any POSITIVE
+--- unhappy or boredom change, so reusing it is what makes "never worsen either
+--- moodle" true.  On top of it a candidate must help at least one of the two (0
+--- on both is inert).  Boredom stays the tie-break, which keeps the old choice
+--- when no food carries an unhappiness value at all.
 --- V4.9: also returns the container holding it.
 --- @return item|nil, container|nil
 function AutoPilot_Inventory.preferTastyFood(player)
-    local best, bestBoredom = nil, 0  -- want most negative (most reducing)
-    local bestCont = nil
+    local best, bestCont = nil, nil
+    local bestUnhappy, bestBoredom = 0, 0  -- want most negative (most reducing)
 
     AutoPilot_Utils.iteratePlayerItems(player, function(item, container)
-        if item and item:isFood() and not item:isRotten() then
-            local boring = 0
-            pcall(function() boring = item:getBoredomChange() or 0 end)
-            if boring < bestBoredom then  -- more negative = better mood food
-                bestBoredom = boring
-                best = item
-                bestCont = container
+        if isFoodSafe(item) then
+            local unhappy, boring = 0, 0
+            pcall(function() unhappy = item:getUnhappyChange() or 0 end)
+            pcall(function() boring  = item:getBoredomChange() or 0 end)
+            -- Inert food helps neither moodle; skip it rather than eat rations.
+            if unhappy < 0 or boring < 0 then
+                if unhappy < bestUnhappy
+                    or (unhappy == bestUnhappy and boring < bestBoredom) then
+                    bestUnhappy = unhappy
+                    bestBoredom = boring
+                    best = item
+                    bestCont = container
+                end
             end
         end
         return false

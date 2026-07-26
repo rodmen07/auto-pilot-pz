@@ -328,10 +328,13 @@ AutoPilot_Constants.WEIGHT_OVERWEIGHT  = 85    -- above this: prefer low-calorie
 -- AutoPilot_Needs.check() never fired at all (fixed 2026-07-24; same unit-mismatch
 -- class as the sleep pain gate).
 AutoPilot_Constants.HAPPINESS_LOW_THRESHOLD  = 2    -- Unhappy moodle level (0-4) that triggers mood relief
--- HAPPINESS_FOOD_PRIORITY: intended as the Unhappy level at/above which the tasty-food
--- path is preferred before reading.  NOTE: currently UNUSED by code -- the tasty-food
--- sub-branch in check() gates on HAPPINESS_LOW_THRESHOLD, not this.  Kept on the 0-4
--- scale; filed to wire-or-remove (see backlog).
+-- HAPPINESS_FOOD_PRIORITY: the Unhappy level at/above which the mood-food path is
+-- preferred before reading.  WIRED 2026-07-25 -- it had been defined and documented
+-- since Phase 3 but read by no code, so the tasty-food sub-branch in doMoodRelief
+-- gated on HAPPINESS_LOW_THRESHOLD and the two levels were one knob.  Same 0-4
+-- moodle scale as HAPPINESS_LOW_THRESHOLD, and equal to it by default, so the
+-- default behaviour is unchanged; raise it above HAPPINESS_LOW_THRESHOLD to reserve
+-- food for the unhappier levels and let reading cover the milder ones.
 AutoPilot_Constants.HAPPINESS_FOOD_PRIORITY  = 2
 
 -- Phase 3: Foraging / supply run radii
