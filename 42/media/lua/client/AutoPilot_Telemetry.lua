@@ -189,6 +189,22 @@ local function _collectStats(player)
     local docLvl = 0
     pcall(function() docLvl = player:getPerkLevel(Perks.Doctor) end)
 
+    -- Raw XP totals beside the levels (2026-07-26, HIGH observability bug).
+    -- PZ levels move rarely, so a session summary built on levels alone shows
+    -- "5 -> 5" for a session that gained most of a level and for one that
+    -- gained nothing at all.  These feed AutoPilot_SessionHistory ONLY: the
+    -- run-log line below is unchanged and stays schema_version=5.
+    -- API verified live in the 42.19 install: player:getXp():getXP(Perks.X)
+    -- (client/ISUI/PlayerStats/ISPlayerStatsUI.lua:515, server/XpSystem/
+    -- XpUpdate.lua:311).  Read inline, like the perk levels above, rather
+    -- than through AutoPilot_XP: that module owns the rate/ETA math and
+    -- loads AFTER Telemetry, and a missing-module fallback here would report
+    -- a silent 0 gain, which is the exact failure this fix exists to end.
+    local strXp, fitXp, docXp = 0, 0, 0
+    pcall(function() strXp = player:getXp():getXP(Perks.Strength) end)
+    pcall(function() fitXp = player:getXp():getXP(Perks.Fitness)  end)
+    pcall(function() docXp = player:getXp():getXP(Perks.Doctor)   end)
+
     return {
         hunger    = math.floor(hunger    * 100),
         thirst    = math.floor(thirst    * 100),
@@ -199,6 +215,9 @@ local function _collectStats(player)
         str       = strLvl,
         fit       = fitLvl,
         doc       = docLvl,
+        str_xp    = strXp,
+        fit_xp    = fitXp,
+        doc_xp    = docXp,
     }
 end
 

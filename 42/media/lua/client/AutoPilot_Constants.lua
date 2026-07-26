@@ -458,6 +458,9 @@ AutoPilot_Constants.EXERCISE_BACKOFF_MINUTES = 10
 -- auto_pilot_sessions.log: written at session end (death or shutdown) and
 -- refreshed by periodic "open" checkpoints so a crash still leaves a
 -- recent summary (the latest line per session wins at read time).
+-- Schema 3 (2026-07-26) records raw XP totals beside the perk levels, so a
+-- session is legible even when no level moved (PZ levels move rarely; the
+-- level-only summary read "5 -> 5" for every session ever recorded).
 --
 -- Checkpoint interval in evaluation cycles.
 -- 400 cycles * 0.75 s/cycle = ~5 min of real time between checkpoint lines.
