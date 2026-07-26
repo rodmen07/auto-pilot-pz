@@ -1,5 +1,26 @@
 # AutoPilot Leveler: V6.0 Expansion Proposal
 
+> ## ✅ DECIDED 2026-07-26. This document is now HISTORY; the live scope is `docs/MILESTONE_V6_0.md`
+>
+> The user answered directly on 2026-07-26 and both open rows are closed:
+>
+> - **C2 (decision-reason visibility on the F11 panel): APPROVED.** It carries into V6.0 unchanged.
+> - **C1 (sickness-aware exercise/scavenge gating): REPLACED, not deferred and not rejected on its
+>   merits.** In its place the user directed a different feature: **prioritise food gathering and
+>   eating by the ABSENCE OF MALUS EFFECTS** (rank food by carrying no negative effect, in both the
+>   eat path and what the looting path prefers to carry), scoped explicitly to the EXISTING looting
+>   path, with the Foraging module staying deleted.
+> - **C3: remains WITHDRAWN** on the 2026-07-25 negative lookup. No decision was needed and none
+>   was given.
+>
+> **Read `docs/MILESTONE_V6_0.md` instead of this file for what is being built.** That document
+> carries the slice plan, the source-verified evidence table, the remaining overridable defaults,
+> and a done-when per slice that CI can check. Everything below is preserved unedited as the
+> record of how the decision was reached, including the audit box and the strike-throughs; the
+> C1 body in particular describes a candidate that is NOT being built.
+>
+> ---
+>
 > ## AUDITED 2026-07-25: two candidates left, and one of them needs an answer from you first
 >
 > This document was drafted 2026-07-20, four days before the project was decommissioned and
@@ -27,8 +48,10 @@
 > Two of this document's own evidence bullets were also found FALSE and are corrected in place
 > below (struck through, not deleted, so the correction is auditable).
 
-**Status:** DRAFT, awaiting user decision (drafted 2026-07-20, branch `autodev/v6.0-expansion-proposal`;
-premises re-verified 2026-07-25, see the audit box above).
+**Status:** DECIDED 2026-07-26 (drafted 2026-07-20, branch `autodev/v6.0-expansion-proposal`;
+premises re-verified 2026-07-25; answered by the user 2026-07-26, see the decision box at the top).
+C2 approved, C1 replaced by a user-directed feature, C3 withdrawn. The live scope document is
+`docs/MILESTONE_V6_0.md`; this file is retained as the decision record.
 **Fulfils:** ROADMAP.md's Product-role rule for a dry development queue ("draft the next
 expansion-milestone design doc... every decision flagged as an overridable default"). The
 code-health split of `AutoPilot_Needs.lua` (four slices, 1848 to 706 lines) completed 2026-07-20
@@ -446,13 +469,14 @@ the existing cadence.
 
 ## Decision section (user)
 
-**After the 2026-07-25 audit there are two rows to mark, not three, and every open question below
-carries a recommended default. "Approve both, use your defaults" is a complete answer.**
+**ANSWERED 2026-07-26. Both rows are closed; the table below records what was decided, and the
+remaining open choices moved to `docs/MILESTONE_V6_0.md` section 5. The paragraphs after this
+table are the pre-decision recommendations, kept unedited as the record.**
 
-| # | Candidate | Verdict after audit | Your decision |
+| # | Candidate | Verdict after audit | Decision (user, 2026-07-26) |
 |---|-----------|---------------------|---------------|
-| C1 | Sickness-aware exercise/scavenge gating | Recommend, with the defaults below | [ ] Approve  [ ] Reject |
-| C2 | Decision-reason visibility on the F11 panel | Recommend, premises re-verified | [ ] Approve  [ ] Reject |
+| C1 | Sickness-aware exercise/scavenge gating | Recommend, with the defaults below | **REPLACED.** Not rejected on merit and not deferred: the user directed a different feature into the slot, "prioritise food gathering and eating by the ABSENCE OF MALUS EFFECTS", scoped to the existing looting path. The C1 body below describes work that is NOT being built. |
+| C2 | Decision-reason visibility on the F11 panel | Recommend, premises re-verified | **[x] APPROVED**, unchanged, now V6.0-3 |
 | ~~C3~~ | ~~Exercise equipment variety~~ | **WITHDRAWN 2026-07-25**, lookup ran, negative result: B42.19 defines seven exercises and the mod already uses all seven | no decision needed (say so if you want it re-opened anyway) |
 
 Recommended defaults for C1, each overridable, each a one-word "no" if you disagree:
