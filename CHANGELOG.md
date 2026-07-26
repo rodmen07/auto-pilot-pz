@@ -9,6 +9,26 @@ the next Workshop update (the USER-ONLY tag / `sync_workshop.sh` / Update Item f
 
 ### Fixed
 
+- **Unhappiness relief picked its food by the wrong moodle, and could make the character unhappier.**
+  `AutoPilot_Inventory.preferTastyFood` ranked candidates by `getBoredomChange()` alone, but its only
+  caller is the UNHAPPINESS arm of `doMoodRelief`. Boredom and unhappiness are different moodles, so a
+  food that reduced boredom while RAISING unhappiness was a valid winner and the relief could worsen
+  the moodle it was invoked for. It now ranks by `getUnhappyChange()` first and keeps boredom as the
+  tie-break, so the old choice still stands when no candidate carries an unhappiness value. Sign
+  convention verified live against the 42.19 install rather than assumed: the item tooltip marks a food
+  good exactly when `item:getUnhappyChange() < 0` (`client/ISUI/ISInventoryPaneContextMenu.lua:2079-2082`,
+  the same shape as the thirst row above it) and `ISReadABook` only lowers `CharacterStat.UNHAPPINESS`
+  when `getUnhappyChange() < 0.0` (`shared/TimedActions/ISReadABook.lua:72`).
+- **Mood relief bypassed the module's own food-safety filter.** The same selector gated on only
+  `isFood()` and `not isRotten()`, weaker than `isFoodSafe`, which the HUNGER path has always used. Mood
+  relief could therefore eat frozen or raw-still-cookable food that eating for hunger already refuses.
+  It now reuses `isFoodSafe`, which is also what makes "never worsen either moodle" true, and skips food
+  that moves neither moodle rather than spending a ration on nothing.
+- **`HAPPINESS_FOOD_PRIORITY` was defined, documented, and read by nothing.** The tasty-food sub-branch
+  gated on `HAPPINESS_LOW_THRESHOLD`, so the "relief runs at all" level and the "relief may spend food"
+  level were one knob. The constant is now wired to the food arm. It ships equal to
+  `HAPPINESS_LOW_THRESHOLD`, so default behaviour is unchanged; raising it reserves food for the
+  unhappier levels and lets reading cover the milder ones.
 - **Unhappiness relief was impossible: the moodle constant was misspelled for Build 42.** `doMoodRelief`
   and `getMoodleSnapshot` read `MoodleType.Unhappy`. B42 names every MoodleType constant in
   SCREAMING_SNAKE_CASE, so the real constant is `MoodleType.UNHAPPY` (engine callsite:
