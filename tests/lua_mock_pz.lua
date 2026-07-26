@@ -883,6 +883,13 @@ AutoPilot_Telemetry = {
     logTick     = function(_player, _action, _reason) end,
     onDeath     = function(_player) end,
     getRunTick  = function() return 0 end,
+    -- V6.0-3: settable decision-reason read side (mirrors the _pendingLabel
+    -- pattern test_main_logic uses for getPendingAction).  Suites that never
+    -- set _reasonLabel keep the pre-V6 "" and render the plain action string.
+    _reasonLabel = nil,
+    getDecisionReason = function(_player)
+        return AutoPilot_Telemetry._reasonLabel or ""
+    end,
 }
 
 

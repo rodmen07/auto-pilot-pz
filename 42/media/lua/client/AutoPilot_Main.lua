@@ -96,7 +96,10 @@ local function _updateActionHUD(player)
     if not player then return end
     local showAction = AutoPilot_Constants.HUD_SHOW_ACTION
     if showAction == nil or showAction ~= 0 then
-        hudAddText(player, "Action: " .. AutoPilot.getActionIntention(player))
+        -- V6.0-3 (C2): render through the composed reason line, the same
+        -- single source the F11 panel draws, so "Action: Eating (hungry)"
+        -- and the panel's "Status: Eating (hungry)" can never disagree.
+        hudAddText(player, "Action: " .. AutoPilot.getActionLine(player))
     end
 end
 
@@ -303,6 +306,11 @@ local ACTION_LABELS = {
     outside   = "Getting fresh air",
     scavenge  = "Scavenging supplies",
     exercise  = "Training",
+    -- V6.0-3: these two decision labels existed without display labels, so a
+    -- drying-off or media cycle rendered "Idle, evaluating" on the HUD — the
+    -- exact lie the reason line exists to remove.
+    dry       = "Drying off",
+    media     = "Enjoying media",
 }
 
 local function _capitalize(s)
@@ -338,6 +346,79 @@ function AutoPilot.getActionIntention(player)
         end
     end
     return ACTION_LABELS[label] or "Idle, evaluating"
+end
+
+-- ── V6.0-3 (C2): decision-reason visibility ───────────────────────────────────
+-- Human phrasing for the reason tokens the telemetry vocabulary defines
+-- (docs/triage.md, "Action / reason inventory", plus the fail_reason labels
+-- from AutoPilot_Sleep.canSleepNow).  Only tokens that ADD information over
+-- the action label are mapped: persistent-state reasons (asleep, no_action,
+-- post_action, foreign_action, action_running, player_died), "training"
+-- (the exercise label already carries the live trainer status), "threat"
+-- and the combat sub-reasons (the combat label already says it), and
+-- "wound" (redundant under "Treating wound") deliberately render as the
+-- plain action string — as does any token this table does not know, so a
+-- NEW reason token can never blank the panel, only lose its parenthetical.
+local REASON_LABELS = {
+    -- decision reasons (AutoPilot_Needs via setDecision)
+    bleeding       = "bleeding",
+    fatigue_thresh = "tired",
+    low_endurance  = "worn out",
+    rest_cooldown  = "catching breath",
+    sit_recover    = "recovering",
+    thirst_thresh  = "thirsty",
+    hunger_thresh  = "hungry",
+    unhappy        = "low mood",
+    weather        = "bad weather",
+    temperature    = "body temperature",
+    boredom        = "bored",
+    low_supplies   = "supplies low",
+    wet            = "soaked",
+    no_towel       = "wet, no towel",
+    -- fail reasons: the engine refused the queued action; these answer
+    -- "why is it doing nothing" (set via setDecision's fail_reason argument)
+    pain_block     = "sleep blocked by pain",
+    panic          = "sleep blocked by panic",
+}
+
+-- Exposed read-only for the drift-guard test (tests/test_reason_line.lua),
+-- which asserts every mapped token above is actually emitted somewhere in
+-- the mod, so a renamed or deleted reason cannot leave a dead mapping here.
+AutoPilot._REASON_LABELS = REASON_LABELS
+
+--- V6.0-3 (C2): the ONE pure formatter both the F11 panel and the action
+--- HUD render through, so the two surfaces cannot drift the way they did
+--- before V5.8 unified them on getActionIntention.  String in, string out:
+--- no state, no player, unit-testable directly.
+--- @param action string      intention label (AutoPilot.getActionIntention)
+--- @param reason string|nil  reason token (AutoPilot_Telemetry.getDecisionReason)
+--- @return string  "<action> (<human reason>)", or the plain action string
+---                 when the reason is empty, unknown, or adds nothing
+function AutoPilot.reasonLine(action, reason)
+    if type(action) ~= "string" or action == "" then
+        action = "Idle, evaluating"
+    end
+    local label = (type(reason) == "string") and REASON_LABELS[reason] or nil
+    if not label then return action end
+    return string.format("%s (%s)", action, label)
+end
+
+--- V6.0-3 (C2): the composed action line, the single source BOTH render
+--- surfaces call — the panel's status row and the HUD's action line are two
+--- renderings of this one string, extending the V5.8 rule to the reason.
+--- Disarmed never carries a reason: the last logged reason belongs to a
+--- cycle that is no longer running, and appending it would be stale.
+--- @param player IsoPlayer|nil
+--- @return string
+function AutoPilot.getActionLine(player)
+    local action = AutoPilot.getActionIntention(player)
+    if _mode == "off" then return action end
+    local reason = ""
+    if AutoPilot_Telemetry and AutoPilot_Telemetry.getDecisionReason then
+        local ok, r = pcall(AutoPilot_Telemetry.getDecisionReason, player)
+        if ok and type(r) == "string" then reason = r end
+    end
+    return AutoPilot.reasonLine(action, reason)
 end
 
 local function onTick()
