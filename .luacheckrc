@@ -27,6 +27,9 @@ globals = {
     "BodyPartType",
     "Fluid",
     "CharacterStat",
+    -- Java-bound trait enum; CharacterTrait.ILLITERATE is the engine's real
+    -- literacy gate (ISInventoryPaneContextMenu.lua:549).
+    "CharacterTrait",
     "IsoFlagType",
     "IsoDirections",
     "ItemType",

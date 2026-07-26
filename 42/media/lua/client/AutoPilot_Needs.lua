@@ -219,32 +219,49 @@ end
 
 -- ── Reading (boredom/unhappiness relief) ────────────────────────────────────
 
-local function doRead(player)
-    local literate = false
-    local ok, lvlOrErr = pcall(function() return player:getPerkLevel(Perks.Literacy) end)
-    if ok and type(lvlOrErr) == "number" then
-        literate = lvlOrErr > 0
-    else
-        print("[Needs] literacy check pcall failed: " .. tostring(lvlOrErr))
-    end
-    if not literate then
-        print(("[Needs] Cannot read: player considered illiterate. PerkCheck ok=%s value=%s")
-            :format(tostring(ok), tostring(lvlOrErr)))
-        -- Fallback debug checks (safe): query trait presence if possible
-        local traitOk, hasIll = pcall(function()
-            if player and player.HasTrait then return player:HasTrait("Illiterate") end
-            if player and player.getDescriptor and player:getDescriptor().hasTrait then
-                return player:getDescriptor():hasTrait("Illiterate")
-            end
-            return false
-        end)
-        print(("[Needs] literacy fallback checks: HasTrait ok=%s value=%s")
-            :format(tostring(traitOk), tostring(hasIll)))
+-- seatedOnly=true means the character is currently sitting out a rest hold, so
+-- the walking fallback (loot a book from a nearby container) is skipped: it
+-- would stand the character up and end the rest this call is trying to keep.
+local function doRead(player, seatedOnly)
+    -- Literacy gate.  The old implementation asked for a Perks.Literacy SKILL
+    -- level, which does not exist in 42.19: a whole-install grep of
+    -- media/lua for "Literacy" returns ZERO hits, so `Perks.Literacy` was
+    -- always nil, `getPerkLevel(nil)` never produced a positive number, and
+    -- doRead returned false on EVERY call.  The read arm of boredom relief has
+    -- therefore never fired in-game.  (tests/lua_mock_pz.lua already recorded
+    -- both halves of this — Perks.Literacy "intentionally ABSENT" and
+    -- ISReadABook "unexercised: doRead's literacy gate fails in the suites" —
+    -- but as a test-surface note, never as a production defect.)
+    --
+    -- The engine's real gate is the ILLITERATE TRAIT, not a perk:
+    --   playerObj:hasTrait(CharacterTrait.ILLITERATE)
+    -- verified live in the 42.19 install at
+    -- client/ISUI/ISInventoryPaneContextMenu.lua:549 (and nine sibling
+    -- callsites, e.g. ISInventoryPane.lua:1102).  Mirror that.
+    --
+    -- Fails OPEN (assume literate) when the trait cannot be read: the engine's
+    -- own ISReadABook:isValid does not check literacy at all, so a wrong
+    -- "literate" only costs a book with no benefit, while a wrong "illiterate"
+    -- silently disables the entire relief path — which is the bug being fixed.
+    local traitOk, illiterate = pcall(function()
+        return player:hasTrait(CharacterTrait.ILLITERATE)
+    end)
+    if traitOk and illiterate then
+        print("[Needs] Cannot read: character has the Illiterate trait.")
         return false
+    end
+    if not traitOk then
+        print("[Needs] Illiterate-trait check failed (" .. tostring(illiterate)
+            .. "); assuming literate.")
     end
 
     local book, bookCont = AutoPilot_Inventory.getReadable(player)
     if not book then
+        if seatedOnly then
+            -- Seated: looting walks to a container, which would break the sit.
+            print("[Needs] No readable carried and seated — not looting mid-rest.")
+            return false
+        end
         -- No readable in inventory — try looting one from nearby containers
         return AutoPilot_Inventory.lootNearbyReadable(player)
     end
@@ -267,6 +284,69 @@ local function doRead(player)
         AutoPilot_Utils.queueModAction(ISReadABook:new(player, book))
     end)
     return readOk
+end
+
+-- ── Mood relief (boredom / unhappiness) ─────────────────────────────────────
+--
+-- Extracted verbatim from check() step 7 so the SAME relief can also run while
+-- a rest hold is in progress (step 6b).  That is where the mod spent most of
+-- its idle time: the hold returns true without queueing anything, so every
+-- cycle stopped ABOVE step 7 and boredom/unhappiness built up untouched while
+-- the character sat recovering endurance — the user-reported "negative moodles
+-- accumulate over long autopilot runs" with vitals staying healthy.
+--
+-- seatedOnly=true restricts relief to what a SEATED character can do without
+-- standing up.  Eating and reading qualify, and that is the engine's own
+-- position, not an assumption: ISRestAction:update carries the comment
+-- "Removed this as being an action, this way we can still passively regain
+-- endurance and read at the same time"
+-- (shared/TimedActions/ISRestAction.lua:44, verified live in the 42.19
+-- install).  Walking outdoors and walking to a container to loot a book both
+-- end the sit, so both are skipped in that mode.
+--
+-- Returns (true, label) when relief was queued, false otherwise.  The label is
+-- the seated activity text; it is unused by step 7, which has its own HUD path.
+local function doMoodRelief(player, seatedOnly)
+    -- NOTE: CharacterStat.SANITY reads HIGH when healthy, so it must not be used
+    -- as a "sadness" signal (it made this branch fire nearly every idle cycle).
+    -- The Unhappy moodle level is the correct low-mood source.
+    local boredom    = AutoPilot_Utils.safeStat(player, CharacterStat.BOREDOM)
+    local unhappyLvl = safeMoodleLevel(player, MoodleType.Unhappy)
+    if boredom < BOREDOM_STAT_THRESHOLD
+        and unhappyLvl < AutoPilot_Constants.HAPPINESS_LOW_THRESHOLD then
+        return false
+    end
+
+    -- Phase 3: when unhappy, prefer food that reduces boredom first
+    if unhappyLvl >= AutoPilot_Constants.HAPPINESS_LOW_THRESHOLD then
+        local tastyFood, tastyCont = AutoPilot_Inventory.preferTastyFood(player)
+        if tastyFood then
+            AutoPilot_Telemetry.setDecision("eat", "unhappy")
+            print("[Needs] Unhappy — eating tasty food: "
+                .. tostring(tastyFood:getName()))
+            -- V4.9: transfer out of a bag first, then eat.
+            local _, usable = AutoPilot_Utils.queueItemToMainInventory(
+                player, tastyFood, tastyCont)
+            if usable then
+                AutoPilot_Utils.queueModAction(ISEatFoodAction:new(player, tastyFood, 1))
+                return true, "eating"
+            end
+            print("[Needs] Tasty-food transfer refused: falling through to reading.")
+        end
+    end
+
+    AutoPilot_Telemetry.setDecision("read", "boredom")
+    if doRead(player, seatedOnly) then return true, "reading" end
+
+    if seatedOnly then
+        -- Going outside walks; it is not available to a seated character.
+        return false
+    end
+    if boredom >= BOREDOM_STAT_THRESHOLD then
+        AutoPilot_Telemetry.setDecision("outside", "boredom")
+        if doGoOutside(player) then return true, "outside" end
+    end
+    return false
 end
 
 -- ── Proactive / AFK idle behaviours ────────────────────────────────────────
@@ -511,6 +591,20 @@ function AutoPilot_Needs.check(player)
     if okNow and AutoPilot_Rest.isRestHoldActive(nowMs) then
         local restTarget = tonumber(AutoPilot_Constants.ENDURANCE_REST_TARGET) or 0
         if endurance < restTarget then
+            -- V0.3: relieve boredom/unhappiness WITHOUT leaving the seat.
+            -- The hold below queues nothing and returns, so every cycle spent
+            -- recovering endurance used to stop above step 7 and mood was
+            -- never evaluated at all — the accumulation the user reported.
+            -- Only the seated-safe relief runs (eat, read a carried book); the
+            -- hold is deliberately NOT cleared, so the character keeps
+            -- recovering while it reads.  The engine sanctions this pairing:
+            -- ISRestAction:update, "we can still passively regain endurance
+            -- and read at the same time".
+            local relieved, how = doMoodRelief(player, true)
+            if relieved then
+                _setActivity("resting (" .. tostring(how) .. ")")
+                return true
+            end
             AutoPilot_Telemetry.setDecision("rest", "rest_cooldown")
             -- V5.8: the cycle is a rest, so the reported activity says rest.
             -- This branch queues nothing, which is exactly why it used to
@@ -526,39 +620,10 @@ function AutoPilot_Needs.check(player)
 
     -- 7. Bored or Unhappy -> prefer tasty food, then read, then go outside.
     -- Kept above exercise: unhappiness slows every action (worse XP/hour) and
-    -- these are quick one-shot fixes.
-    -- NOTE: CharacterStat.SANITY reads HIGH when healthy, so it must not be used
-    -- as a "sadness" signal (it made this branch fire nearly every idle cycle).
-    -- The Unhappy moodle level is the correct low-mood source.
-    local boredom     = AutoPilot_Utils.safeStat(player, CharacterStat.BOREDOM)
-    local unhappyLvl  = safeMoodleLevel(player, MoodleType.Unhappy)
-    if boredom >= BOREDOM_STAT_THRESHOLD
-        or unhappyLvl >= AutoPilot_Constants.HAPPINESS_LOW_THRESHOLD then
-        -- Phase 3: when unhappy, prefer food that reduces boredom first
-        if unhappyLvl >= AutoPilot_Constants.HAPPINESS_LOW_THRESHOLD then
-            local tastyFood, tastyCont = AutoPilot_Inventory.preferTastyFood(player)
-            if tastyFood then
-                AutoPilot_Telemetry.setDecision("eat", "unhappy")
-                print("[Needs] Unhappy — eating tasty food: "
-                    .. tostring(tastyFood:getName()))
-                -- V4.9: transfer out of a bag first, then eat.
-                local _, usable = AutoPilot_Utils.queueItemToMainInventory(
-                    player, tastyFood, tastyCont)
-                if usable then
-                    AutoPilot_Utils.queueModAction(ISEatFoodAction:new(player, tastyFood, 1))
-                    return true
-                end
-                print("[Needs] Tasty-food transfer refused: falling through to reading.")
-            end
-        end
-        AutoPilot_Telemetry.setDecision("read", "boredom")
-        if doRead(player) then return true end
-        if boredom >= BOREDOM_STAT_THRESHOLD then
-            AutoPilot_Telemetry.setDecision("outside", "boredom")
-            local went = doGoOutside(player)
-            if went then return true end
-        end
-    end
+    -- these are quick one-shot fixes.  The body moved to doMoodRelief so the
+    -- rest hold at 6b can run the seated subset of it; this call is the full,
+    -- standing-allowed version and is unchanged in behaviour.
+    if doMoodRelief(player, false) then return true end
 
     -- 7b. V5.4: SIT TO RECOVER, closing the endurance dead zone.
     -- Training is gated at the exercise endurance minimum and the critical

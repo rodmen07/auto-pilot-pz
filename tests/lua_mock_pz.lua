@@ -79,8 +79,13 @@
 --          it is the ONLY action the furniture rest path queues (see the
 --          stub below and doRest's comment for why queueing a rest action
 --          behind it defeated the sit)
---   [M]  ISReadABook:new(character, book)   unexercised: doRead's literacy
---          gate fails in the suites (see Perks.Literacy below)
+--   [S]  ISReadABook:new(character, book)   test_mood_during_rest.
+--          Was "unexercised: doRead's literacy gate fails in the suites" until
+--          2026-07-25, when that dead gate turned out to be a PRODUCTION bug
+--          rather than a test-surface gap: doRead asked for a Perks.Literacy
+--          SKILL level, which does not exist in 42.19 (see Perks below), so it
+--          returned false in-game too.  It now reads the real trait via
+--          hasTrait(CharacterTrait.ILLITERATE) and the suites reach the action.
 --   [S]  ISEquipWeaponAction:new(character, item, time, primary)
 --          test_threat_logic / test_combat_policy / test_container_search
 --          (ISBarricadeAction left this record in V5.0 with the barricading
@@ -317,6 +322,18 @@ MoodleType = {
     PANIC     = "PANIC",
 }
 
+-- ── CharacterTrait enum ───────────────────────────────────────────────────────
+-- [MA] CharacterTrait.ILLITERATE, read via character:hasTrait(...).  This is
+-- the engine's REAL literacy gate: verified live in the 42.19 install at
+-- client/ISUI/ISInventoryPaneContextMenu.lua:549 plus nine sibling callsites
+-- (ISInventoryPane.lua:1102, ISWorldMapSymbols.lua:1312, ...).  CharacterTrait
+-- is Java-bound, so there is no Lua definition to compare field-by-field; only
+-- the member this mod reads is modelled.  PARTIAL: every other trait constant
+-- is unmodelled, and hasTrait here answers only from cfg.traits.
+CharacterTrait = {
+    ILLITERATE = "Illiterate",
+}
+
 -- ── BodyPartType ──────────────────────────────────────────────────────────────
 BodyPartType = {
     MAX = "MAX",
@@ -329,6 +346,11 @@ BodyPartType = {
 -- Perks.Carpentry and Perks.Literacy are intentionally ABSENT: neither key
 -- exists under the verified 42.19 naming, so lookups resolve nil here exactly
 -- as in-game (the old "Carpentry" alias served AutoPilot_Skills, deleted V3.1).
+-- Literacy is not a skill in this build AT ALL: a whole-install grep of
+-- media/lua for "Literacy" returns zero hits.  Reading is gated by the
+-- ILLITERATE TRAIT instead (see CharacterTrait above).  Keeping this key absent
+-- is what finally exposed the production bug in doRead, which had been asking
+-- for a perk level that could never exist (fixed 2026-07-25).
 Perks = {
     Strength        = "Strength",
     Fitness         = "Fitness",
@@ -836,6 +858,8 @@ end
 --   cfg.stats    table  CharacterStat key → value (0.0–1.0)
 --   cfg.moodles  table  MoodleType key → integer level
 --   cfg.perks    table  Perks key → integer level
+--   cfg.traits   table  CharacterTrait value → true (e.g. { Illiterate = true })
+--   cfg.tooDark  bool   tooDarkToRead() result (default false)
 --   cfg.bleeding bool   true if a body part is actively bleeding
 --   cfg.dead / cfg.asleep          bool  isDead() / isAsleep() results
 --   cfg.vehicle                    any   getVehicle() result (nil = on foot)
@@ -960,7 +984,14 @@ function MockPlayer.new(cfg)
                 setCurrentExercise  = function(self, _t) end,
             }
         end,
-        tooDarkToRead = function(self) return false end,
+        tooDarkToRead = function(self) return cfg.tooDark or false end,
+        -- [MA] hasTrait(CharacterTrait.X): the engine's real literacy gate,
+        -- verified live (ISInventoryPaneContextMenu.lua:549).  Answers from
+        -- cfg.traits, so a test opts a character into Illiterate with
+        -- traits = { Illiterate = true }.  Default: no traits, i.e. literate.
+        hasTrait = function(self, trait)
+            return (cfg.traits or {})[trait] == true
+        end,
         -- Real IsoPlayer surface previously missing here; pcall guards in
         -- production masked the divergence (calls failed in tests, succeeded
         -- in-game).  Defaults preserve the same observable behavior.

@@ -7,6 +7,32 @@ All notable changes to AutoPilot are documented here.
 Merged to `main` after the 0.1.0 version reset, still unversioned. Needs an in-game smoke test before
 the next Workshop update (the USER-ONLY tag / `sync_workshop.sh` / Update Item flow is unchanged).
 
+### Fixed
+
+- **Reading was impossible: the literacy gate asked for a skill that does not exist.** `doRead` decided
+  whether the character could read from `player:getPerkLevel(Perks.Literacy)`. There is no Literacy
+  SKILL in Build 42.19 -- a whole-install grep of `media/lua` for "Literacy" returns zero hits -- so the
+  lookup was always `nil`, the level was never positive, and `doRead` returned false on EVERY call. The
+  reading arm of boredom/unhappiness relief has therefore never fired in-game, and the mod's only other
+  boredom relief is walking outdoors. The engine's real gate is the ILLITERATE TRAIT,
+  `playerObj:hasTrait(CharacterTrait.ILLITERATE)` (verified live at
+  `client/ISUI/ISInventoryPaneContextMenu.lua:549` plus nine sibling callsites), and the mod now mirrors
+  it. The check fails OPEN: if the trait cannot be read the character is assumed literate, because a
+  wrong "literate" costs a book with no benefit while a wrong "illiterate" silently disables the whole
+  relief path -- which is exactly the bug being fixed.
+- **Boredom and unhappiness were never evaluated while the character sat recovering endurance.** The
+  V5.4 rest hold in `check()` returns true without queueing anything, so every cycle spent seated
+  stopped ABOVE the mood step, and the V5.4 sit-to-recover loop keeps re-engaging that hold up to
+  `ENDURANCE_REST_TARGET`. A healthy, seated character therefore accumulated moodles untouched, which is
+  the user-reported "negative moodles accumulate over long autopilot runs" with vitals staying healthy.
+  The hold now runs the SEATED subset of mood relief first: eating and reading a carried book, both of
+  which the engine explicitly supports mid-rest (`shared/TimedActions/ISRestAction.lua:44`: "Removed
+  this as being an action, this way we can still passively regain endurance and read at the same
+  time"). Walking outdoors and walking to a container to loot a book are skipped in that mode because
+  they would end the sit. The hold is NOT cleared, so endurance keeps recovering while the character
+  reads, and the F11/HUD activity string reports `resting (reading)` / `resting (eating)` instead of
+  claiming plain recovery.
+
 ### Changed
 
 - **Sleeping now picks the most COMFORTABLE bed in range, not the nearest.** Product decision (user,
@@ -21,6 +47,18 @@ the next Workshop update (the USER-ONLY tag / `sync_workshop.sh` / Update Item f
   at all every bed ties and the previous nearest-wins behaviour returns. (PR #76)
 
 ### Tests
+
+- New suite `tests/test_mood_during_rest.lua` (21 assertions): a bored seated character reads without
+  standing up and without clearing the rest hold, an unhappy one eats, a contented one still just rests
+  with nothing queued, seated relief never loots and never walks, the standing mood step keeps its
+  walking fallbacks, and the literacy gate accepts a default character, rejects the Illiterate trait,
+  respects darkness, and fails open when the trait surface is missing. Proven non-vacuous in both
+  directions: removing the rest-hold relief call flips 6 assertions to FAIL, and reverting the literacy
+  gate to the old `Perks.Literacy` lookup flips 5.
+- `tests/lua_mock_pz.lua` gains the `CharacterTrait` enum and `hasTrait`, recorded as `[MA]` entries
+  with their live source locations. `ISReadABook` moves from `[M]` (unexercised) to `[S]`: its
+  "unexercised because doRead's literacy gate fails in the suites" note was a production defect all
+  along, not a test-surface gap.
 
 - New suite `tests/test_sleep_comfort.lua` (17 assertions): grade ordering, the pillow bump that never
   promotes a bed past the next grade, unknown/modded bed types ranking as average rather than bad,
