@@ -100,18 +100,38 @@ AutoPilot_Threat._engageReason = "threat"
 local FLEE_DISTANCE_FRACTIONS = { 1.0, 0.6, 0.3 }
 
 -- Stat thresholds that count as "negative" for the flee decision.
--- All thresholds are normalized to 0.0-1.0 scale for consistent comparison.
--- HUNGER/THIRST/FATIGUE: already 0.0-1.0 from B42
--- PANIC/PAIN/SICKNESS/STRESS/SANITY: 0-100 integer from B42; normalized by dividing by 100
+-- Every threshold below is expressed on the 0.0-1.0 scale; `isNormalized=false`
+-- means the raw stat is a 0-100 integer and countNegativeMoodles divides it by
+-- 100 before comparing.  B42 mixes the two scales per stat, so the flag has to
+-- match the ENGINE, not a guess:
+--   0.0-1.0 : HUNGER, THIRST, FATIGUE, SICKNESS, STRESS, SANITY
+--   0-100   : PANIC, PAIN, BOREDOM, WETNESS
+-- The authority for that split, with its live-install citations, is
+-- CharacterStatScale in tests/lua_mock_pz.lua, and tests/test_stat_scales.lua
+-- reads this table against it so the two can no longer drift.
+--
+-- CORRECTED 2026-07-26 (QA scale audit).  SICKNESS and STRESS were flagged
+-- 0-100 and so were divided by 100 a second time: a genuinely sick character at
+-- SICKNESS=0.8 was scored 0.008 against a 0.20 threshold, so both entries had
+-- been unreachable since the B42 port and the count could never exceed 5.
+--
+-- SANITY was REMOVED rather than rescaled: it is polarity-inverted.  It reads
+-- HIGH when the character is healthy (this mod observed that in-game -- see the
+-- note on AutoPilot_Needs.doMoodRelief, where using it as a sadness signal made
+-- that branch fire nearly every idle cycle), so no `value >= threshold` entry
+-- can express "sanity is bad" no matter which scale it is read on.  Writing one
+-- with a guessed threshold would only replace an unreachable entry with a
+-- wrong-but-reachable one.  Restoring it needs a `lowIsBad` entry shape AND a
+-- healthy-baseline reading taken in-game; that is filed as a follow-up, not
+-- guessed at here.
 local NEGATIVE_STAT_CHECKS = {
     { stat = CharacterStat.HUNGER,   threshold = 0.40, isNormalized = true  },
     { stat = CharacterStat.THIRST,   threshold = 0.40, isNormalized = true  },
     { stat = CharacterStat.FATIGUE,  threshold = 0.60, isNormalized = true  },
+    { stat = CharacterStat.SICKNESS, threshold = 0.20, isNormalized = true  },
+    { stat = CharacterStat.STRESS,   threshold = 0.40, isNormalized = true  },
     { stat = CharacterStat.PANIC,    threshold = 0.40, isNormalized = false }, -- 40/100 = 0.40
     { stat = CharacterStat.PAIN,     threshold = 0.30, isNormalized = false }, -- 30/100 = 0.30
-    { stat = CharacterStat.SICKNESS, threshold = 0.20, isNormalized = false }, -- 20/100 = 0.20
-    { stat = CharacterStat.STRESS,   threshold = 0.40, isNormalized = false }, -- 40/100 = 0.40
-    { stat = CharacterStat.SANITY,   threshold = 0.40, isNormalized = false }, -- 40/100 = 0.40
 }
 
 -- Returns condition ratio (0.0-1.0) for any weapon item.  Returns 0 on failure.
