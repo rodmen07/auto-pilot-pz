@@ -24,25 +24,45 @@ proven on every push and pull request instead of at tag-push time.  It is a
 drift guard, not a one-time reconciliation: it reads the WORKFLOW as its source
 of truth, so a future edit that re-breaks the comparison fails CI here.
 
+It now covers the PACKAGING half of the same job as well.  Everything after the
+version check was still unexercised, and two of those steps interpolated
+``${{ github.ref_name }}`` straight into a bash body inside a job holding
+``contents: write`` — the documented Actions script-injection shape, since git
+permits ``;``, ``$`` and backticks in a ref name.  The archive name was also
+spelled out by hand three times (zip target, integrity check, release upload),
+so an edit to one could publish a file that was never built.  Both are now
+single-sourced from the job-level ``env:`` block and asserted here:
+
+* every ``run:`` body in the file is scanned for ``${{`` (not just the version
+  step's), with an always-on negative control proving the OLD interpolated form
+  really did execute an attacker-supplied ref;
+* the archive-name prefix must appear exactly once in the workflow;
+* the build step's zip target and the integrity check's REQUIRED/DEV_PATTERNS
+  assertions are executed for real, the former with ``zip`` stubbed by a shell
+  function (the name is what is under test, not the compression) and the latter
+  against archives built with :mod:`zipfile` and listed by the real ``unzip``.
+
 Implementation notes:
 
 * No PyYAML.  This repo's Python surface is deliberately stdlib only (plus
-  pytest), so the step is located by a small hand-rolled block reader.  The
-  reader hard-fails when it cannot find the step or the script comes back
-  empty: a guard that silently reports success on zero input is worse than no
-  guard (same rule as ``ci.yml``'s Action pin guard).
-* The script is run with ``bash -e``, which is the default shell GitHub uses
-  for a ``run:`` step on Linux when no ``shell:`` key is given.
+  pytest), so steps, jobs and their env blocks are located by small hand-rolled
+  block readers.  Every reader hard-fails when it cannot find its subject or
+  comes back empty: a guard that silently reports success on zero input is
+  worse than no guard (same rule as ``ci.yml``'s Action pin guard).
+* Scripts are run with ``bash -e``, which is the default shell GitHub uses for
+  a ``run:`` step on Linux when no ``shell:`` key is given.
 """
 
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import subprocess
 import sys
 import tempfile
 import unittest
+import zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).parent.parent
@@ -50,8 +70,18 @@ RELEASE_WORKFLOW = ROOT / ".github" / "workflows" / "release.yml"
 MOD_INFO_42 = ROOT / "42" / "mod.info"
 
 STEP_NAME = "Verify version tag matches mod.info"
+BUILD_STEP = "Build mod archive"
+VERIFY_STEP = "Verify archive contents"
+RELEASE_STEP = "Create GitHub Release"
+JOB_NAME = "release"
+
+# The one place the packaged file is named.  Spelled here as two fragments so
+# that this module's own source cannot be mistaken for a second definition by
+# anyone grepping the repo for it.
+ARCHIVE_PREFIX = "AutoPilot" + "-"
 
 BASH = shutil.which("bash")
+UNZIP = shutil.which("unzip")
 
 # A mod.info with every field the gate does not read, so the fixtures differ
 # from the real file only in the line under test.
@@ -134,8 +164,112 @@ def extract_step_script(workflow_text: str, step_name: str) -> str:
     return "\n".join(line[pad:] if line.strip() else "" for line in body)
 
 
+def step_names(workflow_text: str) -> list[str]:
+    """Return every ``- name:`` step label in the workflow, in file order."""
+    prefix = "- name: "
+    return [
+        line.strip()[len(prefix):]
+        for line in workflow_text.splitlines()
+        if line.strip().startswith(prefix)
+    ]
+
+
+def iter_run_steps(workflow_text: str) -> list[tuple[str, str]]:
+    """Return ``(step_name, script)`` for every step carrying a ``run: |`` body.
+
+    Steps that only invoke an action (``uses:``) have no script and are simply
+    absent from the result.
+    """
+    out: list[tuple[str, str]] = []
+    for name in step_names(workflow_text):
+        block = extract_step_block(workflow_text, name)
+        if any(line.strip() == "run: |" for line in block):
+            out.append((name, extract_step_script(workflow_text, name)))
+    return out
+
+
+def extract_job_block(workflow_text: str, job_name: str) -> list[str]:
+    """Return the raw lines of the named job, up to the next top-level job."""
+    lines = workflow_text.splitlines()
+    start = None
+    for i, line in enumerate(lines):
+        if line.rstrip() == f"  {job_name}:":
+            start = i
+            break
+    if start is None:
+        raise LookupError(
+            f"job {job_name!r} not found in {RELEASE_WORKFLOW}; this guard must "
+            "never pass by failing to find its subject."
+        )
+    block: list[str] = []
+    for line in lines[start + 1:]:
+        if line.strip() and not line.startswith("    "):
+            break
+        block.append(line)
+    return block
+
+
+def extract_job_env(workflow_text: str, job_name: str) -> dict[str, str]:
+    """Return the job-level ``env:`` mapping for ``job_name``.
+
+    This is where every tag-derived value must live: a value defined here is
+    visible to each step's shell without being interpolated into its body.
+    """
+    block = extract_job_block(workflow_text, job_name)
+    env_at = None
+    for i, line in enumerate(block):
+        if line.rstrip() == "    env:":
+            env_at = i
+            break
+    if env_at is None:
+        raise LookupError(
+            f"job {job_name!r} has no job-level 'env:' block, so tag-derived "
+            "values can only reach the steps by interpolation."
+        )
+    out: dict[str, str] = {}
+    for line in block[env_at + 1:]:
+        if not line.strip():
+            continue
+        indent = len(line) - len(line.lstrip())
+        if indent <= 4:
+            break
+        if line.lstrip().startswith("#"):
+            continue
+        key, sep, value = line.strip().partition(":")
+        if sep:
+            out[key.strip()] = value.strip()
+    if not out:
+        raise LookupError(f"job {job_name!r} has an EMPTY job-level 'env:' block")
+    return out
+
+
+def parse_bash_array(script: str, name: str) -> list[str]:
+    """Return the double-quoted entries of a ``NAME=( ... )`` array literal.
+
+    Read out of the workflow rather than restated here, so the assertions below
+    can never drift from the list the release job actually enforces.
+    """
+    marker = f"{name}=("
+    idx = script.find(marker)
+    if idx == -1:
+        raise LookupError(f"bash array {name!r} not found in the extracted script")
+    end = script.find(")", idx)
+    if end == -1:
+        raise LookupError(f"bash array {name!r} is unterminated")
+    return re.findall(r'"([^"]+)"', script[idx + len(marker):end])
+
+
 WORKFLOW_TEXT = RELEASE_WORKFLOW.read_text(encoding="utf-8")
 GATE_SCRIPT = extract_step_script(WORKFLOW_TEXT, STEP_NAME)
+BUILD_SCRIPT = extract_step_script(WORKFLOW_TEXT, BUILD_STEP)
+VERIFY_SCRIPT = extract_step_script(WORKFLOW_TEXT, VERIFY_STEP)
+JOB_ENV = extract_job_env(WORKFLOW_TEXT, JOB_NAME)
+
+# `zip` is present on ubuntu-latest but not on every dev box, and what is under
+# test is the NAME the build step passes, not the compression.  A shell
+# function shadows the external command, so the extracted script text itself is
+# executed unmodified.
+ZIP_STUB = 'zip() { printf "%s\\n" "$@" > "${ZIP_ARGV_OUT}"; }\n'
 
 
 def run_gate(tag_name: str, modversion_line: str) -> subprocess.CompletedProcess:
@@ -166,6 +300,85 @@ def _repo_modversion() -> str:
     raise AssertionError(f"no modversion= line in {MOD_INFO_42}")
 
 
+def _require_unzip() -> str:
+    """Return the unzip to list archives with, or fail loudly.
+
+    Same rule as :func:`_require_bash`: a missing unzip on a POSIX runner is a
+    broken CI environment, never a reason to report success.
+    """
+    if UNZIP:
+        return UNZIP
+    if sys.platform == "win32":
+        raise unittest.SkipTest(
+            "unzip is not on PATH (Windows dev box). CI runs these on ubuntu-latest."
+        )
+    raise AssertionError(
+        "unzip not found on a POSIX runner: the archive tests must not skip in CI."
+    )
+
+
+def run_build_step(archive_name: str, script: str | None = None):
+    """Run the build step with ``zip`` stubbed; return (result, argv, leftovers).
+
+    ``leftovers`` is every file the script left in its working directory apart
+    from the stub's own capture file — which is how an injected ``touch`` is
+    detected.
+    """
+    bash = _require_bash()
+    body = BUILD_SCRIPT if script is None else script
+    with tempfile.TemporaryDirectory() as tmp:
+        argv_out = Path(tmp) / "zip-argv.txt"
+        env = dict(os.environ)
+        env["ARCHIVE_NAME"] = archive_name
+        env["ZIP_ARGV_OUT"] = str(argv_out)
+        result = subprocess.run(
+            [bash, "-e", "-c", ZIP_STUB + body],
+            cwd=tmp,
+            env=env,
+            capture_output=True,
+            text=True,
+        )
+        argv = (
+            argv_out.read_text(encoding="utf-8").splitlines()
+            if argv_out.exists()
+            else []
+        )
+        leftovers = sorted(
+            p.name for p in Path(tmp).iterdir() if p.name != argv_out.name
+        )
+        return result, argv, leftovers
+
+
+def run_verify_step(
+    archive_name: str,
+    members: list[str],
+    env_name: str | None = None,
+) -> subprocess.CompletedProcess:
+    """Build a real archive with :mod:`zipfile`, then run the integrity check.
+
+    The step's own ``unzip -l`` does the listing, so what is exercised is the
+    real assertion logic, not a re-implementation of it.  ``env_name`` defaults
+    to the on-disk name; passing a different one points the step at an archive
+    that does not exist, which is how "the step really reads ARCHIVE_NAME" is
+    proved rather than assumed.
+    """
+    bash = _require_bash()
+    _require_unzip()
+    with tempfile.TemporaryDirectory() as tmp:
+        with zipfile.ZipFile(Path(tmp) / archive_name, "w") as archive:
+            for member in members:
+                archive.writestr(member, "x")
+        env = dict(os.environ)
+        env["ARCHIVE_NAME"] = env_name if env_name is not None else archive_name
+        return subprocess.run(
+            [bash, "-e", "-c", VERIFY_SCRIPT],
+            cwd=tmp,
+            env=env,
+            capture_output=True,
+            text=True,
+        )
+
+
 class TestGateIsExtractable(unittest.TestCase):
     """The guard must fail loudly rather than test an empty string."""
 
@@ -193,12 +406,15 @@ class TestGateIsExtractable(unittest.TestCase):
 
 
 class TestTagIsNotInterpolated(unittest.TestCase):
-    """`${{ }}` inside a run body is the Actions script-injection shape."""
+    """``${{ }}`` inside a run body is the Actions script-injection shape.
 
-    def test_tag_arrives_through_env(self) -> None:
-        block = "\n".join(extract_step_block(WORKFLOW_TEXT, STEP_NAME))
-        self.assertIn("env:", block)
-        self.assertIn("TAG_NAME: ${{ github.ref_name }}", block)
+    Widened from the version step alone to EVERY run body in the file: the
+    archive build and the archive integrity check ran in the same
+    ``contents: write`` job and both interpolated the ref straight into bash.
+    """
+
+    def test_tag_arrives_through_the_job_env_block(self) -> None:
+        self.assertEqual(JOB_ENV.get("TAG_NAME"), "${{ github.ref_name }}")
 
     def test_run_body_contains_no_expression_interpolation(self) -> None:
         self.assertNotIn(
@@ -207,6 +423,76 @@ class TestTagIsNotInterpolated(unittest.TestCase):
             "the gate script interpolates an Actions expression into shell; "
             "pass it through `env:` instead (a git ref may contain ; $ or backticks)",
         )
+
+    def test_no_run_body_in_the_file_interpolates_an_expression(self) -> None:
+        steps = iter_run_steps(WORKFLOW_TEXT)
+        self.assertGreaterEqual(
+            len(steps),
+            3,
+            "found fewer run steps than release.yml has; the scanner has gone blind",
+        )
+        offenders = [name for name, script in steps if "${{" in script]
+        self.assertEqual(
+            offenders,
+            [],
+            "these run bodies interpolate an Actions expression into shell: "
+            f"{offenders!r}. Define the value in the job-level `env:` block "
+            "instead; a git ref may contain ; $ or backticks and this job holds "
+            "contents: write.",
+        )
+
+    def test_no_single_line_run_interpolates_either(self) -> None:
+        """The block scanner above only sees ``run: |`` bodies."""
+        offenders = [
+            line.strip()
+            for line in WORKFLOW_TEXT.splitlines()
+            if line.strip().startswith("run:")
+            and line.strip() != "run: |"
+            and "${{" in line
+        ]
+        self.assertEqual(offenders, [], f"single-line run: with interpolation: {offenders!r}")
+
+
+class TestArchiveNameHasExactlyOneDefinition(unittest.TestCase):
+    """Three hand-written copies of the archive name could silently disagree."""
+
+    def test_job_env_defines_the_archive_name(self) -> None:
+        self.assertEqual(
+            JOB_ENV.get("ARCHIVE_NAME"),
+            ARCHIVE_PREFIX + "${{ github.ref_name }}.zip",
+        )
+
+    def test_missing_job_env_raises_rather_than_passing(self) -> None:
+        fake = "\n".join(
+            [
+                "jobs:",
+                f"  {JOB_NAME}:",
+                "    name: Package & publish",
+                "    steps:",
+                "      - name: Build mod archive",
+            ]
+        )
+        with self.assertRaises(LookupError):
+            extract_job_env(fake, JOB_NAME)
+
+    def test_missing_job_raises_rather_than_passing(self) -> None:
+        with self.assertRaises(LookupError):
+            extract_job_env(WORKFLOW_TEXT, "a job that does not exist")
+
+    def test_the_prefix_is_spelled_exactly_once(self) -> None:
+        self.assertEqual(
+            WORKFLOW_TEXT.count(ARCHIVE_PREFIX),
+            1,
+            "the archive name is spelled out more than once in release.yml; a "
+            "second copy can drift from the first and publish a file that was "
+            "never built. Read ARCHIVE_NAME from the job-level env block.",
+        )
+
+    def test_all_three_consumers_read_the_one_definition(self) -> None:
+        self.assertIn('zip -r "${ARCHIVE_NAME}"', BUILD_SCRIPT)
+        self.assertIn("${ARCHIVE_NAME}", VERIFY_SCRIPT)
+        upload = "\n".join(extract_step_block(WORKFLOW_TEXT, RELEASE_STEP))
+        self.assertIn("files: ${{ env.ARCHIVE_NAME }}", upload)
 
 
 class TestGateAcceptsValidTags(unittest.TestCase):
@@ -276,6 +562,105 @@ class TestGateMatchesTheShippedModInfo(unittest.TestCase):
         self.assertGreaterEqual(len(parts), 2, f"modversion={version!r}")
         for part in parts:
             self.assertTrue(part.isdigit(), f"non-numeric component in {version!r}")
+
+
+class TestBuildStepNamesTheArchiveFromTheEnvironment(unittest.TestCase):
+    """The zip target must come from ARCHIVE_NAME, not from a substituted ref."""
+
+    def test_the_zip_target_is_exactly_the_env_value(self) -> None:
+        name = ARCHIVE_PREFIX + "v9.9.9.zip"
+        result, argv, _ = run_build_step(name)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn(name, argv, f"zip argv was {argv!r}")
+
+    def test_the_packaged_paths_are_unchanged(self) -> None:
+        """Guards against a rename that quietly drops docs or the changelog."""
+        _, argv, _ = run_build_step(ARCHIVE_PREFIX + "v9.9.9.zip")
+        for expected in ("42/", "docs/", "CHANGELOG.md"):
+            self.assertIn(expected, argv, f"zip argv was {argv!r}")
+
+
+class TestTheRefNameCannotInjectShell(unittest.TestCase):
+    """A git ref may contain ``;``, ``$`` and backticks.
+
+    ``test_no_run_body_in_the_file_interpolates_an_expression`` asserts the
+    shape; these two assert the CONSEQUENCE, in both directions, so the change
+    is provably a fix and not a cosmetic move.
+    """
+
+    HOSTILE_REF = 'v1.0.0";touch injected;"'
+
+    def test_env_form_treats_a_hostile_ref_as_one_literal_filename(self) -> None:
+        name = ARCHIVE_PREFIX + self.HOSTILE_REF + ".zip"
+        result, argv, leftovers = run_build_step(name)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn(name, argv, f"zip argv was {argv!r}")
+        self.assertNotIn("injected", leftovers, f"leftovers were {leftovers!r}")
+
+    def test_negative_control_the_old_interpolated_form_executed_it(self) -> None:
+        """Always-on control: the pre-fix workflow really was exploitable.
+
+        Actions substitutes ``${{ github.ref_name }}`` into the script TEXT
+        before bash ever sees it, so the old body is reproduced here by the same
+        textual substitution.  If this ever stops creating the file, the whole
+        premise of the fix above is wrong and should be re-checked.
+        """
+        old = BUILD_SCRIPT.replace(
+            '"${ARCHIVE_NAME}"',
+            f'"{ARCHIVE_PREFIX}{self.HOSTILE_REF}.zip"',
+        )
+        self.assertNotIn("${ARCHIVE_NAME}", old, "the control did not patch the script")
+        _, _, leftovers = run_build_step("unused", script=old)
+        self.assertIn(
+            "injected",
+            leftovers,
+            "the pre-fix interpolated form no longer injects; re-derive the fix "
+            f"before trusting it (leftovers were {leftovers!r})",
+        )
+
+
+class TestArchiveIntegrityCheckActuallyChecks(unittest.TestCase):
+    """The packaging half of the job had never been executed by anything."""
+
+    def setUp(self) -> None:
+        self.required = parse_bash_array(VERIFY_SCRIPT, "REQUIRED")
+        self.dev_patterns = parse_bash_array(VERIFY_SCRIPT, "DEV_PATTERNS")
+        self.archive = ARCHIVE_PREFIX + "v9.9.9.zip"
+
+    def test_both_assertion_lists_were_read_from_the_workflow(self) -> None:
+        """A guard that runs against empty lists would pass on anything."""
+        self.assertGreaterEqual(len(self.required), 5, self.required)
+        self.assertGreaterEqual(len(self.dev_patterns), 3, self.dev_patterns)
+        self.assertIn("42/mod.info", self.required)
+
+    def test_a_complete_archive_passes(self) -> None:
+        result = run_verify_step(self.archive, self.required)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("Archive integrity check PASSED", result.stdout)
+
+    def test_a_missing_required_file_fails(self) -> None:
+        result = run_verify_step(self.archive, self.required[1:])
+        self.assertNotEqual(result.returncode, 0, result.stdout)
+        self.assertIn("Required file missing", result.stdout)
+
+    def test_a_bundled_dev_file_fails(self) -> None:
+        result = run_verify_step(self.archive, self.required + ["tests/test_x.lua"])
+        self.assertNotEqual(result.returncode, 0, result.stdout)
+        self.assertIn("Dev-only file found", result.stdout)
+
+    def test_the_step_reads_the_archive_name_from_the_environment(self) -> None:
+        """Pointed at a name that was never built, the step must fail loudly."""
+        result = run_verify_step(
+            self.archive,
+            self.required,
+            env_name=ARCHIVE_PREFIX + "never-built.zip",
+        )
+        self.assertNotEqual(
+            result.returncode,
+            0,
+            "the integrity check passed against an archive it was not pointed at: "
+            f"{result.stdout}{result.stderr}",
+        )
 
 
 if __name__ == "__main__":

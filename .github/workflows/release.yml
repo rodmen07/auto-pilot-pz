@@ -24,24 +24,36 @@ jobs:
     permissions:
       contents: write   # required to create releases and upload assets
 
+    # Everything derived from the pushed tag is computed ONCE, here, and reaches
+    # the steps below through the environment.  Three reasons:
+    #
+    #   1. Security.  git permits `;`, `$` and backticks in a ref name, so a tag
+    #      interpolated straight into a `run:` body is the documented Actions
+    #      script-injection shape, and this job holds `contents: write`.
+    #      `tests/test_release_gate.py` fails the build if ANY `run:` body in
+    #      this file grows a `${{ }}` again.
+    #   2. Correctness.  The archive name used to be spelled out by hand in
+    #      three separate places (the zip target, the integrity check and the
+    #      release upload), so editing one and missing another would publish a
+    #      file that was never built.  There is exactly one definition now, and
+    #      the guard asserts that archive-name prefix appears nowhere else in
+    #      this file.
+    #   3. Testability.  With these in the environment the step scripts run
+    #      outside Actions unchanged, which is what `tests/test_release_gate.py`
+    #      does on every PR.  This job runs ONLY on a tag push (USER-ONLY here),
+    #      so nothing below the CI gate had ever been executed by anything.
+    env:
+      TAG_NAME: ${{ github.ref_name }}
+      ARCHIVE_NAME: AutoPilot-${{ github.ref_name }}.zip
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Verify version tag matches mod.info
-        # The tag arrives through the environment instead of a `${{ }}`
-        # interpolation inside the script body, for two reasons.
-        #   1. Security: git permits `;`, `$` and backticks in a ref name, so a
-        #      tag interpolated straight into a shell script is the documented
-        #      Actions script-injection shape, and this job holds
-        #      `contents: write`.
-        #   2. Testability: with the tag in an env var the script runs outside
-        #      Actions unchanged, which is what `tests/test_release_gate.py`
-        #      does on every PR. This step previously ran ONLY on a real tag
-        #      push (USER-ONLY here), so nothing had ever executed it, and it
-        #      had been unreleasable since the modversion reset to 0.1.0.
-        env:
-          TAG_NAME: ${{ github.ref_name }}
+        # Reads TAG_NAME from the job-level env block above.  This step had been
+        # unreleasable since the modversion reset to 0.1.0 and nothing had ever
+        # run it; tests/test_release_gate.py now runs it on every PR.
         run: |
           # Compare the tag against 42/mod.info's `modversion=` after padding
           # both to major.minor.patch, so the two-component scheme this repo
@@ -88,11 +100,13 @@ jobs:
       - name: Build mod archive
         run: |
           # Package the 42/ folder (everything the game needs) plus documentation.
-          zip -r "AutoPilot-${{ github.ref_name }}.zip" 42/ docs/ CHANGELOG.md
+          # ARCHIVE_NAME comes from the job-level env block: never interpolate a
+          # ref name into a shell body, and never re-spell the archive name.
+          zip -r "${ARCHIVE_NAME}" 42/ docs/ CHANGELOG.md
 
       - name: Verify archive contents
         run: |
-          ARCHIVE="AutoPilot-${{ github.ref_name }}.zip"
+          ARCHIVE="${ARCHIVE_NAME}"
           echo "=== Archive contents ==="
           unzip -l "${ARCHIVE}"
 
@@ -152,5 +166,9 @@ jobs:
         # Dependabot (see .github/dependabot.yml) bumps the SHA + version comment.
         uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
         with:
-          files: AutoPilot-${{ github.ref_name }}.zip
+          # The same single definition the two steps above package and verify,
+          # so the release can never upload a name that was never built.  An
+          # action INPUT is not a shell body, so this interpolation is not the
+          # injection shape; it is here for the one-definition property.
+          files: ${{ env.ARCHIVE_NAME }}
           generate_release_notes: true
