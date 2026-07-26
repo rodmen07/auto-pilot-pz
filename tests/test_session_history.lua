@@ -101,7 +101,7 @@ do
     local lines = fileLines()
     assert_eq("file holds header + one checkpoint line", #lines, 2)
     assert_true("line 1 is the versioned header",
-        tostring(lines[1]):find("# auto_pilot_sessions schema=2", 1, true) ~= nil)
+        tostring(lines[1]):find("# auto_pilot_sessions schema=3", 1, true) ~= nil)
     local parsed = AutoPilot_SessionHistory.parseLine(lines[2])
     assert_true("checkpoint line parses", parsed ~= nil)
     assert_eq("parsed session id", parsed.session, 1)
@@ -207,13 +207,17 @@ end
 print("\n=== SessionHistory Test 7: panel summary formatting ===")
 do
     local F = AutoPilot_SessionHistory.formatSummary
+    -- Schema 3 rows lead with XP gained and carry the level delta in
+    -- parentheses; see test_session_xp.lua for the XP formatting matrix.
     local line = F({ session = 3, ticks = 812, dstr = 1, dfit = 0,
-                     ddoc = 0, ended = "dead" })
-    assert_eq("full summary line", line, "#3  812t  S+1 F+0 D+0  dead")
+                     ddoc = 0, dstrXp = 430, dfitXp = 12, ddocXp = 0,
+                     ended = "dead" })
+    assert_eq("full summary line", line,
+        "#3  812t  S+430(+1) F+12(+0) D+0(+0)  dead")
     local degraded = F({ session = 7, ticks = 42, dstr = 1, dfit = 0,
                          ended = "dead" })
     assert_eq("absent delta pairs render as ? (old lines)",
-        degraded, "#7  42t  S+1 F+0 D?  dead")
+        degraded, "#7  42t  S?(+1) F?(+0) D?(?)  dead")
 end
 
 -- ── Test 8: sparkline ────────────────────────────────────────────────────────
@@ -257,11 +261,12 @@ do
     local lines = fileLines()
     assert_eq("rotation rewrote exactly once", fileTruncates(), 1)
     assert_eq("file bounded to header + KEEP lines", #lines, KEEP + 1)
-    -- Rotation rewrites the header at the CURRENT schema (2 since V5.0),
-    -- while the retained body lines stay verbatim at whatever schema wrote
-    -- them (schema=1 here), which is the whole point of raw-text retention.
+    -- Rotation rewrites the header at the CURRENT schema (3 since the
+    -- 2026-07-26 XP fields), while the retained body lines stay verbatim at
+    -- whatever schema wrote them (schema=1 here), which is the whole point
+    -- of raw-text retention.
     assert_true("header survives rotation at the current schema",
-        tostring(lines[1]):find("schema=2", 1, true) ~= nil)
+        tostring(lines[1]):find("schema=3", 1, true) ~= nil)
     local oldest = AutoPilot_SessionHistory.parseLine(lines[2])
     assert_eq("oldest retained session is id 6 (newest KEEP kept)",
         oldest and oldest.session, 6)
@@ -312,10 +317,16 @@ do
     local lines = AutoPilot_SessionHistory.getPanelLines(p, 2)
     -- 2 session rows (cap) + 1 trend row.
     assert_eq("row cap respected (+ trend line)", #lines, 3)
-    assert_eq("newest session first", lines[1], "#4  1t  S+0 F+0 D+0  open")
-    assert_eq("second row is session 3", lines[2], "#3  2t  S+3 F+0 D+0  timeout")
+    assert_eq("newest session first", lines[1],
+        "#4  1t  S+0(+0) F+0(+0) D+0(+0)  open")
+    assert_eq("second row is session 3", lines[2],
+        "#3  2t  S+0(+3) F+0(+0) D+0(+0)  timeout")
+    -- These sessions gained levels with no XP recorded (statsFor supplies no
+    -- xp keys), so the trend falls back to level gain: 1, 2, 3, 0 scaled
+    -- RELATIVE to the best session in the window (3) onto the 0..7 ramp ->
+    -- 2, 5, 7, 0 -> ":", "+", "#", "_".
     assert_eq("trend spans ALL sessions oldest to newest",
-        lines[3], "trend: .:-_")
+        lines[3], "trend: :+#_")
 end
 
 -- ── Test 12: Telemetry integration (logTick observes, ends finalize) ─────────

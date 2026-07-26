@@ -328,7 +328,8 @@ function AutoPilot_UI:render()
             AutoPilot_Constants.SESSION_HISTORY_PANEL_ROWS)
     end)
     if type(histLines) == "table" and #histLines > 0 then
-        self:drawText("Session history (newest first):",
+        -- Label matches formatSummary's row shape: "S<xp>(<levels>)".
+        self:drawText("Session history (xp gained, +levels; newest first):",
             PAD, y, 0.6, 0.8, 1, 1, UIFont.Small)
         y = y + ROW_H
         for i = 1, #histLines do

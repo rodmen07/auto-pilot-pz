@@ -9,7 +9,7 @@
 -- and is unit-testable; AutoPilot_UI only renders what this module returns.
 --
 -- File format (mirrors the run-log discipline):
---   * line 1: a versioned header comment ("# auto_pilot_sessions schema=2");
+--   * line 1: a versioned header comment ("# auto_pilot_sessions schema=3");
 --   * one key=value CSV line per session; old parsers ignore unknown keys and
 --     new parsers tolerate old lines, because parseLine keys off whatever is
 --     present and _withDeltas leaves a delta nil when its field pair is
@@ -17,6 +17,14 @@
 --     a pair: wood_start/wood_end went with the barricade pass that fed it.
 --     Existing schema-1 lines still parse; their surplus wood keys are simply
 --     never read, and the retained raw text is rewritten verbatim on rotation;
+--     Schema 3 (2026-07-26) ADDS str_xp_start/_end, fit_xp_start/_end and
+--     doc_xp_start/_end.  Perk LEVELS were the only progress signal until
+--     then, and PZ levels move so rarely that fourteen recorded sessions all
+--     read "str 5->5, fit 3->4" — a leveler with no evidence it levels
+--     anything.  Raw XP moves every action, so a session that gained 40% of
+--     a level no longer looks identical to one that gained nothing.  Purely
+--     additive: schema-1 and -2 lines still parse and render their missing
+--     XP deltas as "?";
 --   * writes are APPEND-only (the V2.1 truncate bug rule): session-end
 --     lines on death/shutdown plus periodic "open" checkpoint lines, so a
 --     crash still leaves a recent summary.  At read time the LATEST line
@@ -41,14 +49,15 @@
 
 AutoPilot_SessionHistory = {}
 
-local SCHEMA_VERSION = 2
+local SCHEMA_VERSION = 3
 local FILE_HEADER    = "# auto_pilot_sessions schema=" .. SCHEMA_VERSION
 
 -- ── Per-player state ─────────────────────────────────────────────────────────
 -- Keys are playerNum.  _state[pnum] = {
 --   id            session id (monotonic per file),
 --   ticks         evaluation cycles observed this session,
---   start / last  { str, fit, doc } perk levels,
+--   start / last  { str, fit, doc } perk levels plus
+--                 { strXp, fitXp, docXp } raw XP totals,
 --   lastFlush     ticks value at the most recent checkpoint write,
 --   ended         nil while open, else "dead" / "timeout",
 -- }
@@ -75,14 +84,23 @@ end
 -- ── Line format and tolerant parser ──────────────────────────────────────────
 
 --- Format one session summary line (fixed field order, additive-only).
+--- XP is written with one decimal because the engine grants fractional XP
+--- (a single exercise rep is well under 1.0), and a truncating "%d" would
+--- report a real short session as a flat zero.
 local function _formatLine(pnum, st, ended)
     return string.format(
         "schema=%d,session=%d,player=%d,ticks=%d,"
         .. "str_start=%d,str_end=%d,fit_start=%d,fit_end=%d,"
-        .. "doc_start=%d,doc_end=%d,ended=%s",
+        .. "doc_start=%d,doc_end=%d,"
+        .. "str_xp_start=%.1f,str_xp_end=%.1f,"
+        .. "fit_xp_start=%.1f,fit_xp_end=%.1f,"
+        .. "doc_xp_start=%.1f,doc_xp_end=%.1f,ended=%s",
         SCHEMA_VERSION, st.id, pnum, st.ticks,
         st.start.str, st.last.str, st.start.fit, st.last.fit,
         st.start.doc, st.last.doc,
+        st.start.strXp, st.last.strXp,
+        st.start.fitXp, st.last.fitXp,
+        st.start.docXp, st.last.docXp,
         ended)
 end
 
@@ -113,12 +131,17 @@ local function _delta(startV, endV)
     return nil
 end
 
---- Attach per-perk level deltas (nil when a field pair is absent, so old
---- lines missing an additive pair degrade to "?" in the display).
+--- Attach per-perk level AND raw-XP deltas (nil when a field pair is absent,
+--- so old lines missing an additive pair degrade to "?" in the display).
+--- The XP deltas are what make a session legible: dstr can sit at 0 for
+--- hours of real training while dstrXp climbs the whole time.
 local function _withDeltas(sum)
-    sum.dstr  = _delta(sum.str_start,  sum.str_end)
-    sum.dfit  = _delta(sum.fit_start,  sum.fit_end)
-    sum.ddoc  = _delta(sum.doc_start,  sum.doc_end)
+    sum.dstr   = _delta(sum.str_start,  sum.str_end)
+    sum.dfit   = _delta(sum.fit_start,  sum.fit_end)
+    sum.ddoc   = _delta(sum.doc_start,  sum.doc_end)
+    sum.dstrXp = _delta(sum.str_xp_start, sum.str_xp_end)
+    sum.dfitXp = _delta(sum.fit_xp_start, sum.fit_xp_end)
+    sum.ddocXp = _delta(sum.doc_xp_start, sum.doc_xp_end)
     return sum
 end
 
@@ -219,11 +242,18 @@ end
 
 -- ── Session lifecycle ────────────────────────────────────────────────────────
 
-local function _levelsFrom(stats)
+--- Snapshot the progress fields Telemetry collected for one cycle: perk
+--- levels plus the raw XP totals behind them (schema 3).  A stats table
+--- from an older caller that carries no XP keys degrades to 0, never nil,
+--- so _formatLine's "%.1f" can never see a nil.
+local function _snapshotFrom(stats)
     return {
-        str  = tonumber(stats.str)  or 0,
-        fit  = tonumber(stats.fit)  or 0,
-        doc  = tonumber(stats.doc)  or 0,
+        str   = tonumber(stats.str)    or 0,
+        fit   = tonumber(stats.fit)    or 0,
+        doc   = tonumber(stats.doc)    or 0,
+        strXp = tonumber(stats.str_xp) or 0,
+        fitXp = tonumber(stats.fit_xp) or 0,
+        docXp = tonumber(stats.doc_xp) or 0,
     }
 end
 
@@ -231,12 +261,12 @@ local function _newSession(pnum, stats)
     _beginFile(pnum)
     local id = _nextId[pnum] or 1
     _nextId[pnum] = id + 1
-    local start = _levelsFrom(stats)
+    local start = _snapshotFrom(stats)
     return {
         id        = id,
         ticks     = 0,
         start     = start,
-        last      = _levelsFrom(stats),
+        last      = _snapshotFrom(stats),
         lastFlush = 0,
         ended     = nil,
     }
@@ -256,7 +286,7 @@ function AutoPilot_SessionHistory.observe(player, stats)
         _state[pnum] = st
     end
     st.ticks = st.ticks + 1
-    st.last  = _levelsFrom(stats)
+    st.last  = _snapshotFrom(stats)
 
     local every = (AutoPilot_Constants
         and AutoPilot_Constants.SESSION_HISTORY_CHECKPOINT_CYCLES) or 400
@@ -308,6 +338,9 @@ function AutoPilot_SessionHistory.getHistory(player, maxN)
             str_start  = st.start.str,  str_end  = st.last.str,
             fit_start  = st.start.fit,  fit_end  = st.last.fit,
             doc_start  = st.start.doc,  doc_end  = st.last.doc,
+            str_xp_start = st.start.strXp, str_xp_end = st.last.strXp,
+            fit_xp_start = st.start.fitXp, fit_xp_end = st.last.fitXp,
+            doc_xp_start = st.start.docXp, doc_xp_end = st.last.docXp,
             ended      = st.ended or "open",
         })
         if byId[st.id] then
@@ -321,16 +354,37 @@ function AutoPilot_SessionHistory.getHistory(player, maxN)
     return sums
 end
 
---- Format one summary for the panel: "#3  812t  S+1 F+0 D+0  dead".
---- A delta whose field pair is absent (older line) renders as "?".
+--- Compact XP delta for a 380px panel row: "+430", "+1.3k", "+0.6", "?".
+--- Sub-10 gains keep a decimal (a short session earns fractions of a point
+--- and must not render as a flat "+0"); everything past 1000 collapses to
+--- "k" so the row cannot outgrow the panel.
+local function _xpShort(v)
+    if type(v) ~= "number" then return "?" end
+    local mag = math.abs(v)
+    if mag >= 1000 then return string.format("%+.1fk", v / 1000) end
+    if mag < 10 and v ~= math.floor(v) then
+        return string.format("%+.1f", v)
+    end
+    local rounded = (v >= 0) and math.floor(v + 0.5) or -math.floor(-v + 0.5)
+    return string.format("%+d", rounded)
+end
+
+--- Format one summary for the panel: "#3  812t  S+430(+1) F+12(+0) D+0(+0)
+--- dead" — XP gained first, the level delta it produced in parentheses.
+--- XP leads because the level almost never moves: fourteen recorded
+--- sessions all read "S+0 F+0" under the old level-only format, which is
+--- what made the leveler's own success metric unreadable.
+--- A delta whose field pair is absent (a schema 1/2 line) renders as "?".
 function AutoPilot_SessionHistory.formatSummary(sum)
     local function d(v)
         if type(v) ~= "number" then return "?" end
         return string.format("%+d", v)
     end
-    return string.format("#%d  %dt  S%s F%s D%s  %s",
+    return string.format("#%d  %dt  S%s(%s) F%s(%s) D%s(%s)  %s",
         sum.session, sum.ticks,
-        d(sum.dstr), d(sum.dfit), d(sum.ddoc),
+        _xpShort(sum.dstrXp), d(sum.dstr),
+        _xpShort(sum.dfitXp), d(sum.dfit),
+        _xpShort(sum.ddocXp), d(sum.ddoc),
         tostring(sum.ended))
 end
 
@@ -351,13 +405,53 @@ function AutoPilot_SessionHistory.sparkline(gains)
     return table.concat(out)
 end
 
+--- Total progress for one session: raw XP when the line recorded any
+--- (schema 3), else the level gain, so a history spanning the schema change
+--- still produces one comparable series.  The fallback is on the VALUE, not
+--- on key presence: a schema-3 line whose XP totals never moved has nothing
+--- to say, and deferring to its level delta can only add information.
 local function _totalGain(sum)
+    local xp = (sum.dstrXp or 0) + (sum.dfitXp or 0) + (sum.ddocXp or 0)
+    if xp > 0 then return xp end
     return (sum.dstr or 0) + (sum.dfit or 0) + (sum.ddoc or 0)
 end
 
+--- Map a raw XP series onto the sparkline's 0..#SPARK_RAMP-1 ramp,
+--- RELATIVE to the best session in the window.  Absolute XP would peg every
+--- bar at the ramp top ("#") the moment a session earned 8 points, and
+--- absolute LEVELS pin every bar to the floor ("_") because PZ levels
+--- almost never move within a session — the flat trend line that made this
+--- display worthless.  A window where nothing was earned stays all-floor.
+local function _rampScale(gains)
+    local top = #SPARK_RAMP - 1
+    local best = 0
+    for i = 1, #gains do
+        local g = gains[i]
+        if type(g) == "number" and g > best then best = g end
+    end
+    if best <= 0 then
+        local flat = {}
+        for i = 1, #gains do flat[i] = 0 end
+        return flat
+    end
+    local out = {}
+    for i = 1, #gains do
+        local g = gains[i]
+        if type(g) ~= "number" or g <= 0 then
+            out[i] = 0
+        else
+            -- Any non-zero gain is worth at least one step above the floor,
+            -- so "trained a little" never renders as "trained nothing".
+            out[i] = math.max(1, math.floor(g / best * top + 0.5))
+        end
+    end
+    return out
+end
+
 --- Pre-formatted panel strings: up to maxRows session rows (newest first)
---- plus a trend sparkline of total level gains (oldest to newest, across
---- every retained session) when there are at least two sessions.  Returns
+--- plus a trend sparkline of total progress (oldest to newest, across every
+--- retained session) when there are at least two sessions.  The trend is
+--- RELATIVE to the best session in the window (see _rampScale).  Returns
 --- a placeholder row when nothing is recorded yet, so the UI never has to
 --- special-case an empty history.
 function AutoPilot_SessionHistory.getPanelLines(player, maxRows)
@@ -374,10 +468,11 @@ function AutoPilot_SessionHistory.getPanelLines(player, maxRows)
     if #hist >= 2 then
         local gains = {}
         for i = #hist, 1, -1 do   -- hist is newest first; trend reads old>new
-            table.insert(gains, _totalGain(hist[i]))
+            local gain = _totalGain(hist[i])
+            table.insert(gains, gain)
         end
         table.insert(lines,
-            "trend: " .. AutoPilot_SessionHistory.sparkline(gains))
+            "trend: " .. AutoPilot_SessionHistory.sparkline(_rampScale(gains)))
     end
     return lines
 end
