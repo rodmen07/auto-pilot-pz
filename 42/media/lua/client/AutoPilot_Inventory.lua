@@ -453,22 +453,39 @@ function AutoPilot_Inventory.lootNearbyReadable(player)
     return false
 end
 
--- Scans nearby containers for food and transfers the highest-calorie item.
+-- Scans nearby containers for food and transfers the best item.
 -- radius: optional override (proactive scavenging passes a small radius so
 -- background top-ups stay near home; reactive hunger uses the full default).
+--
+-- V6.0-2: malus-free food is preferred, calories decide within a malus tier —
+-- the same two-key ranking the hunger-path selectors got in V6.0-1, sharing the
+-- one AutoPilot_Inventory.foodMalusScore helper so the two halves of "prioritise
+-- food by the ABSENCE OF MALUS EFFECTS" cannot drift apart.
+--
+-- This is a RANKING change and deliberately NOT a filter change: the WHAT-counts
+-- predicate below is untouched, so nothing lootable before this slice became
+-- unlootable.  That is load-bearing, not stylistic — see the predicate comment.
 function AutoPilot_Inventory.lootNearbyFood(player, radius)
     local best, bestCal, bestContainer = nil, -999, nil
+    local bestMalus = math.huge
     _iterateContainersNearby(player, radius or LOOT_SEARCH_RADIUS, function(item, container)
         if item:isFood() and not item:isRotten() then
             -- Match getSupplyCounts: only calorie-positive, non-drink items
             -- count as food, so looting always improves the supply counter
-            -- (mismatched predicates caused an endless loot loop).
+            -- (mismatched predicates caused an endless loot loop).  Malus is
+            -- scored but never rejected here for exactly that reason: a malus
+            -- food the supply counter counts must stay loot-eligible, or the
+            -- mod would haul nothing while reporting itself short of food.
             local cal    = item:getCalories() or 0
             local thirst = item:getThirstChange() or 0
-            if cal > 0 and thirst >= 0 and cal > bestCal then
-                bestCal = cal
-                best = item
-                bestContainer = container
+            if cal > 0 and thirst >= 0 then
+                local malus = AutoPilot_Inventory.foodMalusScore(item)
+                if malus < bestMalus or (malus == bestMalus and cal > bestCal) then
+                    bestMalus = malus
+                    bestCal = cal
+                    best = item
+                    bestContainer = container
+                end
             end
         end
         return false  -- scan all squares to find the best

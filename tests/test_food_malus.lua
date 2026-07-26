@@ -47,6 +47,21 @@ dofile("42/media/lua/client/AutoPilot_Utils.lua")
 AutoPilot_Utils.findNearestSquare    = function(_cx, _cy, _cz, _r, _pred) return nil end
 AutoPilot_Utils.iterateNearbySquares = function(...) end
 
+-- V6.0-2 additions.  The loot path walks real world squares, so it needs the
+-- three modules _iterateContainersNearby and _queueTransfer call into, plus the
+-- two engine globals the transfer touches.  Same harness as
+-- tests/test_carry_capacity.lua:38-47, which already drives lootNearbyFood.
+dofile("42/media/lua/client/AutoPilot_Map.lua")
+dofile("42/media/lua/client/AutoPilot_Home.lua")
+dofile("42/media/lua/client/AutoPilot_Telemetry.lua")
+
+ISInventoryTransferAction = {
+    new = function(_, _player, item, from, to)
+        return { type = "transfer", item = item, from = from, to = to }
+    end,
+}
+luautils = { walkAdj = function(_player, _sq, _) end }
+
 dofile("42/media/lua/client/AutoPilot_Inventory.lua")
 
 -- ── Minimal test framework ────────────────────────────────────────────────────
@@ -291,6 +306,140 @@ do
     local best, cont = AutoPilot_Inventory.getBestFood(player)
     assert_eq("the bagged malus food is found", best and best:getName(), "Pasta")
     assert_eq("its holding container is reported", cont, inner)
+end
+
+-- ═══ V6.0-2: malus-aware LOOT preference ══════════════════════════════════════
+-- The gathering half of the same user decision.  V6.0-1 changed what the mod
+-- EATS out of its own pack; this changes what it PICKS UP, reusing the one
+-- foodMalusScore helper so the two halves cannot rank food differently.
+
+-- Publish one world container on the player's own square holding `items`.
+-- Mirrors tests/test_carry_capacity.lua:104-123.
+local function placeContainer(items)
+    local container = MockContainer.new(items)
+    AutoPilot_Utils.iterateNearbySquares =
+        function(_cx, _cy, _cz, _radius, cb)
+            local sq = {}
+            local obj = {
+                getContainer = function(_self) return container end,
+                getSquare    = function(_self) return sq end,
+            }
+            sq.getObjects = function(_self)
+                return { size = function(_s) return 1 end,
+                         get  = function(_s, _i) return obj end }
+            end
+            sq.getX = function(_self) return 0 end
+            sq.getY = function(_self) return 0 end
+            sq.getZ = function(_self) return 0 end
+            cb(sq, 0, 0)
+        end
+    return container
+end
+
+local function resetQueue() ISTimedActionQueue_calls = {} end
+
+-- The item the loot path actually queued, or nil.
+local function lootedItem(player)
+    resetQueue()
+    local queued = AutoPilot_Inventory.lootNearbyFood(player)
+    if not queued or #ISTimedActionQueue_calls == 0 then return nil end
+    return ISTimedActionQueue_calls[1].item
+end
+
+-- ── 12. HEADLINE: the loot ranking difference ────────────────────────────────
+-- Done-when 2 of docs/MILESTONE_V6_0.md section V6.0-2, literally: a malus-free
+-- 200-calorie item and a malus-carrying 400-calorie item in the same container,
+-- and the malus-free one is the one transferred.  Before this slice the loot
+-- path took the highest-calorie item outright, so it would have taken the Pasta.
+print("\n-- Test 12: looting prefers the malus-free food over a higher-calorie one")
+do
+    local plain = food({ name = "CannedBeans", calories = 200 })
+    local pasta = food({ name = "Pasta", unhappy = 40, calories = 400 })
+    local player = MockPlayer.new({})
+
+    placeContainer({ pasta, plain })
+    local got = lootedItem(player)
+    assert_eq("the malus-free 200-calorie food is looted, not the 400-calorie one",
+        got and got:getName(), "CannedBeans")
+
+    -- Order-independence: arriving first must not win, in either direction.
+    placeContainer({ plain, pasta })
+    local got2 = lootedItem(player)
+    assert_eq("still chosen when the malus food is scanned second",
+        got2 and got2:getName(), "CannedBeans")
+end
+
+-- ── 13. Calories still decide inside a malus tier ────────────────────────────
+-- The regression guard for the loot ranking: among equally-malus food the old
+-- highest-calorie key is untouched, including among equally BAD food.
+print("\n-- Test 13: within one malus tier the calorie key is unchanged")
+do
+    local player = MockPlayer.new({})
+
+    placeContainer({ food({ name = "Crackers", calories = 100 }),
+                     food({ name = "Ham",      calories = 400 }) })
+    local got = lootedItem(player)
+    assert_eq("among malus-free food the highest-calorie item still wins",
+        got and got:getName(), "Ham")
+
+    placeContainer({ food({ name = "Ramen", unhappy = 20, calories = 100 }),
+                     food({ name = "Pasta", unhappy = 20, calories = 400 }) })
+    local got2 = lootedItem(player)
+    assert_eq("among equally-malus food the highest-calorie item still wins",
+        got2 and got2:getName(), "Pasta")
+end
+
+-- ── 14. THE INVARIANT: the loot predicate stays a superset of the counter ────
+-- Done-when 3.  The in-code comment at AutoPilot_Inventory.lootNearbyFood
+-- records why: when the loot predicate and getSupplyCounts disagree, the mod
+-- hauls items its own supply counter refuses to count and loots forever.  So
+-- V6.0-2 had to be a RANKING change with the predicate untouched.
+--
+-- This is a drift guard, not a one-time reconciliation: it reads BOTH sources
+-- for the same item -- what lootNearbyFood picks up, and what getSupplyCounts
+-- counts once carried -- so re-tightening either one alone fails here.
+print("\n-- Test 14: malus food the supply counter counts is still lootable")
+do
+    -- Nothing better nearby: a malus-carrying food is the only candidate.
+    local pasta = food({ name = "Pasta", unhappy = 40, calories = 300 })
+    placeContainer({ pasta })
+    local got = lootedItem(MockPlayer.new({}))
+    assert_eq("malus food is still looted when nothing better is nearby",
+        got and got:getName(), "Pasta")
+
+    -- ...and the counter counts that same item, which is what closes the loop.
+    local foodCount, drinkCount = AutoPilot_Inventory.getSupplyCounts(
+        carrying({ food({ name = "Pasta", unhappy = 40, calories = 300 }) }))
+    assert_eq("and getSupplyCounts counts it as food", foodCount, 1)
+    assert_eq("not as a drink", drinkCount, 0)
+
+    -- Poison and taint are EAT-path safety gates, not loot-path filters.  The
+    -- superset invariant is why: getSupplyCounts counts a tainted 300-calorie
+    -- food, so refusing to loot it would reopen the mismatch this test guards.
+    placeContainer({ food({ name = "TaintedStew", tainted = true, calories = 300 }) })
+    local tainted = lootedItem(MockPlayer.new({}))
+    assert_eq("a tainted food the counter counts is still lootable",
+        tainted and tainted:getName(), "TaintedStew")
+    local tcount = AutoPilot_Inventory.getSupplyCounts(
+        carrying({ food({ name = "TaintedStew", tainted = true, calories = 300 }) }))
+    assert_eq("because the counter counts it too", tcount, 1)
+    -- The eat path is where it is refused, and Test 8 already proves that.
+end
+
+-- ── 15. The non-food half of the predicate did not move either ───────────────
+-- Drinks and calorie-free items are getSupplyCounts' OTHER two buckets.  The
+-- ranking rewrite must not have let either leak into the food loot path.
+print("\n-- Test 15: drinks and calorie-free items are still not food loot")
+do
+    local drink = food({ name = "WaterBottle", calories = 0 })
+    drink.getThirstChange = function(_self) return -20 end
+    placeContainer({ drink })
+    assert_nil("a hydrating drink is not taken by the FOOD loot path",
+        lootedItem(MockPlayer.new({})))
+
+    placeContainer({ food({ name = "Teabag", calories = 0 }) })
+    assert_nil("a calorie-free item is not taken by the food loot path",
+        lootedItem(MockPlayer.new({})))
 end
 
 -- ── Summary ───────────────────────────────────────────────────────────────────
