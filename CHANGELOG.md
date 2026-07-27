@@ -9,6 +9,18 @@ the next Workshop update (the USER-ONLY tag / `sync_workshop.sh` / Update Item f
 
 ### Added
 
+- **A carry-gate refusal is now observable: `fail_reason=carry_full` on the scavenge decision.** Follow-up
+  to the carry-capacity gate below, closing its own filed gap: from the scavenge stuck-counter's point of
+  view a refused pickup and a looted-out area were identical, so an overloaded character tripped the
+  backoff and the run log read "no supply gain after 3 trips" with no hint the mod was full. The gate's
+  refusal in `_queueTransfer` now returns the fail label `carry_full`, `doProactiveScavenge` collects it,
+  and `check()` threads it into the scavenge telemetry decision — the same shape the 2026-07-24 blocked-sleep
+  fix used (`fail_reason=pain_block|panic`), which is what made that bug visible from the log alone. The
+  F11 panel and action HUD render it as "(carrying too much)" through the V6.0-3 reason line. The backoff
+  BEHAVIOUR is unchanged (an overloaded character should still stop scavenging); only its observability
+  changed. The Python log tools already treat `fail_reason` as an open vocabulary, so historical logs and
+  the triage detectors are unaffected.
+
 - **A carry-capacity gate on looting (`AutoPilot_Utils.hasCarryRoom`).** The mod had no weight sense at
   all. A whole-mod grep of `42/media/lua/client` for
   `getMaxWeight|getCapacityWeight|getEffectiveCapacity|HEAVY_LOAD|encumb` returned exactly one hit, and

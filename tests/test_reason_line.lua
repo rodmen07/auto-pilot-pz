@@ -325,6 +325,8 @@ do
           "Idle, evaluating (sleep blocked by pain)" },
         { "Idle, evaluating",     "panic",
           "Idle, evaluating (sleep blocked by panic)" },
+        { "Idle, evaluating",     "carry_full",
+          "Idle, evaluating (carrying too much)" },
     }
     for _, c in ipairs(cases) do
         assert_eq(("%s + %s"):format(c[1], c[2]),
@@ -399,8 +401,21 @@ do
         emitted[fail] = true
     end
 
-    -- Negative control for the extraction itself: if either pattern went
-    -- blind, these four sentinels disappear and the guard fails loudly
+    -- Source C (2026-07-26): the fail labels AutoPilot_Inventory's carry gate
+    -- returns (`return false, "carry_full"` in _queueTransfer), same shape as
+    -- the Sleep fail labels above.  These reach setDecision's fail_reason via
+    -- doProactiveScavenge in Needs, so the literal lives in Inventory.
+    local invSrc = assert(
+        io.open("42/media/lua/client/AutoPilot_Inventory.lua", "r"),
+        "AutoPilot_Inventory.lua must be readable from the project root")
+    local invText = invSrc:read("*a")
+    invSrc:close()
+    for fail in invText:gmatch('return%s+false%s*,%s*"([%w_]+)"') do
+        emitted[fail] = true
+    end
+
+    -- Negative control for the extraction itself: if any pattern went
+    -- blind, these five sentinels disappear and the guard fails loudly
     -- instead of passing vacuously.
     assert_true("extraction sees a Needs decision reason (hunger_thresh)",
         emitted["hunger_thresh"])
@@ -410,6 +425,8 @@ do
         emitted["panic"])
     assert_true("extraction sees the dry-off reason wet",
         emitted["wet"])
+    assert_true("extraction sees the Inventory fail label carry_full",
+        emitted["carry_full"])
 
     local mapped = AutoPilot._REASON_LABELS
     assert_true("the formatter's mapping table is exposed",
