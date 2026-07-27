@@ -443,15 +443,28 @@ local function doProactiveScavenge(player)
     _scavengeCooldown = AutoPilot_Constants.SCAVENGE_COOLDOWN_CYCLES
     local radius = AutoPilot_Constants.PROACTIVE_LOOT_RADIUS
 
+    -- A pickup the carry gate refused (PR #85) and a container with nothing
+    -- useful both come back false from the loot calls, but the gate refusal
+    -- carries the fail label "carry_full" as a second return value.  Collect
+    -- it so the caller can thread it into the telemetry decision — otherwise
+    -- an overloaded character's trips are indistinguishable from a looted-out
+    -- area in the run log (2026-07-26 follow-up to PR #85).  The stuck-counter
+    -- accounting above is deliberately UNCHANGED: an overloaded character
+    -- should still back off; it should just be observable why.
+    local failReason = nil
     if needFood then
         print(string.format("[Needs] Proactive: food=%d < %d -- looting.",
             foodCount, AutoPilot_Constants.SUPPLY_FOOD_MIN))
-        if AutoPilot_Inventory.lootNearbyFood(player, radius) then return true end
+        local queued, why = AutoPilot_Inventory.lootNearbyFood(player, radius)
+        if queued then return true end
+        failReason = failReason or why
     end
     if needDrink then
         print(string.format("[Needs] Proactive: drink=%d < %d -- looting.",
             drinkCount, AutoPilot_Constants.SUPPLY_DRINK_MIN))
-        if AutoPilot_Inventory.lootNearbyDrink(player, radius) then return true end
+        local queued, why = AutoPilot_Inventory.lootNearbyDrink(player, radius)
+        if queued then return true end
+        failReason = failReason or why
         -- No bottled drinks nearby: top up existing water containers from a
         -- source instead (only fires while thirst is still low).
         if AutoPilot_Inventory.proactiveWaterRefill
@@ -459,7 +472,7 @@ local function doProactiveScavenge(player)
             return true
         end
     end
-    return false
+    return false, failReason
 end
 
 -- doExercise and its helpers (candidate selection, XP-fatigue tracking,
@@ -755,7 +768,18 @@ function AutoPilot_Needs.check(player)
 
     -- 9. Proactive supply scavenge (rate-limited background chore)
     AutoPilot_Telemetry.setDecision("scavenge", "low_supplies")
-    if doProactiveScavenge(player) then return true end
+    local scavenged, scavengeFail = doProactiveScavenge(player)
+    if scavenged then return true end
+    if scavengeFail then
+        -- The trip ran and the carry gate refused the pickup: record WHY the
+        -- cycle claimed nothing (the PR #67 blocked-sleep shape — fail_reason
+        -- survives Main's idle/no_action override because logTick reads it
+        -- from the pending store).  Without this, a refused pickup and an
+        -- empty container log identically and the stuck-backoff reads as
+        -- "the area is looted out" while the character is simply full.
+        AutoPilot_Telemetry.setDecision("scavenge", "low_supplies", nil, nil,
+            scavengeFail)
+    end
 
     -- V5.0: the priority chain used to end with a base-maintenance slot that
     -- ran a barricade re-check.  Barricading and woodworking left the mod's

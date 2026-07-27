@@ -287,6 +287,36 @@ do
         LIMIT <= 2)
 end
 
+-- ── 16. A refusal is distinguishable from an empty container ──────────────────
+-- 2026-07-26 follow-up to PR #85: from the scavenge stuck-counter's point of
+-- view a refused pickup and a looted-out area were identical, so an overloaded
+-- character's backoff logged as "no supply gain" with no hint the mod was
+-- full.  The carry gate now returns the fail label "carry_full" as a second
+-- value, which _queueTransfer's tail-call callers propagate unchanged.
+print("\n=== Test 16: a carry-gate refusal reports carry_full; an empty area does not ===")
+do
+    resetQueue()
+    local pFull = MockPlayer.new({ moodles = { [MoodleType.HEAVY_LOAD] = LIMIT } })
+    placeContainer({ makeFood("Beans", 1) })
+    local ok, why = AutoPilot_Inventory.lootNearbyFood(pFull)
+    assert_false("food loot refused", ok)
+    assert_eq("and the refusal names carry_full", why, "carry_full")
+
+    placeContainer({ makeDrink("WaterBottle", 1) })
+    local okD, whyD = AutoPilot_Inventory.lootNearbyDrink(
+        MockPlayer.new({ hasRoom = false }))
+    assert_false("drink loot refused", okD)
+    assert_eq("and the drink refusal names carry_full", whyD, "carry_full")
+
+    -- The behaviour difference: the SAME overloaded character over an EMPTY
+    -- container reports no fail label at all — nothing was refused.
+    placeContainer({})
+    local okE, whyE = AutoPilot_Inventory.lootNearbyFood(pFull)
+    assert_false("nothing to loot", okE)
+    assert_eq("an empty area carries no fail label", whyE, nil)
+    assert_eq("nothing was queued anywhere in this test", #ISTimedActionQueue_calls, 0)
+end
+
 -- ── Summary ───────────────────────────────────────────────────────────────────
 print(("\n=== carry capacity: %d passed, %d failed ==="):format(PASS, FAIL))
 if FAIL > 0 then os.exit(1) end

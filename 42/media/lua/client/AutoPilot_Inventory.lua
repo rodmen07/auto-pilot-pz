@@ -338,6 +338,13 @@ end
 -- adjacent before transferring; this function prepends a walk-to when the
 -- container is more than 2 tiles away.
 -- Returns true on success, false when PZ refuses the action (MP-unsafe path).
+-- A carry-gate refusal returns false PLUS the fail label "carry_full", so a
+-- caller can tell "the pickup was refused" apart from "nothing was found" —
+-- the two were indistinguishable in telemetry, which made an overloaded
+-- character's scavenge backoff log as "no supply gain" with no hint the mod
+-- was full (2026-07-26 follow-up to PR #85).  The label travels through the
+-- public loot functions' tail calls (return _queueTransfer(...)), and callers
+-- that ignore the second value are byte-for-byte unaffected.
 -- allowOverload=true skips the carry-capacity gate.  Reserved for transfers the
 -- mod must make even at the cost of a Heavy Load moodle (bleeding out beats
 -- encumbrance); every discretionary pickup leaves it nil and is gated.
@@ -345,7 +352,7 @@ local function _queueTransfer(player, item, container, label, allowOverload)
     if not allowOverload and not AutoPilot_Utils.hasCarryRoom(player, item) then
         print("[Inventory] Skipping " .. label
             .. " — carrying too much already (Heavy Load / no capacity).")
-        return false
+        return false, "carry_full"
     end
 
     -- Resolve the world square of the container (nil for player-inventory containers).

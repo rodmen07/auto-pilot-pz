@@ -379,6 +379,7 @@ local REASON_LABELS = {
     -- "why is it doing nothing" (set via setDecision's fail_reason argument)
     pain_block     = "sleep blocked by pain",
     panic          = "sleep blocked by panic",
+    carry_full     = "carrying too much",
 }
 
 -- Exposed read-only for the drift-guard test (tests/test_reason_line.lua),
