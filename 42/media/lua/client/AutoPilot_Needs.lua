@@ -782,38 +782,16 @@ function AutoPilot_Needs.preferredExerciseType(player)
     return AutoPilot_Exercise.preferredExerciseType(player)
 end
 
--- Returns a snapshot of current stat levels for state reporting.
--- B42: Uses player:getStats():get(CharacterStat.XXX) pattern.
---
--- SCOPE NOTE (verified 2026-07-25, do not inherit): this snapshot is NOT the
--- telemetry run log.  AutoPilot_Telemetry writes its own field list and does not
--- call this function.  The only in-mod caller is printStatus below, which has no
--- callers of its own and whose `print` is noop-shadowed at the top of this file,
--- so nothing currently observes the returned table outside the test suites.
-function AutoPilot_Needs.getMoodleSnapshot(player)
-    return {
-        hungry   = math.floor(AutoPilot_Utils.safeStat(player, CharacterStat.HUNGER) * 100),
-        thirsty  = math.floor(AutoPilot_Utils.safeStat(player, CharacterStat.THIRST) * 100),
-        tired    = math.floor(AutoPilot_Utils.safeStat(player, CharacterStat.FATIGUE) * 100),
-        panicked = math.floor(AutoPilot_Utils.safeStat(player, CharacterStat.PANIC)),
-        injured  = safeMoodleLevel(player, MoodleType.PAIN),
-        -- SICKNESS and STRESS are 0.0-1.0 stats, so they need the same * 100 as
-        -- hunger/thirst/fatigue to report a percentage.  Without it math.floor
-        -- truncated every value under 1.0 to 0 and both keys read 0 forever.
-        -- PANIC and BOREDOM are already 0-100 integers and must NOT be scaled.
-        -- The per-stat scales are recorded in tests/lua_mock_pz.lua's
-        -- CharacterStatScale, and tests/test_stat_scales.lua checks this
-        -- function's two expression shapes against it.
-        sick     = math.floor(AutoPilot_Utils.safeStat(player, CharacterStat.SICKNESS) * 100),
-        stressed = math.floor(AutoPilot_Utils.safeStat(player, CharacterStat.STRESS) * 100),
-        bored    = math.floor(AutoPilot_Utils.safeStat(player, CharacterStat.BOREDOM)),
-        -- SANITY reads high when healthy; the UNHAPPY moodle (0-4) is the real
-        -- low-mood signal. Keep the "sad" key for log-parser compatibility.
-        -- MoodleType.UNHAPPY, not .Unhappy — see doMoodRelief for the engine
-        -- citation; the CamelCase spelling made this read 0 unconditionally.
-        sad      = safeMoodleLevel(player, MoodleType.UNHAPPY),
-    }
-end
+-- V6.1-3 (2026-07-26): getMoodleSnapshot and printStatus were DELETED here.
+-- The snapshot was computed for nobody: printStatus was its only in-mod caller,
+-- printStatus itself had zero callers, and its `print` is the noop-shadowed
+-- local at the top of this file.  The F11 panel, the HUD reason line and the
+-- telemetry run log are the living reporting surfaces; a second, dead stat
+-- vocabulary invites exactly the scale drift PR #84 had to fix inside it.
+-- Anti-resurrection assertions live in tests/test_priority_logic.lua; the
+-- percent-report scale finder in tests/test_stat_scales.lua stays armed via
+-- its synthetic controls, so a re-added report is still scale-checked.
+-- Recoverable from git history; spec in docs/MILESTONE_V6_1.md section V6.1-3.
 
 --- Force a single survival action if needed.
 function AutoPilot_Needs.forceSurvival(player)
@@ -846,15 +824,4 @@ end
 
 function AutoPilot_Needs.forceExercise(player)
     return AutoPilot_Exercise.doExercise(player)
-end
-
-
-function AutoPilot_Needs.printStatus(player)
-    local moodles = AutoPilot_Needs.getMoodleSnapshot(player)
-    print(string.format(
-        "[Needs] Status: health=%.0f%% endurance=%.0f%% hungry=%d thirsty=%d tired=%d bored=%d",
-        player:getHealth() * 100,
-        AutoPilot_Utils.safeStat(player, CharacterStat.ENDURANCE) * 100,
-        moodles.hungry, moodles.thirsty, moodles.tired, moodles.bored
-    ))
 end

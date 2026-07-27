@@ -32,7 +32,11 @@
 --     can express "this is bad".  It was removed, not rescaled.)
 --   * AutoPilot_Needs.getMoodleSnapshot reported `sick` and `stressed` as
 --     math.floor(value) with no * 100, so both keys read 0 for any character
---     short of the maximum.
+--     short of the maximum.  (V6.1-3, 2026-07-26: getMoodleSnapshot and its
+--     only caller printStatus were dead code and have been DELETED, so
+--     production currently carries ZERO percent-report expressions.  The
+--     report finder below stays, kept honest by the synthetic controls in
+--     Test 5, so a re-added report is still scale-checked on arrival.)
 --
 -- Test 8 of test_threat_logic is the reason this went unseen for so long: its
 -- "all stats fine" fixture set SICKNESS/STRESS/SANITY to 0, which passes under
@@ -126,11 +130,15 @@ local function findThresholdEntries(text)
 end
 
 -- ── Finder 2: percent-report expressions ─────────────────────────────────────
--- getMoodleSnapshot reports every stat as an integer percentage, in two shapes:
+-- The integer-percentage report shape, in its two variants:
 --   math.floor(safeStat(p, CharacterStat.X) * 100)  -- X must be 0.0-1.0
 --   math.floor(safeStat(p, CharacterStat.X))        -- X must be 0-100
 -- The unscaled pattern cannot match a scaled expression: it requires the
 -- closing paren immediately after safeStat's, and `* 100` sits between them.
+-- getMoodleSnapshot, the shape's only production source, was deleted in V6.1-3
+-- (2026-07-26), so production currently carries zero instances (asserted in
+-- Test 2).  The finder stays so any re-added report is scale-checked; Test 5's
+-- synthetic controls prove on every run that it still fires.
 local SCALED_PATTERN =
     "math%.floor%(%s*AutoPilot_Utils%.safeStat%(%s*[%w_]+%s*," ..
     "%s*CharacterStat%.([%w_]+)%s*%)%s*%*%s*100%s*%)"
@@ -238,13 +246,21 @@ for _, path in ipairs(files) do
 end
 assert_eq("every discovered module is readable", #unreadable, 0)
 
--- Both finders must still match something.  If a refactor changes the shape of
--- either construct, this fails loudly instead of the guard silently checking an
--- empty set -- the failure mode that lets a dead guard look green forever.
+-- The threshold finder must still match something.  If a refactor changes the
+-- shape of that construct, this fails loudly instead of the guard silently
+-- checking an empty set -- the failure mode that lets a dead guard look green
+-- forever.
 assert_true(("threshold-table entries found (got %d)"):format(entryCount),
     entryCount > 0)
-assert_true(("percent-report expressions found (got %d)"):format(reportCount),
-    reportCount > 0)
+-- Percent reports are the opposite case since V6.1-3 deleted their only
+-- production source (getMoodleSnapshot): ZERO instances is the expected state,
+-- and this assertion makes re-adding the shape a deliberate act -- a new report
+-- must update this expectation (and gets scale-checked by Test 3 on arrival).
+-- The finder's own health is proven by Test 5's synthetic controls, not by
+-- production presence.
+assert_eq(("percent-report expressions in production (got %d; the dead "
+    .. "getMoodleSnapshot source was deleted in V6.1-3)"):format(reportCount),
+    reportCount, 0)
 
 -- ── 3. The finding: no production read uses the wrong scale ──────────────────
 print("\n-- Test 3: no production code reads a stat on the wrong scale")
@@ -263,23 +279,21 @@ end
 assert_eq("zero wrong-scale stat reads in production code", #allViolations, 0)
 
 -- ── 4. Every guarded construct really is guarded ─────────────────────────────
--- Named checks that the two constructs this suite exists for are present, so
--- deleting one is a deliberate act with a red build rather than a silent loss
--- of coverage.
-print("\n-- Test 4: the two known constructs are still under the guard")
+-- Named check that the threshold construct this suite exists for is present, so
+-- deleting it is a deliberate act with a red build rather than a silent loss
+-- of coverage.  (This test originally also asserted getMoodleSnapshot's percent
+-- reports were parsed -- exactly the red build it promised.  V6.1-3 deleted
+-- that dead function deliberately, so the report half moved to Test 2's
+-- zero-instances assertion; resurrection is caught there and by the nil checks
+-- in tests/test_priority_logic.lua.)
+print("\n-- Test 4: the known threshold construct is still under the guard")
 do
     local threat = readFile("42/media/lua/client/AutoPilot_Threat.lua")
-    local needs  = readFile("42/media/lua/client/AutoPilot_Needs.lua")
     assert_true("AutoPilot_Threat.lua is readable", threat ~= nil)
-    assert_true("AutoPilot_Needs.lua is readable", needs ~= nil)
 
     local entries = threat and findThresholdEntries(threat) or {}
     assert_true(("NEGATIVE_STAT_CHECKS entries are parsed (got %d)"):format(#entries),
         #entries > 0)
-
-    local reports = needs and findPercentReports(needs) or {}
-    assert_true(("getMoodleSnapshot percent reports are parsed (got %d)"):format(#reports),
-        #reports > 0)
 
     -- The two stats whose entries were unreachable must now be present AND
     -- flagged as fractional.  This is the regression proof for the fix itself:
