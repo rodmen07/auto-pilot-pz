@@ -1,6 +1,11 @@
 # AutoPilot V6.0: scope, defaults, and done-when
 
-> ## STATUS: DECIDED, not proposed (user decision 2026-07-26)
+> ## STATUS: CODE-COMPLETE (all three slices merged 2026-07-26; see section 8)
+>
+> What remains is the user's in-game smoke test (section 7) and the v0.2.0 release that
+> section 8 names and holds on it. The original decision record follows unedited.
+
+> ## Original status: DECIDED, not proposed (user decision 2026-07-26)
 >
 > `docs/EXPANSION_PROPOSAL_V6.md` asked for a decision and got one. This document is the
 > other half: what the decision actually means in code, sliced into increments, with every
@@ -202,7 +207,11 @@ deferred, so silence ships the right-hand column.
   question in the backlog stays open and unblocked by anything here.
 - No change to `AutoPilot_Threat`, no change to the carry-capacity gate from PR #85, and no
   change to the mood arm's "never worsen the moodle you are treating" rule.
-- No version bump, tag, or Workshop update: all USER-ONLY.
+- No version bump, tag, or Workshop update inside the three slices themselves.
+  (RECONCILED 2026-07-26: this bullet originally read "all USER-ONLY", written hours before
+  the same-day user decision recorded in the autodev SKILL.md that DELEGATED version bumps,
+  tag pushes and GitHub release cuts to the agent. Only the Steam Workshop upload that may
+  follow a release is still USER-ONLY. The v0.2.0 release decision itself is in section 8.)
 
 ## 7. What only the user can settle
 
@@ -212,3 +221,48 @@ deferred, so silence ships the right-hand column.
 - Whether the section 2 starvation gap has actually been observed in a real run. It is proven at
   source and in the item scripts, and the fix is in slice 1 either way, but a real run log line
   would upgrade it from source-verified to observed.
+
+## 8. Outcome (added 2026-07-26, after implementation)
+
+**All three slices merged to `main` on 2026-07-26, in dependency order, each on its own PR:**
+
+| Slice | PR | Squash | What shipped |
+|---|---|---|---|
+| V6.0-1 malus-aware EAT ranking | [#88](https://github.com/rodmen07/auto-pilot-pz/pull/88) | `ab8403b` | `isFoodSafe` split into `isFoodEdible` (safety, now also rejecting `getPoisonPower() > 0` and `isTainted()`) + public `foodMalusScore` (preference); the three hunger-path selectors rank malus-free first; closes the section 2 starvation gap. |
+| V6.0-2 malus-aware LOOT preference | [#90](https://github.com/rodmen07/auto-pilot-pz/pull/90) | `4ddf0d8` | `lootNearbyFood` ranks malus-free first through the same `foodMalusScore`; the what-counts predicate untouched, so the loot-predicate-superset-of-`getSupplyCounts` invariant holds (drift-guarded by `tests/test_food_malus.lua` Test 14). |
+| V6.0-3 decision-reason visibility | [#92](https://github.com/rodmen07/auto-pilot-pz/pull/92) | `a7ee36d` | `AutoPilot_Telemetry.getDecisionReason` + one pure formatter (`AutoPilot.reasonLine`) rendered by BOTH the F11 panel and the HUD (Q5 default shipped); `tests/test_reason_line.lua` drift-guards labels against the emitting sources. |
+
+Verification state at close (measured live 2026-07-26 at `fd4c666`, not carried forward):
+luacheck 0 warnings / 0 errors across 23 files; 25 Lua suites, 1500 assertions, 0 failures;
+pytest 151 passed, 0 failed. CI green on `main` (latest run `30228778742`).
+
+**Defaults disposition:** Q1-Q5 all shipped as their recommended defaults by silence. Q2
+(poison knowledge) remains reversible at a recorded, bounded cost: one predicate in
+`isFoodEdible` plus the six poison assertions in `tests/test_food_malus.lua` Test 7 — the
+exact reversal recipe is in the backlog's open Q2 follow-up.
+
+**Release decision (recorded 2026-07-26, Product role): v0.2.0 is the named release that
+carries V6.0** (and everything merged since the 0.1.0 reset, PRs #74-#93). **It is
+deliberately HELD, not cut today.** Grounds, none of which is a USER-ONLY tag marker (tags
+and releases are delegated):
+
+1. The release checklist is unmet on `main` today: no release prep exists (all four
+   sync-guarded version points still read 0.1.0, and `CHANGELOG.md`'s `[Unreleased]` carries
+   nothing merged after PR #83 — verified by grep: zero hits for the V6.0 slice vocabulary).
+2. This milestone's own remaining done-when is the in-game smoke test (section 7), and the
+   2026-07-26 session log proved three PREVIOUSLY shipped behaviors (unhappiness-relief food,
+   boredom relief, towel dry-off) had still never fired in a real session — tagging a version
+   whose headline behavior has zero in-game evidence invites an immediate v0.2.1.
+3. The channel users actually install from (Steam Workshop) is USER-ONLY and gated on the
+   same smoke test, so a tag today reaches nobody that `main` does not.
+
+**Observable clearing condition:** the user reports the V6.0 smoke-test outcome. On a pass,
+the release-prep slice in the backlog (CHANGELOG backfill for #84-#93, version bump
+0.1.0 -> 0.2.0 across the four sync-guarded points) ships as a normal PR, and the tag push +
+GitHub release follow immediately under the standing delegation — no further permission
+needed. The first real tag also finally exercises `release.yml`'s tag-push-only steps, which
+have never run (standing DevSecOps item).
+
+**What comes next:** `docs/MILESTONE_V6_1.md` (proposed the same day) — its slice 1 needs an
+explicit user answer because it reverses endurance defaults the user chose directly in V5.7;
+its slices 2 and 3 are ordinary bug-queue work and actionable now.
