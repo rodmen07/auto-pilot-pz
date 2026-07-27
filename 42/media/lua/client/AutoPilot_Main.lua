@@ -375,6 +375,7 @@ local REASON_LABELS = {
     low_supplies   = "supplies low",
     wet            = "soaked",
     no_towel       = "wet, no towel",
+    stalled        = "broadcast not helping",
     -- fail reasons: the engine refused the queued action; these answer
     -- "why is it doing nothing" (set via setDecision's fail_reason argument)
     pain_block     = "sleep blocked by pain",

@@ -36,7 +36,10 @@
 --   * checkPlayer skips a line the character already heard
 --     (player:isKnownMediaLine(guid), line 194), so a single device gives
 --     DIMINISHING returns over a long run -- it is a relief source, not an
---     infinite one.
+--     infinite one.  The stall backoff below exists for exactly this: when a
+--     tuned stretch runs a full MEDIA_STALL_WINDOW_MS without boredom falling,
+--     the arm stops claiming relief for MEDIA_STALL_BACKOFF_MS so the outdoor
+--     walk can run instead of being suppressed by a device that has gone dry.
 --   * checkPlayer returns early when the device square and the player square
 --     disagree on isOutside() (line 186), which is exactly why the caller
 --     refuses to walk outdoors while a live device is in range.
@@ -57,9 +60,12 @@ local print = _apNoop
 
 AutoPilot_Media = {}
 
-local MEDIA_SEARCH_DIST     = AutoPilot_Constants.MEDIA_SEARCH_DIST
-local MEDIA_BROADCAST_RANGE = AutoPilot_Constants.MEDIA_BROADCAST_RANGE
-local MEDIA_COOLDOWN_MS     = AutoPilot_Constants.MEDIA_COOLDOWN_MS
+local MEDIA_SEARCH_DIST      = AutoPilot_Constants.MEDIA_SEARCH_DIST
+local MEDIA_BROADCAST_RANGE  = AutoPilot_Constants.MEDIA_BROADCAST_RANGE
+local MEDIA_COOLDOWN_MS      = AutoPilot_Constants.MEDIA_COOLDOWN_MS
+local MEDIA_STALL_WINDOW_MS  = AutoPilot_Constants.MEDIA_STALL_WINDOW_MS
+local MEDIA_STALL_BACKOFF_MS = AutoPilot_Constants.MEDIA_STALL_BACKOFF_MS
+local MEDIA_STALL_MIN_OBS    = AutoPilot_Constants.MEDIA_STALL_MIN_OBS
 
 -- Guards against re-walking to the same device every cycle when the toggle does
 -- not take (no power at this spot, an interrupted walk, a device someone else
@@ -78,6 +84,84 @@ end
 --- Reset the queue cooldown.  Tests only; production never needs it.
 function AutoPilot_Media.resetCooldownForTest()
     _mediaCooldownMs = 0
+end
+
+-- ── Stall detection ("this device stopped helping") ──────────────────────────
+-- Module-level like _mediaCooldownMs, with the same accepted splitscreen
+-- limitation.  The state is device-agnostic on purpose: the arm as a whole is
+-- what the priority chain consults, and a world with several devices in one
+-- broadcast-heard pool stalls together anyway (isKnownMediaLine is per
+-- character, not per device).
+local _stallSinceMs    = 0   -- window start (0 = no window open)
+local _stallLastSeenMs = 0   -- last tuned observation, for streak-break detection
+local _stallBaseline   = 0   -- normalised boredom at window start
+local _stallObs        = 0   -- tuned observations inside the current window
+local _stallUntilMs    = 0   -- backoff active until this game time
+
+--- Reset the stall state.  Tests only; production never needs it.
+function AutoPilot_Media.resetStallForTest()
+    _stallSinceMs, _stallLastSeenMs, _stallBaseline = 0, 0, 0
+    _stallObs, _stallUntilMs = 0, 0
+end
+
+-- Scale-agnostic malus reading (the V6.0 hard requirement).  BOREDOM is 0-100
+-- in 42.19 (CharacterStatScale in tests/lua_mock_pz.lua), but every threshold
+-- here normalises defensively so an engine rescale can neither kill the gate
+-- nor make it permanent.
+local function _norm01(v)
+    if v > 1 then v = v / 100 end
+    return v
+end
+
+-- The smallest boredom fall that counts as "the device is helping": half a
+-- point on the 0-100 scale.  A single BOR-coded line applies amount * 5
+-- (ISRadioInteractions.Interactions.BOR), so real relief clears this easily;
+-- the epsilon only filters float noise.
+local STALL_EPSILON = 0.005
+
+--- One tuned observation.  Returns "stalled" on the cycle that declares a
+--- stall (and arms the backoff), nil otherwise.
+local function _noteTuned(player, ms)
+    local b = _norm01(AutoPilot_Utils.safeStat(player, CharacterStat.BOREDOM))
+
+    -- Below the boredom threshold there is nothing for this arm to relieve on
+    -- the axis it measures, so tuned time is not evidence in either direction
+    -- (the unhappy-only path lands here: UHP lines may still be helping).
+    if b < _norm01(AutoPilot_Constants.BOREDOM_THRESHOLD) then
+        _stallSinceMs, _stallObs = 0, 0
+        _stallLastSeenMs = ms
+        return nil
+    end
+
+    -- No window open, or the tuned streak broke (the character walked away,
+    -- the device lost power, boredom dipped below threshold for a while):
+    -- start measuring fresh rather than judging a stale baseline.
+    if _stallSinceMs == 0 or (ms - _stallLastSeenMs) > MEDIA_STALL_WINDOW_MS then
+        _stallSinceMs, _stallBaseline, _stallObs = ms, b, 1
+        _stallLastSeenMs = ms
+        return nil
+    end
+
+    _stallLastSeenMs = ms
+    _stallObs = _stallObs + 1
+
+    if b <= _stallBaseline - STALL_EPSILON then
+        -- Boredom is falling: the device is helping.  Re-baseline so the next
+        -- stall verdict measures from here, and keep watching.
+        _stallSinceMs, _stallBaseline, _stallObs = ms, b, 1
+        return nil
+    end
+
+    if (ms - _stallSinceMs) >= MEDIA_STALL_WINDOW_MS
+        and _stallObs >= MEDIA_STALL_MIN_OBS then
+        -- A full window of tuned game time, enough decision cycles to trust
+        -- it, and boredom never fell: exhausted lines or a dead channel.
+        _stallSinceMs, _stallObs = 0, 0
+        _stallUntilMs = ms + MEDIA_STALL_BACKOFF_MS
+        return "stalled"
+    end
+
+    return nil
 end
 
 --- The device-data handle for a world object, or nil.
@@ -240,17 +324,37 @@ end
 --- caller uses "tuned" for the one decision that genuinely depends on it:
 --- whether to walk outdoors, which would forfeit the relief outright because
 --- checkPlayer refuses to run codes across an inside/outside boundary.
+---
+--- The stall backoff closes the hole "tuned" left open: a device whose lines
+--- are all heard, or tuned to a dead channel, kept answering "tuned" forever
+--- and the outdoor walk stayed suppressed for the rest of the run.  When a
+--- tuned stretch runs MEDIA_STALL_WINDOW_MS without boredom falling, the arm
+--- answers (false, nil) -- a device-free world -- until the backoff expires,
+--- and records the moment via setDecision("media", "stalled") so the run log
+--- and the F11 reason line can say why the character walked away.
 function AutoPilot_Media.doMediaRelief(player)
     if not player then return false, nil end
+
+    local ms = _nowMs()
+    if ms < _stallUntilMs then
+        -- Backed off: the last tuned stretch provably was not helping.  No
+        -- device scan, no tuned claim, no approach; the caller falls through
+        -- to reading and the outdoor walk exactly as if no device existed.
+        return false, nil
+    end
 
     local obj, isOn = AutoPilot_Media.findNearbyDevice(player)
     if not obj then return false, nil end
 
     if isOn and AutoPilot_Media.inBroadcastRange(player, obj) then
+        if _noteTuned(player, ms) == "stalled" then
+            AutoPilot_Telemetry.setDecision("media", "stalled")
+            print("[Media] Broadcasts stopped helping; backing off.")
+            return false, nil
+        end
         return false, "tuned"
     end
 
-    local ms = _nowMs()
     if ms < _mediaCooldownMs then return false, nil end
 
     local dd = _deviceData(obj)

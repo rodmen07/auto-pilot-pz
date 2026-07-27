@@ -124,6 +124,7 @@ local function reset()
     ISTimedActionQueue_calls = {}
     luautils = nil
     AutoPilot_Media.resetCooldownForTest()
+    AutoPilot_Media.resetStallForTest()
     MockTime.advance(120000)
 end
 
@@ -264,6 +265,102 @@ assert_eq("...queueing nothing", queuedTypes(), "")
 MockTime.advance(AutoPilot_Constants.MEDIA_COOLDOWN_MS + 1000)
 assert_true("...and is allowed again once the cooldown expires",
     (AutoPilot_Media.doMediaRelief(player())))
+
+-- ── 12. "This device stopped helping": the stall backoff ─────────────────────
+-- Behaviour difference (L-001): before the backoff, a playing device whose
+-- broadcasts no longer moved boredom (every line already heard, or a dead
+-- channel) answered "tuned" forever, and the caller suppressed the outdoor
+-- walk for the rest of the run.  Now a full MEDIA_STALL_WINDOW_MS of tuned
+-- game time with no boredom fall backs the arm off: it answers (false, nil)
+-- like a device-free world until MEDIA_STALL_BACKOFF_MS expires.  The helping
+-- device (case B) is the ON side of the same difference: identical call
+-- pattern, boredom falling, no stall ever declared.
+
+-- One tuned observation per step: advance the clock, then consult the arm.
+-- Step size 100000 game-ms means the window (600000) elapses at step 6, and
+-- MEDIA_STALL_MIN_OBS (8) becomes the binding condition.
+local function tunedSteps(p, n, stepMs, eachStep)
+    local queued, state
+    for i = 1, n do
+        MockTime.advance(stepMs)
+        if eachStep then eachStep(i) end
+        queued, state = AutoPilot_Media.doMediaRelief(p)
+    end
+    return queued, state
+end
+
+-- A: boredom never falls -> the stall is declared and telemetry records it.
+reset()
+placeDevices({ { label = "tv", dx = 2, dy = 0, mains = true, on = true, tv = true } })
+local statsA = { BOREDOM = 60 }
+local pA = MockPlayer.new({ stats = statsA })
+local sdAction, sdReason
+local realSetDecision = AutoPilot_Telemetry.setDecision
+AutoPilot_Telemetry.setDecision = function(action, reason, ...)
+    sdAction, sdReason = action, reason
+    return realSetDecision(action, reason, ...)
+end
+local qA, sA = AutoPilot_Media.doMediaRelief(pA)       -- opens the window
+assert_false("a flat-boredom tuned device queues nothing", qA)
+assert_eq("...and starts out tuned", sA, "tuned")
+qA, sA = tunedSteps(pA, AutoPilot_Constants.MEDIA_STALL_MIN_OBS - 2, 100000)
+assert_eq("...and is still tuned one observation short of the minimum",
+    sA, "tuned")
+qA, sA = tunedSteps(pA, 1, 100000)                     -- window AND min obs met
+assert_false("the stall cycle queues nothing", qA)
+assert_eq("a full window with no boredom fall drops the tuned claim",
+    tostring(sA), "nil")
+assert_eq("...recording the media decision", sdAction, "media")
+assert_eq("...with the stalled reason", sdReason, "stalled")
+AutoPilot_Telemetry.setDecision = realSetDecision
+
+-- ...the backoff then hides the device entirely, approach path included.
+ISTimedActionQueue_calls = {}
+local qA2, sA2 = AutoPilot_Media.doMediaRelief(pA)
+assert_false("while backed off the arm ignores the playing device", qA2)
+assert_eq("...claiming no tuned state", tostring(sA2), "nil")
+assert_eq("...and queueing nothing", queuedTypes(), "")
+
+-- ...and expires: the arm comes back with a fresh window.
+MockTime.advance(AutoPilot_Constants.MEDIA_STALL_BACKOFF_MS + 1000)
+local qA3, sA3 = AutoPilot_Media.doMediaRelief(pA)
+assert_false("after the backoff the device is visible again", qA3)
+assert_eq("...tuned once more on a fresh window", sA3, "tuned")
+
+-- B: boredom falls while tuned -> the device is helping, no stall ever fires,
+-- even across far more than one window of tuned time.
+reset()
+placeDevices({ { label = "tv", dx = 2, dy = 0, mains = true, on = true, tv = true } })
+local statsB = { BOREDOM = 80 }
+local pB = MockPlayer.new({ stats = statsB })
+AutoPilot_Media.doMediaRelief(pB)                      -- opens the window
+local qB, sB = tunedSteps(pB, 12, 100000, function(_i)
+    statsB.BOREDOM = statsB.BOREDOM - 1                -- a genuine fall each step
+end)
+assert_false("a helping device still never claims the cycle", qB)
+assert_eq("falling boredom keeps the device tuned past the window", sB, "tuned")
+
+-- C: below the boredom threshold, tuned time is not stall evidence (the
+-- unhappy-only path: UHP lines may still be helping a stat this arm cannot see).
+reset()
+placeDevices({ { label = "tv", dx = 2, dy = 0, mains = true, on = true, tv = true } })
+local pC = MockPlayer.new({ stats = { BOREDOM = 10 } })
+AutoPilot_Media.doMediaRelief(pC)
+local qC, sC = tunedSteps(pC, 12, 100000)
+assert_false("a low-boredom tuned device queues nothing", qC)
+assert_eq("low boredom never accrues a stall", sC, "tuned")
+
+-- D: a broken tuned streak restarts the window instead of judging a stale
+-- baseline (the character walked away, came back an hour later still bored).
+reset()
+placeDevices({ { label = "tv", dx = 2, dy = 0, mains = true, on = true, tv = true } })
+local pD = MockPlayer.new({ stats = { BOREDOM = 60 } })
+AutoPilot_Media.doMediaRelief(pD)                      -- opens the window
+MockTime.advance(AutoPilot_Constants.MEDIA_STALL_WINDOW_MS + 100000)
+local qD, sD = AutoPilot_Media.doMediaRelief(pD)       -- gap exceeds the window
+assert_false("a rejoined device queues nothing", qD)
+assert_eq("a broken tuned streak restarts the window, not a stall verdict",
+    sD, "tuned")
 
 -- ── Summary ───────────────────────────────────────────────────────────────────
 print(("\n%d passed, %d failed"):format(PASS, FAIL))
