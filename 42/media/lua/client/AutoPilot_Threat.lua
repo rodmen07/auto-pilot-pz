@@ -483,14 +483,18 @@ function AutoPilot_Threat.check(player)
         return false
     end
 
-    -- Engage stutter prevention (V5.6): if the fight OR flee queued on an
-    -- earlier cycle is still executing, leave the queue completely alone.
-    -- Pre-V5.6 only the flee path set this guard, so a queued fight was wiped
-    -- by the clear below ~0.75 s later, every cycle, forever.
+    -- Evade stutter prevention (V5.6, labels renamed V6.1-2): if the flee walk
+    -- queued on an earlier cycle is still executing, leave the queue completely
+    -- alone.  (Historical: pre-V5.6 only the flee path set this guard, so the
+    -- then-existing fight path's action was wiped by the clear below ~0.75 s
+    -- later, every cycle, forever.  The fight path is deleted; only a flee can
+    -- hold this guard now, and the reason label says so — the old
+    -- engage-flavoured labels made a run log read as if the mod fights
+    -- zombies, which it cannot.)
     -- (isPlayerDoingAction is the real B42 helper; isAllDone does not exist.)
     if AutoPilot_Threat._engageActive then
         if ISTimedActionQueue.isPlayerDoingAction(player) then
-            AutoPilot_Threat._engageReason = "engage_running"
+            AutoPilot_Threat._engageReason = "evade_running"
             return true
         end
         AutoPilot_Threat._engageActive = false
@@ -499,14 +503,16 @@ function AutoPilot_Threat.check(player)
 
     if AutoPilot_Threat._fleeCooldown > 0 then
         AutoPilot_Threat._fleeCooldown = AutoPilot_Threat._fleeCooldown - 1
-        AutoPilot_Threat._engageReason = "engage_cooldown"
+        AutoPilot_Threat._engageReason = "evade_cooldown"
         return true
     end
 
     -- Pre-equip: make sure the best usable weapon is in hand BEFORE the
-    -- engage decision — a fleeing player can still be caught, and a fighting
-    -- player must not start bare-handed.  Cheap when the current weapon is
-    -- fine (the swap scan only runs on a degraded weapon).
+    -- flee decision — a fleeing player can still be caught, and a caught
+    -- character (or a player taking back control) must not be met
+    -- bare-handed.  The mod never initiates a fight with it (flee-only, see
+    -- the module header).  Cheap when the current weapon is fine (the swap
+    -- scan only runs on a degraded weapon).
     pcall(function() AutoPilot_Inventory.checkAndSwapWeapon(player) end)
 
     -- V5.6: decide FIRST, mutate the queue second.  Deciding before clearing is

@@ -782,6 +782,57 @@ do
         seenY ~= nil and seenY > 9000)
 end
 
+-- 24 (V6.1-2). The guard and cooldown ticks report EVADE labels, not the old
+-- "engage_*" ones.  The 2026-07-26 session logged 90 of 105 combat ticks as
+-- engage_running/engage_cooldown on a path that can only flee (PR #74), so
+-- anyone reading the run log concluded the mod fights zombies.  This drives
+-- the real state machine through its whole lifecycle: decide (flee_horde) →
+-- walk still executing (evade_running) → walk finished, cooldown counting
+-- down (evade_cooldown).  Before the rename, ticks 2 and 3 reported
+-- engage_running/engage_cooldown — reverting the labels in AutoPilot_Threat
+-- flips these assertions.
+print("\n-- Test 24 (V6.1-2): guard and cooldown ticks say evade, never engage")
+do
+    reset(); installQueueModel()
+    AutoPilot_Inventory._weapon = makeUsableWeapon()
+    setZombies(makeRing(7, 4))          -- 7 >= FLEE_HORDE_SIZE
+    local player = healthyPlayer()
+
+    local escapeSq = makeSquareAt(20, 20, 0)
+    local origFind = AutoPilot_Utils.findNearestSquare
+    AutoPilot_Utils.findNearestSquare = function(_cx, _cy, _cz, _r, _pred)
+        return escapeSq
+    end
+
+    -- Tick 1: a fresh decision queues the flee and reports its branch label.
+    assert_true("tick 1: check() returns true", AutoPilot_Threat.check(player))
+    assert_eq("tick 1: one walk queued", #ISTimedActionQueue_calls, 1)
+    assert_eq("tick 1: decision tick reports flee_horde",
+        engageReason(), "flee_horde")
+
+    -- Tick 2: the walk is still in the queue, so the guard claims the cycle.
+    assert_true("tick 2: check() returns true", AutoPilot_Threat.check(player))
+    assert_eq("tick 2: a still-executing flee reports evade_running",
+        engageReason(), "evade_running")
+
+    -- The walk completes: the queue drains, so isPlayerDoingAction goes false.
+    ISTimedActionQueue_calls = {}
+
+    -- Tick 3: the guard clears and the post-walk cooldown claims the cycle.
+    assert_true("tick 3: check() returns true", AutoPilot_Threat.check(player))
+    assert_eq("tick 3: the post-flee cooldown reports evade_cooldown",
+        engageReason(), "evade_cooldown")
+    assert_eq("tick 3: the cooldown queues nothing new",
+        #ISTimedActionQueue_calls, 0)
+
+    -- No tick anywhere in the lifecycle may emit the old vocabulary: the
+    -- flee-only module must never label a cycle as engaging.
+    assert_true("no tick reported an engage_* label",
+        engageReason():find("^engage_") == nil)
+
+    AutoPilot_Utils.findNearestSquare = origFind
+end
+
 -- ── Summary ───────────────────────────────────────────────────────────────────
 print(("\n=== Results: %d passed, %d failed ==="):format(PASS, FAIL))
 if FAIL > 0 then os.exit(1) end
