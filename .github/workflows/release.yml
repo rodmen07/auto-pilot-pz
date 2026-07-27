@@ -152,10 +152,19 @@ jobs:
           echo "Archive integrity check PASSED."
 
       - name: Verify no anthropic import in Python sources
+        # Guards the removed LLM-sidecar architecture: nothing may reintroduce
+        # the Anthropic SDK into this repo's Python surface.  Catches BOTH
+        # import shapes -- the original pattern was the fixed string
+        # "import anthropic", which misses the modern SDK style
+        # `from anthropic import Anthropic` (case-sensitive: the text after
+        # "import " there is the class name, not the module).  The trailing
+        # bracket class keeps lookalike modules (anthropic_utils) legal.
+        # tests/test_release_gate.py executes this body on every PR, in both
+        # directions, so the step can never go dead again.
         run: |
           echo "=== Checking for removed anthropic dependency ==="
-          if grep -rn --include="*.py" "import anthropic" .; then
-            echo "ERROR: 'import anthropic' found — remove the Anthropic SDK dependency."
+          if grep -rnE --include="*.py" "^[[:space:]]*(import|from)[[:space:]]+anthropic([.[:space:]]|$)" .; then
+            echo "ERROR: anthropic import found. The removed LLM sidecar must not come back."
             exit 1
           fi
           echo "PASSED: no anthropic imports detected."
