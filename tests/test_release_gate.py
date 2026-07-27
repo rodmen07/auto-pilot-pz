@@ -42,6 +42,17 @@ single-sourced from the job-level ``env:`` block and asserted here:
   function (the name is what is under test, not the compression) and the latter
   against archives built with :mod:`zipfile` and listed by the real ``unzip``.
 
+And finally the ANTHROPIC-IMPORT half.  ``Verify no anthropic import in Python
+sources`` was the last ``run:`` step in the job with no coverage at all, and it
+is the guard standing between the removed LLM-sidecar architecture and a silent
+reintroduction.  Executing it found the same class of defect the version gate
+had: the original pattern was the fixed string ``import anthropic``, which the
+modern SDK style (``from`` + `` anthropic import Anthropic``, class name
+capitalised after ``import``) sails straight past, so the one import shape a
+reintroduction would actually use was invisible to it.  The step now matches
+both shapes; :class:`TestAnthropicImportGate` proves each direction plus an
+always-on negative control showing the old pattern really was blind.
+
 Implementation notes:
 
 * No PyYAML.  This repo's Python surface is deliberately stdlib only (plus
@@ -72,6 +83,7 @@ MOD_INFO_42 = ROOT / "42" / "mod.info"
 STEP_NAME = "Verify version tag matches mod.info"
 BUILD_STEP = "Build mod archive"
 VERIFY_STEP = "Verify archive contents"
+ANTHROPIC_STEP = "Verify no anthropic import in Python sources"
 RELEASE_STEP = "Create GitHub Release"
 JOB_NAME = "release"
 
@@ -263,7 +275,18 @@ WORKFLOW_TEXT = RELEASE_WORKFLOW.read_text(encoding="utf-8")
 GATE_SCRIPT = extract_step_script(WORKFLOW_TEXT, STEP_NAME)
 BUILD_SCRIPT = extract_step_script(WORKFLOW_TEXT, BUILD_STEP)
 VERIFY_SCRIPT = extract_step_script(WORKFLOW_TEXT, VERIFY_STEP)
+ANTHROPIC_SCRIPT = extract_step_script(WORKFLOW_TEXT, ANTHROPIC_STEP)
 JOB_ENV = extract_job_env(WORKFLOW_TEXT, JOB_NAME)
+
+# The forbidden import shapes, assembled by concatenation so this module can
+# never trip the gate it tests: the release job runs the real step against the
+# real tree, and this file is a .py source inside that tree.  (The constant
+# folding a .pyc performs is harmless because the step scans
+# ``--include="*.py"`` only.)
+PLAIN_IMPORT = "import" + " " + "anthropic"
+FROM_IMPORT = "from" + " " + "anthropic" + " import Anthropic"
+FROM_SUBMODULE = "from" + " " + "anthropic" + ".types import Message"
+LOOKALIKE_IMPORT = "from" + " " + "anthropic" + "_utils import helper"
 
 # `zip` is present on ubuntu-latest but not on every dev box, and what is under
 # test is the NAME the build step passes, not the compression.  A shell
@@ -374,6 +397,33 @@ def run_verify_step(
             [bash, "-e", "-c", VERIFY_SCRIPT],
             cwd=tmp,
             env=env,
+            capture_output=True,
+            text=True,
+        )
+
+
+def run_anthropic_step(
+    files: dict[str, str],
+    script: str | None = None,
+) -> subprocess.CompletedProcess:
+    """Run the anthropic-import step against a synthetic source tree.
+
+    ``files`` maps relative paths to contents; parent directories are created,
+    so nested layouts (``tests/x.py``, ``docs/y.md``) work.  ``script``
+    defaults to the body extracted from the workflow; the negative control
+    passes the reconstructed pre-fix body instead.
+    """
+    bash = _require_bash()
+    body = ANTHROPIC_SCRIPT if script is None else script
+    with tempfile.TemporaryDirectory() as tmp:
+        for rel, content in files.items():
+            path = Path(tmp) / rel
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(content, encoding="utf-8")
+        return subprocess.run(
+            [bash, "-e", "-c", body],
+            cwd=tmp,
+            env=dict(os.environ),
             capture_output=True,
             text=True,
         )
@@ -661,6 +711,136 @@ class TestArchiveIntegrityCheckActuallyChecks(unittest.TestCase):
             "the integrity check passed against an archive it was not pointed at: "
             f"{result.stdout}{result.stderr}",
         )
+
+
+class TestAnthropicImportGate(unittest.TestCase):
+    """The last run step in the release job whose logic nothing had executed.
+
+    It guards the removed LLM-sidecar architecture: nothing may reintroduce
+    the Anthropic SDK into this repo's Python surface.  Running it found the
+    same defect class the version gate had when IT first ran: the original
+    fixed-string pattern missed the modern SDK import style entirely (the
+    text after ``import `` in a ``from`` import is the capitalised class
+    name, and the old grep was case-sensitive with no ``from`` alternative),
+    so the one shape a reintroduction would actually use went straight past
+    the gate.
+    """
+
+    CLEAN_TREE = {
+        "triage_run_log.py": "import sys\n\n\ndef main() -> int:\n    return 0\n",
+        "tests/test_example.py": "import unittest\n",
+    }
+
+    def test_script_is_non_empty_and_is_the_real_check(self) -> None:
+        self.assertTrue(ANTHROPIC_SCRIPT.strip(), "extracted anthropic script is empty")
+        self.assertIn("anthropic", ANTHROPIC_SCRIPT)
+        self.assertIn('--include="*.py"', ANTHROPIC_SCRIPT)
+
+    def test_a_clean_tree_passes(self) -> None:
+        result = run_anthropic_step(self.CLEAN_TREE)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("PASSED", result.stdout)
+
+    def test_a_plain_import_fails(self) -> None:
+        files = dict(self.CLEAN_TREE)
+        files["sidecar.py"] = PLAIN_IMPORT + "\n\nclient = None\n"
+        result = run_anthropic_step(files)
+        self.assertNotEqual(result.returncode, 0, result.stdout)
+        self.assertIn("ERROR", result.stdout)
+
+    def test_an_indented_lazy_import_fails(self) -> None:
+        """An import inside a function body is still a reintroduction."""
+        files = dict(self.CLEAN_TREE)
+        files["sidecar.py"] = "def lazy():\n    " + PLAIN_IMPORT + "\n"
+        result = run_anthropic_step(files)
+        self.assertNotEqual(result.returncode, 0, result.stdout)
+
+    def test_the_from_import_form_fails(self) -> None:
+        """The modern SDK style, invisible to the original fixed-string grep."""
+        files = dict(self.CLEAN_TREE)
+        files["sidecar.py"] = FROM_IMPORT + "\n"
+        result = run_anthropic_step(files)
+        self.assertNotEqual(result.returncode, 0, result.stdout)
+        self.assertIn("ERROR", result.stdout)
+
+    def test_a_submodule_from_import_fails(self) -> None:
+        files = dict(self.CLEAN_TREE)
+        files["sidecar.py"] = FROM_SUBMODULE + "\n"
+        result = run_anthropic_step(files)
+        self.assertNotEqual(result.returncode, 0, result.stdout)
+
+    def test_a_lookalike_module_does_not_trip(self) -> None:
+        """``anthropic_utils`` is somebody else's module, not the SDK."""
+        files = dict(self.CLEAN_TREE)
+        files["helper.py"] = LOOKALIKE_IMPORT + "\n"
+        result = run_anthropic_step(files)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_a_commented_mention_does_not_trip(self) -> None:
+        """History notes in comments must not block a release."""
+        files = dict(self.CLEAN_TREE)
+        files["notes.py"] = "# " + PLAIN_IMPORT + " was removed with the sidecar\n"
+        result = run_anthropic_step(files)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_non_python_files_are_not_scanned(self) -> None:
+        files = dict(self.CLEAN_TREE)
+        files["docs/history.md"] = "The sidecar used `" + PLAIN_IMPORT + "`.\n"
+        result = run_anthropic_step(files)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_negative_control_the_old_pattern_missed_the_from_form(self) -> None:
+        """Always-on control: the pre-fix pattern really was blind.
+
+        The original body's grep was the fixed string ``import anthropic``.
+        Reconstruct that body by swapping the grep line back, feed it the
+        ``from`` form, and it must PASS (that is the missed detection).  The
+        same tree fails under the current script above, so together the two
+        prove the pattern change is a behavior difference and not cosmetics.
+        If this control ever fails, the old pattern caught the form after
+        all and the premise of the change should be re-derived.
+        """
+        old_grep = 'if grep -rn --include="*.py" "' + PLAIN_IMPORT + '" .; then'
+        lines = ANTHROPIC_SCRIPT.splitlines()
+        swapped = False
+        for i, line in enumerate(lines):
+            if line.lstrip().startswith("if grep"):
+                indent = line[: len(line) - len(line.lstrip())]
+                lines[i] = indent + old_grep
+                swapped = True
+                break
+        self.assertTrue(swapped, "control could not locate the grep line to swap")
+        old_script = "\n".join(lines)
+
+        files = dict(self.CLEAN_TREE)
+        files["sidecar.py"] = FROM_IMPORT + "\n"
+        result = run_anthropic_step(files, script=old_script)
+        self.assertEqual(
+            result.returncode,
+            0,
+            "the pre-fix fixed-string pattern now catches the from-import form; "
+            "re-derive the fix before trusting it:\n"
+            f"{result.stdout}{result.stderr}",
+        )
+        self.assertIn("PASSED", result.stdout)
+
+    def test_the_real_tree_releases_clean(self) -> None:
+        """Run the step against THIS repo, exactly as a tag push would.
+
+        Proves at PR time that the next real release will not fail on this
+        step, and that this module's own fixtures never leak a forbidden
+        string into a scanned file.
+        """
+        bash = _require_bash()
+        result = subprocess.run(
+            [bash, "-e", "-c", ANTHROPIC_SCRIPT],
+            cwd=ROOT,
+            env=dict(os.environ),
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("PASSED", result.stdout)
 
 
 if __name__ == "__main__":
