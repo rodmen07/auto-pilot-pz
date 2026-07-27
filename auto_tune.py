@@ -93,12 +93,20 @@ def load_tune_results() -> list[dict[str, Any]]:
 
 
 def init_best_from_results(all_results: list[dict[str, Any]]) -> dict[str, Any]:
-    best: dict[str, Any] = {'score': -1, 'params': None, 'result': None}
+    # best['score'] starts as None, NOT a numeric sentinel: score is
+    # mean_ticks - 50*deaths - 100*timeouts and can be legitimately negative
+    # (an early death makes it so), and the old -1 sentinel silently discarded
+    # every negative score, so an all-negative grid burned real game runs and
+    # then reported params=None. Incomplete entries are excluded to match the
+    # live loop in main(), which never lets an incomplete tuple become best.
+    best: dict[str, Any] = {'score': None, 'params': None, 'result': None}
     for entry in all_results:
         score = entry.get('score')
         if score is None:
             continue
-        if score > best['score']:
+        if entry.get('incomplete'):
+            continue
+        if best['score'] is None or score > best['score']:
             best = {
                 'score': score,
                 'params': (
@@ -211,7 +219,7 @@ def main():
             all_results.append(entry)
             done_params.add((thirst, hunger, flee))
 
-            if not incomplete and score > best['score']:
+            if not incomplete and (best['score'] is None or score > best['score']):
                 best.update({'score': score, 'params': (thirst, hunger, flee), 'result': entry})
 
             save_tune_results(best, all_results)
