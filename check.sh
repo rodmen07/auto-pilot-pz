@@ -17,6 +17,18 @@
 #   -- or --
 #   luarocks install luacheck       (cross-platform, needs LuaRocks)
 #   lua5.1 / lua                    (required for Lua logic tests)
+#
+# Skip handling (tested by tests/test_check_sh.py):
+#   A suite whose tool is missing prints SKIP with install instructions, and a
+#   run that skipped ANY suite exits non-zero: a skipped gate did not run, so
+#   the run must not report success. Environment overrides:
+#     CHECK_ALLOW_SKIP=1        accept a degraded run explicitly (exit 0, but
+#                               labelled "degraded run", never a full pass).
+#     CHECK_SIMULATE_MISSING="luacheck lua python"
+#                               test hook: treat the named tools as absent in
+#                               the discovery paths. Absence-only by design --
+#                               it can never make a missing tool look present,
+#                               so it cannot weaken a passing gate.
 
 set -euo pipefail
 
@@ -28,11 +40,32 @@ cd "${SCRIPT_DIR}"
 
 PASS=0
 FAIL=0
+SKIP=0
+SKIPPED_SUITES=""
+
+# Test hook (see header): returns 0 when $1 is listed in CHECK_SIMULATE_MISSING.
+simulated_missing() {
+    case " ${CHECK_SIMULATE_MISSING:-} " in
+        *" $1 "*) return 0 ;;
+    esac
+    return 1
+}
+
+# Tool discovery: found means present on PATH AND not simulated as missing.
+have_tool() {
+    simulated_missing "$1" && return 1
+    command -v "$1" &>/dev/null
+}
+
+record_skip() {
+    SKIP=$((SKIP + 1))
+    SKIPPED_SUITES="${SKIPPED_SUITES:+${SKIPPED_SUITES} }$1"
+}
 
 # ── 1. Lua lint ───────────────────────────────────────────────────────────────
 echo "=== 1/4  Lua lint (luacheck) ==="
 
-if command -v luacheck &>/dev/null; then
+if have_tool luacheck; then
     # Pass files explicitly — directory-mode scan fails on Git Bash/Windows
     if luacheck 42/media/lua/client/*.lua --config .luacheckrc; then
         PASS=$((PASS + 1))
@@ -43,6 +76,7 @@ else
     echo "SKIP  luacheck not found."
     echo "      Windows:  scoop install luacheck"
     echo "      Other:    luarocks install luacheck"
+    record_skip "luacheck"
 fi
 
 echo ""
@@ -98,12 +132,14 @@ echo ""
 echo "=== 3/4  Lua logic tests ==="
 
 LUA_BIN=""
-for candidate in lua lua5.1 lua5.4; do
-    if command -v "$candidate" &>/dev/null; then
-        LUA_BIN="$candidate"
-        break
-    fi
-done
+if ! simulated_missing lua; then
+    for candidate in lua lua5.1 lua5.4; do
+        if command -v "$candidate" &>/dev/null; then
+            LUA_BIN="$candidate"
+            break
+        fi
+    done
+fi
 
 # Discover all Lua test files via glob so local and CI runs cannot diverge.
 # New tests/test_*.lua files are picked up automatically; zero matches is fatal.
@@ -138,6 +174,7 @@ if [[ -n "$LUA_BIN" ]]; then
 else
     echo "SKIP  No Lua interpreter found (lua / lua5.1 / lua5.4)."
     echo "      Install lua5.1 via your package manager or luarocks."
+    record_skip "lua-tests"
 fi
 
 echo ""
@@ -145,17 +182,33 @@ echo ""
 # ── 4. Python unit tests ──────────────────────────────────────────────────────
 echo "=== 4/4  Python unit tests (pytest) ==="
 
-# Detect python3 first, then fall back to python.
+# Detect python3 first, then fall back to python, then the Windows launcher.
 PYTHON_BIN=""
-for candidate in python3 python; do
-    if command -v "$candidate" &>/dev/null && \
-       "$candidate" -m pytest --version &>/dev/null 2>&1; then
-        PYTHON_BIN="$candidate"
-        break
+if ! simulated_missing python; then
+    for candidate in python3 python py; do
+        if command -v "$candidate" &>/dev/null && \
+           "$candidate" -m pytest --version &>/dev/null; then
+            PYTHON_BIN="$candidate"
+            break
+        fi
+    done
+    # Git Bash on Windows: python.exe installs to C:\Python3XX and is usually
+    # NOT on the Bash PATH (this repo's dev box is exactly that case, and the
+    # old discovery therefore skipped pytest on every local run). Probe the
+    # conventional install roots before giving up.
+    if [[ -z "$PYTHON_BIN" ]]; then
+        for candidate in /c/Python3*/python.exe; do
+            [[ -x "$candidate" ]] || continue
+            if "$candidate" -m pytest --version &>/dev/null; then
+                PYTHON_BIN="$candidate"
+                break
+            fi
+        done
     fi
-done
+fi
 
 if [[ -n "$PYTHON_BIN" ]]; then
+    echo "Using ${PYTHON_BIN}"
     if "$PYTHON_BIN" -m pytest tests/ -v; then
         PASS=$((PASS + 1))
     else
@@ -164,14 +217,27 @@ if [[ -n "$PYTHON_BIN" ]]; then
 else
     echo "SKIP  pytest not found."
     echo "      Install: pip install -r requirements-dev.txt"
+    record_skip "pytest"
 fi
 
 echo ""
 
 # ── Summary ───────────────────────────────────────────────────────────────────
-echo "=== Summary: ${PASS} passed, ${FAIL} failed ==="
+echo "=== Summary: ${PASS} passed, ${FAIL} failed, ${SKIP} skipped ==="
 if [[ $FAIL -gt 0 ]]; then
     echo "Some checks failed."
+    exit 1
+fi
+if [[ $SKIP -gt 0 ]]; then
+    echo "Skipped suite(s): ${SKIPPED_SUITES}"
+    if [[ "${CHECK_ALLOW_SKIP:-0}" == "1" ]]; then
+        echo "CHECK_ALLOW_SKIP=1: accepting a degraded run (skipped suites did NOT run;"
+        echo "this is not a full pass)."
+        exit 0
+    fi
+    echo "FAIL  A skipped suite is a gate that did not run, so this run cannot"
+    echo "      report success. Install the missing tool(s) above, or set"
+    echo "      CHECK_ALLOW_SKIP=1 to accept a degraded run explicitly."
     exit 1
 fi
 echo "All checks passed."
