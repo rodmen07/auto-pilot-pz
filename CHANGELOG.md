@@ -155,7 +155,17 @@ the next Workshop update (the USER-ONLY tag / `sync_workshop.sh` / Update Item f
 
 ### Changed
 
-- **Sleeping now picks the most COMFORTABLE bed in range, not the nearest.** Product decision (user,
+- **The flee-only combat telemetry now says evade, never engage (V6.1-2).** The 2026-07-26 session
+  logged 90 of 105 combat ticks as `engage_running` (78) or `engage_cooldown` (12) on a path that can
+  only flee -- PR #74 deleted the fight path because B42 exposes no AI-attack API -- so anyone reading
+  the run log concluded the mod fights zombies. The two reason labels set by the still-executing-walk
+  guard and the post-flee cooldown in `AutoPilot_Threat.check` are renamed `evade_running` /
+  `evade_cooldown`, and the two comments still describing "the fight OR flee queued" and "a fighting
+  player must not start bare-handed" are reconciled to the flee-only reality. The weapon pre-equip on
+  the threat path STAYS (the milestone's overridable default): a fleeing character can still be caught,
+  and a caught character defends with whatever is in hand -- but the comment now says that, instead of
+  describing a fight the mod cannot start. Historical run logs still parse: the triage and benchmark
+  tools classify by ACTION label (`combat`), not by reason, and carry no `engage_*` strings. (V6.1-2)
   2026-07-24): for SLEEPING prioritise by comfort (bed quality); for RESTING all seating is equal and
   nearest wins (the resting half shipped in PR #69, this is the sleeping half). `AutoPilot_Sleep.bedComfort`
   ranks a candidate bed with the engine's own resolver, `ISWorldObjectContextMenu.getBedQuality` -- the
