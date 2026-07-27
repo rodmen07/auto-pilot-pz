@@ -2552,12 +2552,19 @@ do
     assert_true("check() acts on a realistic unhappy moodle (level 2)", result)
     assert_eq("queues 'eat' (mood relief) for unhappy 2, not exercise/idle",
         last_action_type(), "eat")
-    -- The reporting half of the same defect: getMoodleSnapshot's `sad` key is fed
-    -- by the same lookup, so while the constant was misspelled it read 0 no matter
-    -- how miserable the character was.  (That snapshot is NOT the telemetry run
-    -- log, which keeps its own field list -- see the SCOPE NOTE on the function.)
-    assert_eq("the state snapshot reports the unhappy level, not 0",
-        AutoPilot_Needs.getMoodleSnapshot(p).sad, 2)
+    -- V6.1-3 (2026-07-26): this test used to also assert on getMoodleSnapshot's
+    -- `sad` key, fed by the same UNHAPPY lookup.  That snapshot and its only
+    -- caller printStatus were DEAD CODE (printStatus had zero callers and its
+    -- `print` is noop-shadowed) and were DELETED rather than wired -- the F11
+    -- panel, the HUD reason line and the run log are the living surfaces.  The
+    -- UNHAPPY-spelling regression stays covered by the check() assertions
+    -- above, which read the same safeMoodleLevel lookup through doMoodRelief.
+    -- These two make resurrecting the dead pair a deliberate act with a red
+    -- build (spec: docs/MILESTONE_V6_1.md, V6.1-3).
+    assert_eq("getMoodleSnapshot stays deleted (V6.1-3)",
+        AutoPilot_Needs.getMoodleSnapshot, nil)
+    assert_eq("printStatus stays deleted (V6.1-3)",
+        AutoPilot_Needs.printStatus, nil)
 end
 
 -- ── Rest seating-data preference (bug 2 core, 2026-07-24) ────────────────────

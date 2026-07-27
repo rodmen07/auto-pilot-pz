@@ -153,6 +153,20 @@ the next Workshop update (the USER-ONLY tag / `sync_workshop.sh` / Update Item f
   reads, and the F11/HUD activity string reports `resting (reading)` / `resting (eating)` instead of
   claiming plain recovery.
 
+### Removed
+
+- **The dead `printStatus`/`getMoodleSnapshot` reporting path (V6.1-3).** `AutoPilot_Needs.printStatus`
+  had zero callers anywhere in the mod and printed through the noop-shadowed local `print`, and
+  `getMoodleSnapshot`'s only in-mod caller was `printStatus` itself, so the whole nine-key snapshot
+  (`hungry` through `sad`) was computed for nobody -- a second, dead stat vocabulary beside the living
+  surfaces (the F11 panel, the HUD reason line, the telemetry run log), and exactly where the 2026-07-26
+  scale audit had to fix two wrong-scale reads that no player could ever have seen. Both functions are
+  deleted rather than wired (the milestone doc's overridable default; "wire it" would have routed the
+  snapshot into the run log instead). Anti-resurrection assertions in `tests/test_priority_logic.lua`
+  keep them gone, and the percent-report scale finder in `tests/test_stat_scales.lua` stays armed via
+  its always-on synthetic controls so a re-added report is still scale-checked. No behaviour change:
+  nothing observable ever ran this code.
+
 ### Changed
 
 - **The flee-only combat telemetry now says evade, never engage (V6.1-2).** The 2026-07-26 session
