@@ -414,8 +414,21 @@ do
         emitted[fail] = true
     end
 
+    -- Source D (2026-07-27): the setDecision literals in AutoPilot_Media.lua.
+    -- The media arm emits its own decisions ("media"/"boredom" on an approach,
+    -- "media"/"stalled" when the stall backoff fires), and those literals live
+    -- in Media, which none of the scans above can see.
+    local mediaSrc = assert(
+        io.open("42/media/lua/client/AutoPilot_Media.lua", "r"),
+        "AutoPilot_Media.lua must be readable from the project root")
+    local mediaText = mediaSrc:read("*a")
+    mediaSrc:close()
+    for reason in mediaText:gmatch('setDecision%(%s*"[%w_]+"%s*,%s*"([%w_]+)"') do
+        emitted[reason] = true
+    end
+
     -- Negative control for the extraction itself: if any pattern went
-    -- blind, these five sentinels disappear and the guard fails loudly
+    -- blind, these six sentinels disappear and the guard fails loudly
     -- instead of passing vacuously.
     assert_true("extraction sees a Needs decision reason (hunger_thresh)",
         emitted["hunger_thresh"])
@@ -427,6 +440,8 @@ do
         emitted["wet"])
     assert_true("extraction sees the Inventory fail label carry_full",
         emitted["carry_full"])
+    assert_true("extraction sees the Media stall reason stalled",
+        emitted["stalled"])
 
     local mapped = AutoPilot._REASON_LABELS
     assert_true("the formatter's mapping table is exposed",

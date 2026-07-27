@@ -357,6 +357,24 @@ AutoPilot_Constants.MEDIA_SEARCH_DIST     = 20
 -- Detection is never cooled down; only the queueing path is.
 AutoPilot_Constants.MEDIA_COOLDOWN_MS     = 60000
 
+-- "This device stopped helping" backoff (2026-07-27, PR #82 follow-up).  The
+-- engine skips any broadcast line the character has already heard
+-- (player:isKnownMediaLine, shared/RadioCom/ISRadioInteractions.lua:194), so a
+-- device the character has camped beside for a long run relieves less and
+-- less, and a device tuned to a dead channel never relieved at all -- yet the
+-- arm's "tuned" answer kept suppressing the outdoor walk indefinitely.  If
+-- boredom has not FALLEN after MEDIA_STALL_WINDOW_MS of continuous tuned game
+-- time, observed across at least MEDIA_STALL_MIN_OBS decision cycles (the
+-- cycle count keeps fast-forward from declaring a stall off two samples;
+-- FF-1 records that game time races while the decision cadence does not), the
+-- arm backs off for MEDIA_STALL_BACKOFF_MS: it stops claiming relief entirely,
+-- so reading and the outdoor walk run instead.  The backoff is one game hour
+-- because the broadcast schedule rolls over hourly, which is when a stalled
+-- device is worth trying again.
+AutoPilot_Constants.MEDIA_STALL_WINDOW_MS  = 600000
+AutoPilot_Constants.MEDIA_STALL_BACKOFF_MS = 3600000
+AutoPilot_Constants.MEDIA_STALL_MIN_OBS    = 8
+
 -- Comfort: drying off (the Wet moodle).  Expressed as a 0-1 FRACTION of
 -- CharacterStat.WETNESS, which the engine reports on a 0-100 scale
 -- (ISStatsAndBody.lua:75 registers it with an explicit slider step of 1, the
