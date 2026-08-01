@@ -17,6 +17,19 @@ jobs:
   lint-and-test:
     runs-on: ubuntu-latest
 
+    # THE luacheck PIN.  Declared once, here, and read by BOTH the install step
+    # and the pin guard that follows it, so there is exactly one place to bump
+    # and nothing to keep in sync.  `luarocks install luacheck` with no version
+    # installs whatever luarocks serves that day: a new upstream release can
+    # therefore turn an unrelated pull request red overnight, and a dev box's
+    # luacheck can silently disagree with the one that judges the merge.  Bump
+    # this deliberately, exactly like the action SHA pins above.
+    #
+    # tests/test_luacheck_pin.py reads this value out of the yaml and executes
+    # the guard's real script, so the pin cannot rot into decoration.
+    env:
+      LUACHECK_VERSION: "1.2.0"
+
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -147,7 +160,41 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y lua5.1 luarocks
-          sudo luarocks install luacheck
+          sudo luarocks install luacheck "${LUACHECK_VERSION}"
+
+      # The pin above only helps if the binary that actually runs IS the pinned
+      # one.  A luarocks fallback, a stale runner-image rock, or a typo'd
+      # version would otherwise leave a different linter judging the merge while
+      # the yaml still claims a pin.  Exercised headlessly on every push and PR
+      # by tests/test_luacheck_pin.py, which extracts THIS script and runs it
+      # against fake `luacheck` binaries in both directions.
+      - name: Luacheck pin guard
+        run: |
+          echo "=== Luacheck pin guard: the linter that runs must be the pinned version ==="
+          EXPECTED="${LUACHECK_VERSION:-}"
+          if [ -z "$EXPECTED" ]; then
+            echo "ERROR: LUACHECK_VERSION is unset, so there is no pin to check."
+            echo "The guard has gone blind; it must never pass without a pin."
+            exit 1
+          fi
+          RAW="$(luacheck --version 2>/dev/null | head -n 1 || true)"
+          INSTALLED="$(printf '%s' "$RAW" | grep -oE '[0-9]+\.[0-9]+(\.[0-9]+)?' | head -n 1 || true)"
+          if [ -z "$INSTALLED" ]; then
+            echo "ERROR: no version could be read out of 'luacheck --version' (got: '${RAW}')."
+            echo "The guard has gone blind; it must never pass without a version to compare."
+            exit 1
+          fi
+          if [ "$INSTALLED" != "$EXPECTED" ]; then
+            echo "Luacheck pin guard FAILED: installed ${INSTALLED}, pinned ${EXPECTED}."
+            echo
+            echo "The linter that judges this merge is not the one the workflow pins."
+            echo "Either the install step did not honour the pin, or LUACHECK_VERSION was"
+            echo "changed without checking what luarocks actually serves.  Do not relax the"
+            echo "guard: a linter that drifts silently can redden unrelated pull requests"
+            echo "overnight, and it makes local runs disagree with CI about the same code."
+            exit 1
+          fi
+          echo "Luacheck pin guard PASSED: luacheck ${INSTALLED} matches the pin."
 
       - name: Lua lint
         run: luacheck 42/media/lua/client/*.lua --config .luacheckrc

@@ -66,6 +66,32 @@ record_skip() {
 echo "=== 1/4  Lua lint (luacheck) ==="
 
 if have_tool luacheck; then
+    # Local-vs-CI linter drift, reported before the lint runs.
+    #
+    # CI pins the linter (LUACHECK_VERSION in .github/workflows/ci.yml, enforced
+    # there by the "Luacheck pin guard" step). This box installs its own build
+    # -- scoop on Windows, luarocks elsewhere -- so the two can silently differ,
+    # and a local "0 warnings" would then be a different linter's opinion than
+    # the one that actually gates the merge. The pin is read out of the workflow
+    # so there is still exactly ONE source of truth for it.
+    #
+    # Deliberately INFORMATIONAL, not fatal: a dev box cannot be forced onto a
+    # version, and failing here would block local runs without making CI safer.
+    CI_LUACHECK_PIN="$(grep -oE 'LUACHECK_VERSION:[[:space:]]*"?[0-9]+(\.[0-9]+)*' \
+        .github/workflows/ci.yml 2>/dev/null | grep -oE '[0-9]+(\.[0-9]+)*' | head -n 1 || true)"
+    LOCAL_LUACHECK_VERSION="$(luacheck --version 2>/dev/null | head -n 1 \
+        | grep -oE '[0-9]+(\.[0-9]+)*' | head -n 1 || true)"
+    if [[ -z "$CI_LUACHECK_PIN" ]]; then
+        echo "NOTE  no LUACHECK_VERSION pin found in .github/workflows/ci.yml — cannot compare."
+    elif [[ -z "$LOCAL_LUACHECK_VERSION" ]]; then
+        echo "NOTE  local luacheck version unreadable — cannot compare against CI pin ${CI_LUACHECK_PIN}."
+    elif [[ "$LOCAL_LUACHECK_VERSION" != "$CI_LUACHECK_PIN" ]]; then
+        echo "NOTE  local luacheck ${LOCAL_LUACHECK_VERSION} differs from the CI pin ${CI_LUACHECK_PIN}."
+        echo "      CI's verdict is the one that gates the merge; install ${CI_LUACHECK_PIN} to match."
+    else
+        echo "NOTE  local luacheck ${LOCAL_LUACHECK_VERSION} matches the CI pin."
+    fi
+
     # Pass files explicitly — directory-mode scan fails on Git Bash/Windows
     if luacheck 42/media/lua/client/*.lua --config .luacheckrc; then
         PASS=$((PASS + 1))
