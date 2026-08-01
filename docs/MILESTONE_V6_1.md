@@ -1,12 +1,20 @@
 # AutoPilot V6.1: train more, lie less
 
-> ## STATUS: PROPOSED 2026-07-26 (V6.0 close-out increment), awaiting one answer
+> ## STATUS: COMPLETE 2026-08-01. All three slices shipped.
 >
-> **Slice 1 requires an EXPLICIT user answer and does NOT ship by silence**, because it
-> reverses endurance defaults the user chose directly in V5.7 ("I want the character to rest
-> until endurance is nearly full" is quoted in the shipped comment above
-> `ENDURANCE_REST_TARGET`). Slices 2 and 3 close bugs already filed in the backlog (MED and
-> LOW), carry ordinary overridable defaults, and are actionable now without any decision.
+> - **V6.1-1 SHIPPED 2026-08-01.** Q1 was ANSWERED by the user on 2026-08-01: **option (a)**,
+>   lower the shipped defaults to `EXERCISE_ENDURANCE_RESUME = 0.75` and
+>   `ENDURANCE_REST_TARGET = 0.80`, both staying player-tunable sliders with unchanged ranges.
+>   Implemented exactly as written, plus the two guards the done-when named (a
+>   behaviour-difference fixture and an explicit anti-thrash margin assertion). See section 5.
+> - **V6.1-2 SHIPPED 2026-07-26** as PR #95 (`evade_running` / `evade_cooldown`).
+> - **V6.1-3 SHIPPED 2026-07-26** as PR #96 (dead reporting path deleted).
+>
+> The original proposal text is preserved below unedited as the decision record. It read
+> "PROPOSED 2026-07-26 (V6.0 close-out increment), awaiting one answer", and noted that slice 1
+> required an EXPLICIT user answer and did NOT ship by silence, because it reverses endurance
+> defaults the user chose directly in V5.7 ("I want the character to rest until endurance is
+> nearly full" is quoted in the shipped comment above `ENDURANCE_REST_TARGET`).
 >
 > Ordering is by dependency only; nothing here is sized in calendar time.
 
@@ -104,6 +112,45 @@ reason recorded, luacheck 0/0, suites green.
 ## 4. What only the user can settle
 
 - Q1. It is the whole reason slice 1 is gated: (a) and (b) both override values you chose.
+  **ANSWERED 2026-08-01: option (a).**
 - Whether 1.5% training is actually a problem for how you play. If the mod's job during your
   AFK sessions is "stay alive" first and "level" second, option (c) is a legitimate answer.
-- The in-game smoke test for whatever ships.
+  **Settled by the same answer: it is a problem, and (a) is the fix.**
+- The in-game smoke test for whatever ships. **Still outstanding for V6.1-1.**
+
+## 5. Outcome (V6.1-1, 2026-08-01)
+
+Two constants moved and nothing else in the decision chain changed:
+
+| Constant | V5.7 | V6.1-1 | Slider range (unchanged) |
+|---|---|---|---|
+| `EXERCISE_ENDURANCE_RESUME` | 0.90 | **0.75** | `endMin` 10-90, step 5 |
+| `ENDURANCE_REST_TARGET` | 0.95 | **0.80** | `restTargetPct` 20-100, step 5 |
+
+The sliders open on `AutoPilot_Constants[key]` (`AutoPilot_Options._buildPage`), so the shipped
+default is not duplicated on the options page and the two cannot drift. `EXERCISE_ENDURANCE_MIN`
+(0.30) and `ENDURANCE_SIT_MIN` (0.35) are untouched, so the invariant the use sites depend on
+still holds: `0.30 < 0.35 < 0.75 < 0.80`.
+
+Verification against the done-when:
+
+- **Behaviour-difference fixture:** `tests/test_endurance_band.lua` (23 assertions, new). Every
+  case runs `AutoPilot_Needs.check()` twice on the same character at the same endurance, once on
+  the shipped constants and once with the V5.7 pair reinstalled, and asserts the two disagree.
+  The headline case is endurance 0.85 (the session's measured mean, 85.3): **exercise now, rest
+  before.** Test 4 does the same for the rest hold at 0.82: **released now, still held before.**
+- **Anti-thrash margin guard:** `tests/test_options_mapping.lua` Test 12 now asserts
+  `ENDURANCE_REST_TARGET - EXERCISE_ENDURANCE_RESUME >= 0.05`. V5.7 bought that margin
+  implicitly by shipping 0.95 against 0.90; with both numbers moving it becomes an explicit
+  invariant instead of a coincidence.
+- **Dead zone still shut:** `tests/test_endurance_band.lua` Test 5 sweeps every endurance from
+  0.31 to 1.00 in 0.01 steps and asserts each one resolves to a rest or an exercise, never to an
+  idle cycle. That property belongs to the PAIR, not to either number, so moving both is exactly
+  when it could silently reopen.
+- luacheck 0 warnings / 0 errors across 23 files; 27 Lua suites, 1576 assertions, 0 failures
+  (base on `origin/main` at `7928bf7`: 26 suites, 1552 assertions, 0 failures, measured in a
+  throwaway worktree); pytest 175 passed, 0 failed.
+
+The success metric named in section 2 remains an IN-GAME measurement: exercise tick share well
+above 1.5% in the next real session, readable from the XP telemetry PR #89 added. **Needs an
+in-game smoke test before the Workshop update.**

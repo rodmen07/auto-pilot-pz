@@ -214,7 +214,20 @@ AutoPilot_Constants.ENDURANCE_SIT_MIN = 0.35
 -- 0.90, standing up at 0.70 would have meant every rest finished straight
 -- back into that band.  0.95 clears resume with 5 points of margin rather
 -- than matching it exactly, because equal values thrash at the boundary.
-AutoPilot_Constants.ENDURANCE_REST_TARGET = 0.95
+--
+-- V6.1-1: lowered 0.95 -> 0.80 (user decision 2026-08-01, milestone option
+-- (a); `docs/MILESTONE_V6_1.md` Q1).  The 0.95/0.90 pair was measured in the
+-- 2026-07-26 session as the cause of the IDLE BAND: 1,374 of 1,636 action
+-- episodes were rest, 1,341 of those logged reason=rest_cooldown, and the
+-- leveler trained for 1.5% of 15,630 ticks while mean endurance sat at 85.3
+-- and the 0.30 training floor was never approached.  Endurance recovery
+-- flattens near full, so the crawl from ~0.85 to 0.95 dominated wall-clock
+-- time inside a band where training was ALREADY permitted.  This moves the
+-- DEFAULT, not the ceiling: the slider still reaches 100, so "rest until
+-- nearly full" is one options change away.  The 0.05 margin over
+-- EXERCISE_ENDURANCE_RESUME (0.75) is preserved deliberately and is pinned
+-- by tests/test_options_mapping.lua Test 12 -- equal values thrash.
+AutoPilot_Constants.ENDURANCE_REST_TARGET = 0.80
 
 -- V5.4: maximum time held in a single rest, in GAME milliseconds.  This is a
 -- wedge guard, not the intended duration: the rest normally ends when
@@ -286,8 +299,11 @@ AutoPilot_Constants.EXERCISE_EQUIP_SEARCH_RADIUS = 80  -- tiles (capped for scan
 -- want the character to rest until endurance is nearly full."
 --
 -- With a gap between the two, the cycle is what was actually wanted:
---   rest to 95% -> resume at 90% -> train all the way down to 30% (many reps)
---   -> sit at 35% -> rest to 95% -> repeat.
+--   rest to 80% -> resume at 75% -> train all the way down to 30% (many reps)
+--   -> sit at 35% -> rest to 80% -> repeat.
+-- (V5.7 shipped that cycle as 95/90; V6.1-1 lowered the two upper numbers to
+-- 80/75 after the session log showed the 0.90 resume gate spending the run
+-- waiting out the flat top of the recovery curve.  The SHAPE is unchanged.)
 --
 -- Both are read LIVE (AutoPilot_Needs re-reads them at every decision, V3.3
 -- pattern) and both are player-tunable, so the pair can be retuned in game
@@ -306,7 +322,16 @@ AutoPilot_Constants.EXERCISE_ENDURANCE_MIN = 0.30
 -- the wrong gate.  Restored in V5.7 (it briefly had zero readers, which is how
 -- the single-threshold design got shipped in the first place).
 -- V5.7: player-tunable ("Resume training when endurance reaches (%)").
-AutoPilot_Constants.EXERCISE_ENDURANCE_RESUME = 0.90
+--
+-- V6.1-1: lowered 0.90 -> 0.75 (user decision 2026-08-01, option (a)).  The
+-- gate itself was never wrong; 0.90 was simply too near the top of a curve
+-- that flattens, so AutoPilot_Needs check 7b (which raises the sit threshold
+-- to THIS number whenever no run is active) sat the character down across the
+-- entire 0.75-0.90 band and waited.  0.75 keeps the hysteresis wide (0.45
+-- above the 0.30 floor, still far past the >= 0.25 gap Test 12 requires) and
+-- keeps the pair ordered MIN < RESUME < ENDURANCE_REST_TARGET (0.30 < 0.75 <
+-- 0.80).  The slider still reaches 90, so the old feel is one save away.
+AutoPilot_Constants.EXERCISE_ENDURANCE_RESUME = 0.75
 
 -- V4.6: optional hard ceiling on exercise sets per in-game day.
 -- 0 (the default) means UNLIMITED: training is limited by XP PRODUCTIVITY

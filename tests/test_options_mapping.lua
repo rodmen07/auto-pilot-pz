@@ -246,7 +246,7 @@ do
     assert_near("thirst unchanged by a no-op save",
         AutoPilot_Constants.THIRST_THRESHOLD, 0.15, 1e-9)
     assert_near("endurance resume gate unchanged by a no-op save",
-        AutoPilot_Constants.EXERCISE_ENDURANCE_RESUME, 0.90, 1e-9)
+        AutoPilot_Constants.EXERCISE_ENDURANCE_RESUME, 0.75, 1e-9)
     assert_near("endurance floor unchanged by a no-op save",
         AutoPilot_Constants.EXERCISE_ENDURANCE_MIN, 0.30, 1e-9)
     assert_eq("uncapped daily set cap (V4.6) survives a no-op save",
@@ -272,13 +272,15 @@ print("\n-- Test 9 (V5.7): the sliders open on the shipped defaults")
 do
     assert_near("ENDURANCE_SIT_MIN sits just above the training floor",
         AutoPilot_Constants.ENDURANCE_SIT_MIN, 0.35, 1e-9)
-    assert_near("ENDURANCE_REST_TARGET defaults to 0.95",
-        AutoPilot_Constants.ENDURANCE_REST_TARGET, 0.95, 1e-9)
+    -- V6.1-1 (2026-08-01): 0.95 -> 0.80.  The seated target is still ABOVE
+    -- the sit threshold and above the resume gate; only the number moved.
+    assert_near("ENDURANCE_REST_TARGET defaults to 0.80",
+        AutoPilot_Constants.ENDURANCE_REST_TARGET, 0.80, 1e-9)
     assert_eq("REST_HOLD_MS defaults to 30 game minutes",
         AutoPilot_Constants.REST_HOLD_MS, 30 * 60 * 1000)
     assert_near("sit slider opens at 35",  slider("sitPct").default, 35, 1e-9)
-    assert_near("target slider opens at 95",
-        slider("restTargetPct").default, 95, 1e-9)
+    assert_near("target slider opens at 80",
+        slider("restTargetPct").default, 80, 1e-9)
     assert_near("hold slider opens at 30", slider("restHoldMin").default, 30, 1e-9)
     -- The stand-up target must sit ABOVE the sit-down threshold or the
     -- character oscillates on one number.
@@ -305,8 +307,9 @@ do
         AutoPilot_Constants.REST_HOLD_MS > 60000)
 
     -- Restore the shipped defaults for the no-op round-trip below.
+    -- V6.1-1: the seated target's shipped value is 80, not 95.
     saveOption("sitPct", 35)
-    saveOption("restTargetPct", 95)
+    saveOption("restTargetPct", 80)
     saveOption("restHoldMin", 30)
     assert_near("back to the shipped sit threshold",
         AutoPilot_Constants.ENDURANCE_SIT_MIN, 0.35, 1e-9)
@@ -330,13 +333,17 @@ do
     -- gate it was the single-rep bug.  The user worked this out live: "I see
     -- that the minimum endurance default of 90 is too high, but at the same
     -- time, I want the character to rest until endurance is nearly full."
-    assert_near("Resume training when endurance reaches = 90%",
-        AutoPilot_Constants.EXERCISE_ENDURANCE_RESUME, 0.90, 1e-9)
+    -- V6.1-1 (user decision 2026-08-01, milestone option (a)): the 90 above
+    -- was right about WHICH gate it belonged to and wrong about the value.
+    -- The 2026-07-26 session measured 1.5% training across 15,630 ticks with
+    -- mean endurance 85.3, i.e. a character parked inside a band where
+    -- training was already permitted.  Both remain sliders.
+    assert_near("Resume training when endurance reaches = 75%",
+        AutoPilot_Constants.EXERCISE_ENDURANCE_RESUME, 0.75, 1e-9)
     assert_near("Keep training until endurance falls to = 30%",
         AutoPilot_Constants.EXERCISE_ENDURANCE_MIN, 0.30, 1e-9)
-    -- "rest until endurance is nearly full", verbatim.
-    assert_near("Stay seated until endurance reaches = 95%",
-        AutoPilot_Constants.ENDURANCE_REST_TARGET, 0.95, 1e-9)
+    assert_near("Stay seated until endurance reaches = 80%",
+        AutoPilot_Constants.ENDURANCE_REST_TARGET, 0.80, 1e-9)
     -- Sitting begins where training stops, just above the floor.
     assert_near("Sit to recover below = 35%",
         AutoPilot_Constants.ENDURANCE_SIT_MIN, 0.35, 1e-9)
@@ -345,11 +352,11 @@ do
     -- its range, and land on a step boundary, or the "default" is a number
     -- the player can look at but never return to.
     local expect = {
-        endMin        = 90,
+        endMin        = 75,
         endFloor      = 30,
         hungerPct     = 15,
         thirstPct     = 15,
-        restTargetPct = 95,
+        restTargetPct = 80,
         sitPct        = 35,
     }
     for id, want in pairs(expect) do
@@ -377,6 +384,17 @@ do
     assert_true("the stand-up target clears the resume gate",
         AutoPilot_Constants.ENDURANCE_REST_TARGET
             > AutoPilot_Constants.EXERCISE_ENDURANCE_RESUME)
+    -- V6.1-1: "clears it" is not enough on its own.  A rest that ends at the
+    -- exact resume gate stands the character up into a set, the first rep
+    -- drops endurance back under the gate, and it sits down again: the
+    -- single-threshold thrash wearing a different hat.  V5.7 bought that
+    -- margin implicitly by shipping 0.95 against 0.90; V6.1-1 moved both
+    -- numbers, so the margin becomes an explicit invariant rather than a
+    -- coincidence of two defaults.  Tolerance because 0.80 - 0.75 is
+    -- 0.05000000000000004 in doubles, not 0.05.
+    assert_true("...with at least 5 points of anti-thrash margin",
+        AutoPilot_Constants.ENDURANCE_REST_TARGET
+            - AutoPilot_Constants.EXERCISE_ENDURANCE_RESUME >= 0.05 - 1e-9)
     assert_true("the sit threshold is above the training floor",
         AutoPilot_Constants.ENDURANCE_SIT_MIN
             > AutoPilot_Constants.EXERCISE_ENDURANCE_MIN)
@@ -477,20 +495,23 @@ do
     -- single-rep bug on the user's own saved settings.
     local savedR = AutoPilot_Constants.EXERCISE_ENDURANCE_RESUME
     local savedF = AutoPilot_Constants.EXERCISE_ENDURANCE_MIN
-    saveOption("endMin", 75)
-    assert_near("resume slider 75 yields a 0.75 resume gate",
-        AutoPilot_Constants.EXERCISE_ENDURANCE_RESUME, 0.75, 1e-9)
+    -- V6.1-1: the probe value moved 75 -> 60 because 75 is now the SHIPPED
+    -- default, and a slider test that writes the value already there proves
+    -- nothing about writing.
+    saveOption("endMin", 60)
+    assert_near("resume slider 60 yields a 0.60 resume gate",
+        AutoPilot_Constants.EXERCISE_ENDURANCE_RESUME, 0.60, 1e-9)
     assert_near("...and the floor did not move",
         AutoPilot_Constants.EXERCISE_ENDURANCE_MIN, savedF, 1e-9)
     saveOption("endFloor", 15)
     assert_near("floor slider 15 yields a 0.15 floor",
         AutoPilot_Constants.EXERCISE_ENDURANCE_MIN, 0.15, 1e-9)
     assert_near("...and the resume gate did not move",
-        AutoPilot_Constants.EXERCISE_ENDURANCE_RESUME, 0.75, 1e-9)
-    saveOption("endMin", 90)
+        AutoPilot_Constants.EXERCISE_ENDURANCE_RESUME, 0.60, 1e-9)
+    saveOption("endMin", 75)
     saveOption("endFloor", 30)
     assert_near("back to the shipped resume gate",
-        AutoPilot_Constants.EXERCISE_ENDURANCE_RESUME, 0.90, 1e-9)
+        AutoPilot_Constants.EXERCISE_ENDURANCE_RESUME, 0.75, 1e-9)
     assert_near("back to the shipped floor",
         AutoPilot_Constants.EXERCISE_ENDURANCE_MIN, 0.30, 1e-9)
     AutoPilot_Constants.EXERCISE_ENDURANCE_RESUME = savedR
