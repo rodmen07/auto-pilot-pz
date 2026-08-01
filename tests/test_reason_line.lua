@@ -8,9 +8,11 @@
 --   2. The fallback contract: an unknown, empty, or deliberately-unmapped
 --      reason renders as the plain action string, so a new token can never
 --      blank the panel.
---   3. The L-003 drift guard: every mapped token in AutoPilot._REASON_LABELS
---      is read back against the emitting Lua sources, so a renamed or
---      deleted reason cannot leave a dead mapping.
+--   3. The L-003 drift guard, BOTH directions, over GLOB-DISCOVERED sources:
+--      every mapped token in AutoPilot._REASON_LABELS is read back against the
+--      emitting Lua sources (so a renamed or deleted reason cannot leave a dead
+--      mapping), and every emitted decision reason is either labelled or listed
+--      as deliberately unlabelled (so a new reason cannot ship with no label).
 --   4. Integration in the shape test_main_logic.lua uses for
 --      getActionIntention: the F11 panel and the action HUD render the SAME
 --      formatted value from the same source (AutoPilot.getActionLine).
@@ -374,106 +376,183 @@ do
         AutoPilot.reasonLine(nil, nil), "Idle, evaluating")
 end
 
+-- ── Reason-token discovery (glob-driven) ─────────────────────────────────────
+-- Shared by Tests 4 and 4b.  Discovery is GLOB-DRIVEN (2026-08-01), exactly
+-- like ci.yml's Lua-test discovery, check.sh, and tests/test_engine_symbols.lua.
+--
+-- It used to be a HAND-WRITTEN list of five files, and that shape had a defect
+-- the guard cannot report on itself: every module extraction silently drops the
+-- extracted module's literals out of the scan.  PR #103's mood split moved
+-- setDecision("eat","unhappy") into a brand-new AutoPilot_Mood.lua and Test 4
+-- went red only because "unhappy" happened to have NO second emitter left.
+-- "boredom" moved in the very same commit and survived by luck alone, because
+-- AutoPilot_Media emits it too — i.e. for any token with a second emitter the
+-- hand list degrades SILENTLY instead of failing.  A glob cannot degrade that
+-- way: a module that does not exist yet is still discovered the day it lands.
+--
+-- Two emitter shapes are scanned in every discovered module:
+--   * setDecision("<action>", "<reason>")  — a decision reason, which reaches
+--     the panel/HUD through AutoPilot_Telemetry.getDecisionReason.
+--   * return false, "<label>"              — a fail label a caller threads into
+--     setDecision's fail_reason argument (Sleep's pain_block/panic, Inventory's
+--     carry_full).  DELIBERATELY one-directional: `return false, "x"` is a
+--     general Lua idiom, so some matches (Comfort's internal dry/exposed/
+--     no_cloth/blocked, Media's tuned) are control-flow states that never reach
+--     the reason surface.  They may only WIDEN what counts as emitted; Test 4b
+--     therefore takes its reverse direction from the decision reasons alone.
+local function productionFiles()
+    local files = {}
+    -- No stderr redirect: `2>/dev/null` is shell syntax that io.popen's Windows
+    -- host (cmd.exe) does not understand, and swallowing the error would be the
+    -- wrong trade anyway — an empty list must fail loudly, not pass quietly.
+    local pipe = io.popen("ls -1 42/media/lua/client/*.lua")
+    if pipe then
+        for line in pipe:lines() do
+            line = line:gsub("%s+$", "")
+            if line ~= "" then files[#files + 1] = line end
+        end
+        pipe:close()
+    end
+    table.sort(files)
+    return files
+end
+
+local function readFile(path)
+    local fh = io.open(path, "r")
+    if not fh then return nil end
+    local text = fh:read("*a")
+    fh:close()
+    return text
+end
+
+-- Returns decisionReasons, failLabels, moduleCount, readCount.
+-- Each token table maps token -> the basename of the first module emitting it,
+-- so a failure message can name where the guard did (or did not) look.
+local function scanEmitters()
+    local decisionReasons, failLabels = {}, {}
+    local files = productionFiles()
+    local readCount = 0
+    for _, path in ipairs(files) do
+        local text = readFile(path)
+        if text then
+            readCount = readCount + 1
+            local base = path:match("([^/]+)$") or path
+            for reason in text:gmatch('setDecision%(%s*"[%w_]+"%s*,%s*"([%w_]+)"') do
+                decisionReasons[reason] = decisionReasons[reason] or base
+            end
+            for fail in text:gmatch('return%s+false%s*,%s*"([%w_]+)"') do
+                failLabels[fail] = failLabels[fail] or base
+            end
+        end
+    end
+    return decisionReasons, failLabels, #files, readCount
+end
+
+local function sortedKeys(tbl)
+    local keys = {}
+    for k in pairs(tbl) do keys[#keys + 1] = k end
+    table.sort(keys)
+    return keys
+end
+
 -- 4. L-003 drift guard: every mapped token is emitted by the mod's sources.
 --    Source A: AutoPilot._REASON_LABELS (the formatter's mapping table).
---    Source B: the setDecision literals in AutoPilot_Needs.lua plus the
---    fail labels AutoPilot_Sleep.canSleepNow returns.  A mapping whose token
---    no source emits is dead weight and fails here.
+--    Source B: every setDecision literal and every `return false, "<label>"`
+--    fail label in every glob-discovered production module.  A mapping whose
+--    token no source emits is dead weight and fails here.
 print("\n-- Test 4: no dead mappings (drift guard over the emitting sources)")
 do
+    local decisionReasons, failLabels, moduleCount, readCount = scanEmitters()
+
+    -- Blind-guard trio.  A guard that passes on an empty input set proves
+    -- nothing, and all three of these inputs come from outside the test.
+    assert_true(("production modules are discovered by glob (got %d)")
+        :format(moduleCount), moduleCount > 0)
+    assert_eq("every discovered module was readable from the project root",
+        readCount, moduleCount)
+    assert_true(("the setDecision extraction found reasons (got %d)")
+        :format(#sortedKeys(decisionReasons)),
+        #sortedKeys(decisionReasons) > 0)
+    assert_true(("the fail-label extraction found labels (got %d)")
+        :format(#sortedKeys(failLabels)), #sortedKeys(failLabels) > 0)
+
     local emitted = {}
+    for token in pairs(decisionReasons) do emitted[token] = true end
+    for token in pairs(failLabels) do emitted[token] = true end
 
-    local needsSrc = assert(
-        io.open("42/media/lua/client/AutoPilot_Needs.lua", "r"),
-        "AutoPilot_Needs.lua must be readable from the project root")
-    local needsText = needsSrc:read("*a")
-    needsSrc:close()
-    for reason in needsText:gmatch('setDecision%(%s*"[%w_]+"%s*,%s*"([%w_]+)"') do
-        emitted[reason] = true
+    -- Per-shape sentinels: one token per module the old hand-written list
+    -- enumerated, so the glob is proven to reach at least as far as the list
+    -- it replaced, plus two tokens the hand list NEVER covered (Comfort, and
+    -- Media on the fail-label shape) — the measured widening that motivated
+    -- the change.  Asserted by PRESENCE, never by owning module: pinning a
+    -- token to a filename would go red on the next legitimate module split
+    -- and reintroduce exactly the hand-maintenance this discovery removes.
+    -- The owning module is carried into the message instead, so a failure
+    -- still says where the guard last saw the token.
+    local function sentinel(desc, tbl, token)
+        assert_true(("%s [found in %s]"):format(desc, tostring(tbl[token])),
+            tbl[token] ~= nil)
     end
-
-    local sleepSrc = assert(
-        io.open("42/media/lua/client/AutoPilot_Sleep.lua", "r"),
-        "AutoPilot_Sleep.lua must be readable from the project root")
-    local sleepText = sleepSrc:read("*a")
-    sleepSrc:close()
-    for fail in sleepText:gmatch('return%s+false%s*,%s*"([%w_]+)"') do
-        emitted[fail] = true
-    end
-
-    -- Source C (2026-07-26): the fail labels AutoPilot_Inventory's carry gate
-    -- returns (`return false, "carry_full"` in _queueTransfer), same shape as
-    -- the Sleep fail labels above.  These reach setDecision's fail_reason via
-    -- doProactiveScavenge in Needs, so the literal lives in Inventory.
-    local invSrc = assert(
-        io.open("42/media/lua/client/AutoPilot_Inventory.lua", "r"),
-        "AutoPilot_Inventory.lua must be readable from the project root")
-    local invText = invSrc:read("*a")
-    invSrc:close()
-    for fail in invText:gmatch('return%s+false%s*,%s*"([%w_]+)"') do
-        emitted[fail] = true
-    end
-
-    -- Source D (2026-07-27): the setDecision literals in AutoPilot_Media.lua.
-    -- The media arm emits its own decisions ("media"/"boredom" on an approach,
-    -- "media"/"stalled" when the stall backoff fires), and those literals live
-    -- in Media, which none of the scans above can see.
-    local mediaSrc = assert(
-        io.open("42/media/lua/client/AutoPilot_Media.lua", "r"),
-        "AutoPilot_Media.lua must be readable from the project root")
-    local mediaText = mediaSrc:read("*a")
-    mediaSrc:close()
-    for reason in mediaText:gmatch('setDecision%(%s*"[%w_]+"%s*,%s*"([%w_]+)"') do
-        emitted[reason] = true
-    end
-
-    -- Source E (2026-08-01): the setDecision literals in AutoPilot_Mood.lua.
-    -- The mood arm (doMoodRelief and its two private arms) moved out of
-    -- AutoPilot_Needs in the fifth code-health split, taking three literals
-    -- with it: ("eat","unhappy"), ("read","boredom") and ("outside","boredom").
-    -- THIS GUARD CAUGHT THAT MOVE, which is the whole reason it exists: with
-    -- only sources A-D the token "unhappy" had no emitter left and Test 4
-    -- failed on the refactor branch before this block was added.  "boredom"
-    -- would have survived by luck alone, because AutoPilot_Media happens to
-    -- emit it too.  NOTE the standing weakness this exposes, filed as a
-    -- follow-up rather than fixed here: the source list is enumerated BY HAND,
-    -- so every future module extraction silently drops its literals out of the
-    -- scan until someone appends another block.  ci.yml, check.sh and
-    -- tests/test_engine_symbols.lua all discover production files by glob for
-    -- exactly this reason.
-    local moodSrc = assert(
-        io.open("42/media/lua/client/AutoPilot_Mood.lua", "r"),
-        "AutoPilot_Mood.lua must be readable from the project root")
-    local moodText = moodSrc:read("*a")
-    moodSrc:close()
-    for reason in moodText:gmatch('setDecision%(%s*"[%w_]+"%s*,%s*"([%w_]+)"') do
-        emitted[reason] = true
-    end
-
-    -- Negative control for the extraction itself: if any pattern went
-    -- blind, these seven sentinels disappear and the guard fails loudly
-    -- instead of passing vacuously.
-    assert_true("extraction sees a Needs decision reason (hunger_thresh)",
-        emitted["hunger_thresh"])
-    assert_true("extraction sees the Sleep fail label pain_block",
-        emitted["pain_block"])
-    assert_true("extraction sees the Sleep fail label panic",
-        emitted["panic"])
-    assert_true("extraction sees the dry-off reason wet",
-        emitted["wet"])
-    assert_true("extraction sees the Inventory fail label carry_full",
-        emitted["carry_full"])
-    assert_true("extraction sees the Media stall reason stalled",
-        emitted["stalled"])
-    assert_true("extraction sees the Mood relief reason unhappy",
-        emitted["unhappy"])
+    sentinel("glob sees a Needs decision reason (hunger_thresh)",
+        decisionReasons, "hunger_thresh")
+    sentinel("glob sees the Sleep fail label pain_block", failLabels, "pain_block")
+    sentinel("glob sees the Sleep fail label panic", failLabels, "panic")
+    sentinel("glob sees the dry-off reason wet", decisionReasons, "wet")
+    sentinel("glob sees the Inventory fail label carry_full",
+        failLabels, "carry_full")
+    sentinel("glob sees the Media stall reason stalled",
+        decisionReasons, "stalled")
+    sentinel("glob sees the Mood relief reason unhappy",
+        decisionReasons, "unhappy")
+    sentinel("glob reaches AutoPilot_Comfort, which the hand list never listed",
+        failLabels, "no_cloth")
+    sentinel("glob reaches Media's fail labels, which the hand list never listed",
+        failLabels, "tuned")
 
     local mapped = AutoPilot._REASON_LABELS
     assert_true("the formatter's mapping table is exposed",
         type(mapped) == "table")
-    for token, _ in pairs(mapped) do
+    for _, token in ipairs(sortedKeys(mapped)) do
         assert_true(("mapped token '%s' is emitted by a source"):format(token),
             emitted[token] == true)
+    end
+end
+
+-- 4b. The REVERSE direction, which only a glob-driven scan can express: every
+--     decision reason the mod EMITS is accounted for, either by a label in
+--     AutoPilot._REASON_LABELS or by an explicit entry below.  Test 4 alone
+--     cannot catch a new reason token shipping with no label — it would simply
+--     render the bare action string, exactly the silent-no-op class PR #92
+--     found on the ACTION side ("dry" and "media" had no ACTION_LABELS entry,
+--     so those cycles displayed "Idle, evaluating").
+--
+--     Entries here are a DELIBERATE choice, not a backlog: the parenthetical
+--     would restate the action it follows.  Adding a label instead is a
+--     user-visible change and belongs to a dev increment, not to this guard.
+local UNLABELLED_BY_DESIGN = {
+    training = 'setDecision("exercise","training") — "Exercising (training)"',
+    wound    = 'setDecision("bandage","wound") — "Bandaging (wound)"',
+}
+
+print("\n-- Test 4b: every emitted decision reason is labelled or explicitly not")
+do
+    local decisionReasons = scanEmitters()
+    local mapped = AutoPilot._REASON_LABELS
+
+    for _, token in ipairs(sortedKeys(decisionReasons)) do
+        assert_true(("emitted reason '%s' (%s) is labelled or listed as " ..
+            "deliberately unlabelled"):format(token, decisionReasons[token]),
+            mapped[token] ~= nil or UNLABELLED_BY_DESIGN[token] ~= nil)
+    end
+
+    -- The allow-list cannot rot: an entry must still be emitted (or it is a
+    -- stale exemption hiding nothing) and must not ALSO carry a label (or the
+    -- exemption contradicts the map it exempts the token from).
+    for _, token in ipairs(sortedKeys(UNLABELLED_BY_DESIGN)) do
+        assert_true(("exempt token '%s' is still emitted by production")
+            :format(token), decisionReasons[token] ~= nil)
+        assert_true(("exempt token '%s' is not also mapped"):format(token),
+            mapped[token] == nil)
     end
 end
 
