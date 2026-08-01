@@ -427,8 +427,31 @@ do
         emitted[reason] = true
     end
 
+    -- Source E (2026-08-01): the setDecision literals in AutoPilot_Mood.lua.
+    -- The mood arm (doMoodRelief and its two private arms) moved out of
+    -- AutoPilot_Needs in the fifth code-health split, taking three literals
+    -- with it: ("eat","unhappy"), ("read","boredom") and ("outside","boredom").
+    -- THIS GUARD CAUGHT THAT MOVE, which is the whole reason it exists: with
+    -- only sources A-D the token "unhappy" had no emitter left and Test 4
+    -- failed on the refactor branch before this block was added.  "boredom"
+    -- would have survived by luck alone, because AutoPilot_Media happens to
+    -- emit it too.  NOTE the standing weakness this exposes, filed as a
+    -- follow-up rather than fixed here: the source list is enumerated BY HAND,
+    -- so every future module extraction silently drops its literals out of the
+    -- scan until someone appends another block.  ci.yml, check.sh and
+    -- tests/test_engine_symbols.lua all discover production files by glob for
+    -- exactly this reason.
+    local moodSrc = assert(
+        io.open("42/media/lua/client/AutoPilot_Mood.lua", "r"),
+        "AutoPilot_Mood.lua must be readable from the project root")
+    local moodText = moodSrc:read("*a")
+    moodSrc:close()
+    for reason in moodText:gmatch('setDecision%(%s*"[%w_]+"%s*,%s*"([%w_]+)"') do
+        emitted[reason] = true
+    end
+
     -- Negative control for the extraction itself: if any pattern went
-    -- blind, these six sentinels disappear and the guard fails loudly
+    -- blind, these seven sentinels disappear and the guard fails loudly
     -- instead of passing vacuously.
     assert_true("extraction sees a Needs decision reason (hunger_thresh)",
         emitted["hunger_thresh"])
@@ -442,6 +465,8 @@ do
         emitted["carry_full"])
     assert_true("extraction sees the Media stall reason stalled",
         emitted["stalled"])
+    assert_true("extraction sees the Mood relief reason unhappy",
+        emitted["unhappy"])
 
     local mapped = AutoPilot._REASON_LABELS
     assert_true("the formatter's mapping table is exposed",

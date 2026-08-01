@@ -233,6 +233,10 @@ dofile("42/media/lua/client/AutoPilot_Consumption.lua")
 dofile("42/media/lua/client/AutoPilot_Sleep.lua")
 dofile("42/media/lua/client/AutoPilot_Rest.lua")
 dofile("42/media/lua/client/AutoPilot_Exercise.lua")
+-- Loader plumbing only (code-health split, 2026-08-01): doMoodRelief and its
+-- two private arms moved out of AutoPilot_Needs into AutoPilot_Mood.  No test
+-- case, stub or assertion below changed.
+dofile("42/media/lua/client/AutoPilot_Mood.lua")
 dofile("42/media/lua/client/AutoPilot_Needs.lua")
 
 local LOW_THRESHOLD  = AutoPilot_Constants.HAPPINESS_LOW_THRESHOLD
