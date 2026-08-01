@@ -82,6 +82,7 @@ globals = {
     "AutoPilot_Inventory",
     "AutoPilot_Medical",
     "AutoPilot_Media",
+    "AutoPilot_Mood",
     "AutoPilot_Comfort",
     "AutoPilot_Home",
     "AutoPilot_Map",

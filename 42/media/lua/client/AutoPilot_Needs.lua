@@ -5,17 +5,19 @@
 -- SPLITSCREEN NOTE: module-level mutable state (_activityOutcome,
 -- _scavengeCooldown, _scavengeStuck, _scavengeLastTotal) is shared across
 -- all local players. Splitscreen is NOT supported.
--- (Re-verified 2026-07-20 via fresh grep, fourth time this note has been
--- corrected: doExercise's own state -- _exerciseSetsToday, _pendingSet,
--- _backoffUntilMs, exerciseWaitLogMs, _runActive/_runOwner and the rest --
--- moved to AutoPilot_Exercise.lua in this session's fourth and final
--- code-health slice, joining sleepCooldownMs (AutoPilot_Sleep.lua),
+-- (Re-verified 2026-08-01 via fresh grep, fifth time this note has been
+-- corrected -- the 2026-07-20 pass recorded doExercise's state moving to
+-- AutoPilot_Exercise.lua, joining sleepCooldownMs (AutoPilot_Sleep.lua),
 -- drinkCooldownMs (AutoPilot_Consumption.lua) and restCooldownMs
--- (AutoPilot_Rest.lua) from the earlier three. This file now owns none of
--- the per-behavior state the note originally listed, only the cross-cutting
--- activity string and the scavenge chore's own state. Re-verify this list
--- with a fresh grep the next time this file's module-level locals change,
--- rather than trust it again.)
+-- (AutoPilot_Rest.lua). The 2026-08-01 mood split changed no state at all:
+-- doGoOutside/doRead/doMoodRelief were pure functions over the player, so
+-- AutoPilot_Mood.lua owns no module-level mutable state and this file's list
+-- above is UNCHANGED by it. `grep -n '^local ' AutoPilot_Needs.lua` now shows
+-- exactly four mutable module-level locals -- _activityOutcome (96),
+-- _scavengeCooldown (214), _scavengeStuck (215), _scavengeLastTotal (216) --
+-- which is the list above with nothing missing and nothing extra. Re-verify
+-- with that same grep the next time this file's module-level locals change,
+-- rather than trust this note again.)
 --
 -- Priority order (highest -> lowest):
 --   1. Bleeding      -> bandage immediately (fatal if untreated)
@@ -46,10 +48,15 @@ local print = _apNoop
 -- NOTE: hunger/thirst trigger thresholds are read LIVE from
 -- AutoPilot_Constants at each use site (not cached here): the Adaptive layer
 -- lowers them after starvation/dehydration deaths at runtime.
+-- BOREDOM_STAT_THRESHOLD moved to AutoPilot_Mood.lua with doMoodRelief, its
+-- only reader (code-health split, 2026-08-01, fifth slice).
+-- OUTDOOR_SEARCH_DIST was already dead here before that split -- `grep -n
+-- OUTDOOR_SEARCH_DIST 42/media/lua/client/AutoPilot_Needs.lua` matched only
+-- its own declaration -- and it belonged to the outdoor-walk arm that moved,
+-- so it is removed rather than carried across. luacheck's ignore list covers
+-- 211 (unused local), which is why neither showed up as a warning.
 local FATIGUE_STAT_THRESHOLD = AutoPilot_Constants.FATIGUE_THRESHOLD
-local BOREDOM_STAT_THRESHOLD = AutoPilot_Constants.BOREDOM_THRESHOLD
 local ENDURANCE_REST_MIN     = AutoPilot_Constants.ENDURANCE_REST_MIN
-local OUTDOOR_SEARCH_DIST    = AutoPilot_Constants.OUTDOOR_SEARCH_DIST
 
 --- End the current training run, if any. Delegates to AutoPilot_Exercise
 --- (code-health split, 2026-07-20, fourth slice), which now owns the run
@@ -123,10 +130,12 @@ local function safeMoodleLevel(player, moodleType)
     return 0
 end
 
--- Returns current perk level (0-10) for the given PerkList entry.
-local function getPerkLevel(player, perk)
-    return player:getPerkLevel(perk)
-end
+-- getPerkLevel was removed in the 2026-08-01 code-health split. Its last
+-- caller was doRead's Perks.Literacy gate, deleted by PR #77 when the gate
+-- moved to CharacterTrait.ILLITERATE; a grep of this file for "getPerkLevel"
+-- then matched only its own declaration and one historical comment. Callers
+-- that still need a perk level call player:getPerkLevel directly
+-- (AutoPilot_Exercise:684, AutoPilot_Telemetry:192, AutoPilot_XP._getLevel).
 
 -- ── Actions ─────────────────────────────────────────────────────────────────
 -- doEat/doDrink/trackEmptyLootCycle moved to AutoPilot_Consumption.lua
@@ -148,37 +157,12 @@ function AutoPilot_Needs.seatPriorityForSprite(spriteName)
     return AutoPilot_Rest.seatPriorityForSprite(spriteName)
 end
 
--- Walk to the nearest outdoor square to relieve boredom.
-local function doGoOutside(player)
-    local px, py, pz = player:getX(), player:getY(), player:getZ()
-
-    local cell = getCell()
-    if not cell then return false end
-    local curSq = cell:getGridSquare(px, py, pz)
-    if curSq and curSq:isOutside() then
-        print("[Needs] Already outside — boredom will decrease naturally.")
-        return false
-    end
-
-    print("[Needs] Bored — finding outdoor square.")
-
-    -- Home set: only search within home bounds
-    if AutoPilot_Home.isSet(player) then
-        local outsideSq = AutoPilot_Home.getNearestInside(player, function(sq)
-            return sq:isOutside() and sq:isFree(false)
-        end)
-        if outsideSq then
-            AutoPilot_Utils.queueModAction(ISWalkToTimedAction:new(player, outsideSq))
-            return true
-        end
-        print("[Needs] No outdoor square found inside home bounds — skipping.")
-        return false
-    end
-
-    -- No home set: skip outdoor walk for safety (containment guard)
-    print("[Needs] No home set — skipping outdoor walk.")
-    return false
-end
+-- doGoOutside/doRead/doMoodRelief moved to AutoPilot_Mood.lua (code-health
+-- split, 2026-08-01, fifth slice); see that file's header for why. The two
+-- call sites in check() below now read AutoPilot_Mood.doMoodRelief; nothing
+-- outside this file ever called any of the three (all were locals), so no
+-- delegation stub is needed, unlike the AutoPilot_Rest/AutoPilot_Exercise
+-- splits whose public API had external callers.
 
 -- ── Weather/shelter helpers ─────────────────────────────────────────────────
 
@@ -215,174 +199,6 @@ local function doSeekShelter(player)
 
     print("[Needs] No home shelter available; resting in place while outside.")
     return AutoPilot_Rest.doRest(player)
-end
-
--- ── Reading (boredom/unhappiness relief) ────────────────────────────────────
-
--- seatedOnly=true means the character is currently sitting out a rest hold, so
--- the walking fallback (loot a book from a nearby container) is skipped: it
--- would stand the character up and end the rest this call is trying to keep.
-local function doRead(player, seatedOnly)
-    -- Literacy gate.  The old implementation asked for a Perks.Literacy SKILL
-    -- level, which does not exist in 42.19: a whole-install grep of
-    -- media/lua for "Literacy" returns ZERO hits, so `Perks.Literacy` was
-    -- always nil, `getPerkLevel(nil)` never produced a positive number, and
-    -- doRead returned false on EVERY call.  The read arm of boredom relief has
-    -- therefore never fired in-game.  (tests/lua_mock_pz.lua already recorded
-    -- both halves of this — Perks.Literacy "intentionally ABSENT" and
-    -- ISReadABook "unexercised: doRead's literacy gate fails in the suites" —
-    -- but as a test-surface note, never as a production defect.)
-    --
-    -- The engine's real gate is the ILLITERATE TRAIT, not a perk:
-    --   playerObj:hasTrait(CharacterTrait.ILLITERATE)
-    -- verified live in the 42.19 install at
-    -- client/ISUI/ISInventoryPaneContextMenu.lua:549 (and nine sibling
-    -- callsites, e.g. ISInventoryPane.lua:1102).  Mirror that.
-    --
-    -- Fails OPEN (assume literate) when the trait cannot be read: the engine's
-    -- own ISReadABook:isValid does not check literacy at all, so a wrong
-    -- "literate" only costs a book with no benefit, while a wrong "illiterate"
-    -- silently disables the entire relief path — which is the bug being fixed.
-    local traitOk, illiterate = pcall(function()
-        return player:hasTrait(CharacterTrait.ILLITERATE)
-    end)
-    if traitOk and illiterate then
-        print("[Needs] Cannot read: character has the Illiterate trait.")
-        return false
-    end
-    if not traitOk then
-        print("[Needs] Illiterate-trait check failed (" .. tostring(illiterate)
-            .. "); assuming literate.")
-    end
-
-    local book, bookCont = AutoPilot_Inventory.getReadable(player)
-    if not book then
-        if seatedOnly then
-            -- Seated: looting walks to a container, which would break the sit.
-            print("[Needs] No readable carried and seated — not looting mid-rest.")
-            return false
-        end
-        -- No readable in inventory — try looting one from nearby containers
-        return AutoPilot_Inventory.lootNearbyReadable(player)
-    end
-
-    -- Check if too dark to read
-    local darkOk, tooDark = pcall(function() return player:tooDarkToRead() end)
-    if darkOk and tooDark then
-        print("[Needs] Too dark to read.")
-        return false
-    end
-
-    print("[Needs] Reading: " .. tostring(book:getName()))
-    -- V4.9: a book in a bag must reach the main inventory before ISReadABook.
-    local _, usable = AutoPilot_Utils.queueItemToMainInventory(player, book, bookCont)
-    if not usable then
-        print("[Needs] Book transfer refused: not reading this cycle.")
-        return false
-    end
-    local readOk, _ = pcall(function()
-        AutoPilot_Utils.queueModAction(ISReadABook:new(player, book))
-    end)
-    return readOk
-end
-
--- ── Mood relief (boredom / unhappiness) ─────────────────────────────────────
---
--- Extracted verbatim from check() step 7 so the SAME relief can also run while
--- a rest hold is in progress (step 6b).  That is where the mod spent most of
--- its idle time: the hold returns true without queueing anything, so every
--- cycle stopped ABOVE step 7 and boredom/unhappiness built up untouched while
--- the character sat recovering endurance — the user-reported "negative moodles
--- accumulate over long autopilot runs" with vitals staying healthy.
---
--- seatedOnly=true restricts relief to what a SEATED character can do without
--- standing up.  Eating and reading qualify, and that is the engine's own
--- position, not an assumption: ISRestAction:update carries the comment
--- "Removed this as being an action, this way we can still passively regain
--- endurance and read at the same time"
--- (shared/TimedActions/ISRestAction.lua:44, verified live in the 42.19
--- install).  Walking outdoors and walking to a container to loot a book both
--- end the sit, so both are skipped in that mode.
---
--- Returns (true, label) when relief was queued, false otherwise.  The label is
--- the seated activity text; it is unused by step 7, which has its own HUD path.
-local function doMoodRelief(player, seatedOnly)
-    -- NOTE: CharacterStat.SANITY reads HIGH when healthy, so it must not be used
-    -- as a "sadness" signal (it made this branch fire nearly every idle cycle).
-    -- The unhappy moodle level is the correct low-mood source.
-    --
-    -- The constant is MoodleType.UNHAPPY, not MoodleType.Unhappy.  B42 renamed
-    -- every MoodleType constant to SCREAMING_SNAKE_CASE; the engine's own gate
-    -- reads getMoodleLevel(MoodleType.UNHAPPY) at
-    -- shared/TimedActions/ISBaseTimedAction.lua:102, and a whole-install grep
-    -- of media/lua for "MoodleType.Unhappy" returns zero.  The CamelCase name
-    -- resolved to nil, so safeMoodleLevel degraded to 0 on every call and the
-    -- unhappy arm of this function could never run in-game (only the
-    -- translation KEYS, Moodles_Unhappy_lvl1..4, kept the old spelling).
-    local boredom    = AutoPilot_Utils.safeStat(player, CharacterStat.BOREDOM)
-    local unhappyLvl = safeMoodleLevel(player, MoodleType.UNHAPPY)
-    if boredom < BOREDOM_STAT_THRESHOLD
-        and unhappyLvl < AutoPilot_Constants.HAPPINESS_LOW_THRESHOLD then
-        return false
-    end
-
-    -- Phase 3: when unhappy enough, prefer mood food before reading.
-    -- This gate is HAPPINESS_FOOD_PRIORITY, not HAPPINESS_LOW_THRESHOLD: the
-    -- threshold above decides whether relief runs AT ALL, this one decides
-    -- whether relief is allowed to spend food on it.  The constant had been
-    -- defined and documented since Phase 3 but read by nothing, so the two
-    -- levels were silently the same knob; they default to the same value, so
-    -- the default behaviour is unchanged and raising it now reserves food for
-    -- the unhappier levels while reading still covers the milder ones.
-    if unhappyLvl >= AutoPilot_Constants.HAPPINESS_FOOD_PRIORITY then
-        local tastyFood, tastyCont = AutoPilot_Inventory.preferTastyFood(player)
-        if tastyFood then
-            AutoPilot_Telemetry.setDecision("eat", "unhappy")
-            print("[Needs] Unhappy — eating tasty food: "
-                .. tostring(tastyFood:getName()))
-            -- V4.9: transfer out of a bag first, then eat.
-            local _, usable = AutoPilot_Utils.queueItemToMainInventory(
-                player, tastyFood, tastyCont)
-            if usable then
-                AutoPilot_Utils.queueModAction(ISEatFoodAction:new(player, tastyFood, 1))
-                return true, "eating"
-            end
-            print("[Needs] Tasty-food transfer refused: falling through to reading.")
-        end
-    end
-
-    AutoPilot_Telemetry.setDecision("read", "boredom")
-    if doRead(player, seatedOnly) then return true, "reading" end
-
-    if seatedOnly then
-        -- Going outside walks; it is not available to a seated character.
-        -- Neither is media relief: switching a television on means standing up
-        -- and walking to within the engine's own 1.5-tile interaction distance
-        -- (server/ISObjectClickHandler.lua:241), which ends the sit.
-        return false
-    end
-
-    -- Media relief: a television or radio, the third arm.  Placed after reading
-    -- because a carried book needs no walk at all, and before going outdoors
-    -- because indoors is safer and because walking outdoors FORFEITS media
-    -- relief outright (ISRadioInteractions.checkPlayer returns early when the
-    -- device square and the player square disagree on isOutside()).
-    local mediaQueued, mediaState = AutoPilot_Media.doMediaRelief(player)
-    if mediaQueued then return true, mediaState end
-
-    if boredom >= BOREDOM_STAT_THRESHOLD then
-        if mediaState == "tuned" then
-            -- A device is already playing within range: relief is accruing
-            -- where the character stands.  Queue nothing and let the chain fall
-            -- through to lower needs, rather than walking out of the broadcast
-            -- box to relieve the same moodle less safely.
-            print("[Needs] A device is playing in range; not walking outdoors.")
-            return false
-        end
-        AutoPilot_Telemetry.setDecision("outside", "boredom")
-        if doGoOutside(player) then return true, "outside" end
-    end
-    return false
 end
 
 -- ── Proactive / AFK idle behaviours ────────────────────────────────────────
@@ -649,7 +465,7 @@ function AutoPilot_Needs.check(player)
             -- recovering while it reads.  The engine sanctions this pairing:
             -- ISRestAction:update, "we can still passively regain endurance
             -- and read at the same time".
-            local relieved, how = doMoodRelief(player, true)
+            local relieved, how = AutoPilot_Mood.doMoodRelief(player, true)
             if relieved then
                 _setActivity("resting (" .. tostring(how) .. ")")
                 return true
@@ -695,8 +511,9 @@ function AutoPilot_Needs.check(player)
     -- Kept above exercise: unhappiness slows every action (worse XP/hour) and
     -- these are quick one-shot fixes.  The body moved to doMoodRelief so the
     -- rest hold at 6b can run the seated subset of it; this call is the full,
-    -- standing-allowed version and is unchanged in behaviour.
-    if doMoodRelief(player, false) then return true end
+    -- standing-allowed version and is unchanged in behaviour.  doMoodRelief
+    -- itself moved to AutoPilot_Mood.lua in the 2026-08-01 code-health split.
+    if AutoPilot_Mood.doMoodRelief(player, false) then return true end
 
     -- 7b. V5.4: SIT TO RECOVER, closing the endurance dead zone.
     -- Training is gated at the exercise endurance minimum and the critical

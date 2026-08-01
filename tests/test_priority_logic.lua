@@ -95,6 +95,10 @@ dofile("42/media/lua/client/AutoPilot_Rest.lua")
 dofile("42/media/lua/client/AutoPilot_Exercise.lua")
 
 -- ── Load the module under test ────────────────────────────────────────────────
+-- Loader plumbing only (code-health split, 2026-08-01): doMoodRelief and its
+-- two private arms moved out of AutoPilot_Needs into AutoPilot_Mood.  No test
+-- case, stub or assertion below changed.
+dofile("42/media/lua/client/AutoPilot_Mood.lua")
 dofile("42/media/lua/client/AutoPilot_Needs.lua")
 
 -- ── Minimal test framework ────────────────────────────────────────────────────
