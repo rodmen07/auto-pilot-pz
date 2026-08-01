@@ -79,8 +79,10 @@ local EXERCISE_MINUTES = AutoPilot_Constants.EXERCISE_MINUTES
 -- Raising the number makes it worse, not better.
 --
 -- So the resolution is a PAIR, not a merge:
---   _exerciseEnduranceResume()  START a run at or above this   (high, 0.90)
+--   _exerciseEnduranceResume()  START a run at or above this   (high, 0.75)
 --   _exerciseEnduranceFloor()   STOP an active run below this  (low,  0.30)
+-- (V6.1-1 lowered the resume default 0.90 -> 0.75; the pair, not the number,
+-- is the design.  See AutoPilot_Constants for the session measurement.)
 -- Which one applies depends on whether a run is currently active, which is
 -- why the module has to track that (see _runActive below).  A stateless
 -- `endurance >= X` test cannot express "keep going until the floor".
@@ -92,7 +94,10 @@ local function _exerciseEnduranceFloor()
 end
 
 local function _exerciseEnduranceResume()
-    return tonumber(AutoPilot_Constants.EXERCISE_ENDURANCE_RESUME) or 0.90
+    -- The literal is the LAST-RESORT default for a load where Constants never
+    -- arrived; it tracks the shipped constant so the two cannot disagree
+    -- (V6.1-1: 0.90 -> 0.75, in step with AutoPilot_Constants).
+    return tonumber(AutoPilot_Constants.EXERCISE_ENDURANCE_RESUME) or 0.75
 end
 
 --- Cross-module accessor: AutoPilot_Needs.check() reads the resume gate for

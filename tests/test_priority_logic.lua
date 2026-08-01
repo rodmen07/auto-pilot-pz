@@ -2090,8 +2090,15 @@ do
     -- point of hysteresis is that the next run waits for the resume gate.
     assert_false("it does NOT restart at 40%, having ended the run",
         repAt(p, 0.40))
-    assert_false("nor at 85%, one step under the resume gate", repAt(p, 0.85))
-    assert_true("but it DOES resume at exactly 90%", repAt(p, 0.90))
+    -- V6.1-1: read the gate rather than hardcoding it.  These two lines held
+    -- literal 0.85 / 0.90 and were the only reason a pure default change broke
+    -- this case; the PROPERTY under test is "one step under the gate refuses,
+    -- the gate itself resumes", which is true at any gate value.
+    local resumeGate = AutoPilot_Constants.EXERCISE_ENDURANCE_RESUME
+    assert_false(("nor at %.0f%%, one step under the resume gate")
+        :format((resumeGate - 0.05) * 100), repAt(p, resumeGate - 0.05))
+    assert_true(("but it DOES resume at exactly %.0f%%"):format(resumeGate * 100),
+        repAt(p, resumeGate))
     AutoPilot_Needs.endTrainingRun()
 end
 
@@ -2420,31 +2427,39 @@ do
         AutoPilot_Needs.getExerciseStatus().outcome:sub(1, 7), "resting")
 end
 
-print("\n-- Test V5.8-7: V5.7's endurance hysteresis is untouched")
+print("\n-- Test V5.8-7: the endurance hysteresis SHAPE is untouched")
 do
-    -- A run started at 95% must still continue at 80%, which is below the
-    -- 0.90 resume gate and above the 0.30 floor: the exact property V5.7
-    -- exists to provide.
+    -- A run started at full endurance must still continue well below the
+    -- resume gate and above the 0.30 floor: the exact property V5.7 exists to
+    -- provide.  V6.1-1 moved the two upper NUMBERS (resume 0.90 -> 0.75,
+    -- stand-up target 0.95 -> 0.80) on the user's 2026-08-01 decision, so the
+    -- probe endurances below are derived from the gate instead of written as
+    -- literals -- the shape, not the value, is what this case guards.
     resetRest()
     AutoPilot_Needs.resetInterventionForTest()
     AutoPilot_Needs.endTrainingRun()
+    local gate  = AutoPilot_Constants.EXERCISE_ENDURANCE_RESUME
+    local floor = AutoPilot_Constants.EXERCISE_ENDURANCE_MIN
+    local belowGate = (gate + floor) / 2   -- comfortably inside the run band
     local p = drivenPlayer(0.95)
     assert_true("a run starts at 95%", AutoPilot_Needs.trainExercise(p, "fitness"))
-    assert_true("and it continues at 80%, below the resume gate", repAt(p, 0.80))
-    assert_eq("the resume gate is unchanged",
-        AutoPilot_Constants.EXERCISE_ENDURANCE_RESUME, 0.90)
+    assert_true(("and it continues at %.0f%%, below the resume gate")
+        :format(belowGate * 100), repAt(p, belowGate))
+    assert_eq("the resume gate is the V6.1-1 default",
+        AutoPilot_Constants.EXERCISE_ENDURANCE_RESUME, 0.75)
     assert_eq("the floor is unchanged",
         AutoPilot_Constants.EXERCISE_ENDURANCE_MIN, 0.30)
     assert_eq("the sit threshold is unchanged",
         AutoPilot_Constants.ENDURANCE_SIT_MIN, 0.35)
-    assert_eq("the stand-up target is unchanged",
-        AutoPilot_Constants.ENDURANCE_REST_TARGET, 0.95)
+    assert_eq("the stand-up target is the V6.1-1 default",
+        AutoPilot_Constants.ENDURANCE_REST_TARGET, 0.80)
     -- A fresh character with no run open still has to clear the resume gate.
     AutoPilot_Needs.endTrainingRun()
     resetRest()
     AutoPilot_Needs.resetInterventionForTest()
-    assert_false("with no run open, 80% does NOT start one",
-        AutoPilot_Needs.trainExercise(drivenPlayer(0.80), "fitness"))
+    assert_false(("with no run open, %.0f%% does NOT start one")
+        :format(belowGate * 100),
+        AutoPilot_Needs.trainExercise(drivenPlayer(belowGate), "fitness"))
     resetRest()
     AutoPilot_Needs.endTrainingRun()
 end

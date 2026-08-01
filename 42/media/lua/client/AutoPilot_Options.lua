@@ -57,6 +57,16 @@
 -- AutoPilot_Needs for the run-state machine that makes two gates possible.
 -- ENDURANCE_SIT_MIN and ENDURANCE_REST_TARGET moved with them (0.35 and 0.95).
 --
+-- V6.1-1 (RETUNE, user decision 2026-08-01): the two UPPER numbers came back
+-- down -- resume 90 -> 75 and the seated target 95 -> 80 -- because the
+-- 2026-07-26 session log showed the character spending the run recovering
+-- across a band in which training was already allowed.  Nothing about the page
+-- changed: both are still sliders, still live-read, and the ranges are
+-- untouched (endMin 10-90, restTargetPct 20-100), so a player who wants the
+-- V5.7 feel back sets 90 and 95 and gets it.  Only the value the slider OPENS
+-- on moved, and it opens on AutoPilot_Constants[key] (see _buildPage), so
+-- these defaults are not duplicated here.
+--
 -- Separately, the training-program control stopped being an empty dropdown;
 -- see the long note at its registration below.
 
