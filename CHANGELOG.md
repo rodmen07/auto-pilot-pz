@@ -5,9 +5,21 @@ All notable changes to AutoPilot are documented here.
 ## [Unreleased]
 
 Merged to `main` after the 0.1.0 version reset, still unversioned. Needs an in-game smoke test before
-the next Workshop update (the USER-ONLY tag / `sync_workshop.sh` / Update Item flow is unchanged).
+the next Workshop update. `sync_workshop.sh` and the in-game "Update Item" flow remain USER-ONLY; the
+version tag and the GitHub release are NOT — that restriction was lifted by user decision on
+2026-07-26 and the line asserting otherwise here was stale.
 
 ### Added
+
+- **The media arm backs off when a device stops helping (`stalled`).** The tuned answer shipped below
+  suppressed the outdoor walk for as long as a device stayed tuned, including against one whose lines the
+  character had all heard (`isKnownMediaLine`) or one tuned to a dead channel — so a permanent "relief"
+  that relieved nothing could park the boredom arm indefinitely. A full `MEDIA_STALL_WINDOW_MS` of tuned
+  game time, spanning at least `MEDIA_STALL_MIN_OBS` decision cycles, with no fall in boredom now backs
+  the arm off for `MEDIA_STALL_BACKOFF_MS`, records `setDecision("media", "stalled")`, and lets reading
+  and the outdoor walk run again. Boredom is normalised scale-agnostically before comparison, per the
+  V6.0 hard requirement. All three windows are tunable and can only be judged in-game; the two failure
+  directions have opposite fixes, recorded as a follow-up in the backlog.
 
 - **A carry-gate refusal is now observable: `fail_reason=carry_full` on the scavenge decision.** Follow-up
   to the carry-capacity gate below, closing its own filed gap: from the scavenge stuck-counter's point of
@@ -20,6 +32,28 @@ the next Workshop update (the USER-ONLY tag / `sync_workshop.sh` / Update Item f
   BEHAVIOUR is unchanged (an overloaded character should still stop scavenging); only its observability
   changed. The Python log tools already treat `fail_reason` as an open vocabulary, so historical logs and
   the triage detectors are unaffected.
+
+- **The F11 panel and the action HUD show WHY, not just what (V6.0-3).** Both surfaces named the action
+  and nothing else, so a character standing still was indistinguishable from a character the mod had
+  deliberately parked. One read side (`AutoPilot_Telemetry.getDecisionReason`, which survives `logTick`'s
+  pending clear and lets a `fail_reason` win over the plain reason) plus one pure formatter
+  (`AutoPilot.reasonLine`) compose into `AutoPilot.getActionLine`, which both surfaces already render —
+  extending the V5.8 one-source rule from the action string to the decision reason, so the panel and the
+  HUD cannot drift into two opinions again. An unknown or empty reason renders the plain action string,
+  so a newly added reason token can never blank the panel. The `dry` and `media` decisions also got the
+  display labels they had never had.
+
+- **Raw XP in the session summary, not just perk levels (telemetry schema 3).** The mod's own success
+  metric was unmeasurable: `auto_pilot_sessions.log` recorded perk LEVELS only, and PZ levels move so
+  rarely that across all fourteen sessions ever written the progress fields read "str 5→5, fit 3/4→4" —
+  a session that trained for forty minutes and one that idled produced byte-identical records. Schema 3
+  adds the raw totals behind those levels (`str_xp_start`/`_end`, `fit_xp_start`/`_end`,
+  `doc_xp_start`/`_end`), read from `player:getXp():getXP(Perks.X)` beside the perk levels
+  `Telemetry._collectStats` already read. Purely additive: schema 1 and 2 lines on disk still parse and
+  render their absent XP deltas as "?". The F11 history row now leads with XP and carries the level
+  delta in parentheses (`#3  812t  S+430(+1) F+12(+0) D+0(+0)  dead`). The run log is untouched and
+  stays `schema_version=5`, with a test asserting it carries no XP field so this cannot silently widen
+  that format.
 
 - **A carry-capacity gate on looting (`AutoPilot_Utils.hasCarryRoom`).** The mod had no weight sense at
   all. A whole-mod grep of `42/media/lua/client` for
@@ -101,6 +135,45 @@ the next Workshop update (the USER-ONLY tag / `sync_workshop.sh` / Update Item f
 
 ### Fixed
 
+- **The mod could starve a character carrying edible food, because the eat path treated "joyless" as
+  "inedible" (V6.0-1).** `AutoPilot_Inventory.isFoodSafe` ended `return unhappy <= 0 and boring <= 0`,
+  and every hunger-path selector ran through it (`getBestFood`, `getBestFoodForHunger`,
+  `selectFoodByWeight`) with no hunger-level override anywhere — so a food the game considers perfectly
+  edible but joyless was not deprioritised, it was INVISIBLE, at any hunger level. Measured against the
+  installed 42.19 item scripts (`media/scripts/generated/items/food.txt`, 722 item blocks), 141 foods
+  define a positive `UnhappyChange` and 46 of those are not cookable, so that one clause was the sole
+  reason the mod could never eat Pasta (40), Macaroni (40), Ramen (20), Butter (20) or Coffee2 (20). A
+  character carrying only dry pasta starved while "having food".
+  The single predicate is split into two honest ones: `isFoodEdible` is the SAFETY gate hunger never
+  overrides (not rotten, not frozen, not uncooked-cookable, plus two new hard rejects,
+  `getPoisonPower() > 0` and `isTainted()`), and the public `AutoPilot_Inventory.foodMalusScore` is the
+  PREFERENCE, lower being better, built from the POSITIVE part of `getUnhappyChange`/`getBoredomChange`
+  so a food that REDUCES either scores the same 0 as an inert ration. The three hunger-path selectors
+  now prefer malus-free food and keep their own key (calories, hunger fit, weight fit) WITHIN a malus
+  tier, so malus food is eaten only when nothing better is carried: the mod ranks rather than starves.
+  `preferTastyFood` deliberately keeps the strict predicate, because eating a food that raises
+  unhappiness to treat unhappiness is a contradiction, not a trade-off. Both new engine getters were
+  verified live in the 42.19 install before being called and both are `pcall`-wrapped like
+  `getUnhappyChange` beside them, since four existing suites build item stubs that define neither.
+  Reading `getPoisonPower()` directly rather than `player:isKnownPoison(item)` is a deliberate default
+  recorded in `docs/MILESTONE_V6_0.md`: a foraging-illiterate character who eats a poisonous berry dies
+  just as dead.
+
+- **Three of eight `AutoPilot_Threat.NEGATIVE_STAT_CHECKS` entries could never fire.** The table's own
+  comment asserted PANIC/PAIN/SICKNESS/STRESS/SANITY were 0-100 integers normalised by dividing by 100.
+  Verified live against the install, SICKNESS and STRESS are already 0.0-1.0 (a third independent signal
+  beyond the two originally found: `shared/TimedActions/ISDrinkFromBottle.lua:88` compares
+  `stats:getSickness() < 0.3` on the same line as `stats:get(CharacterStat.POISON) < 20`), so dividing
+  them again made their thresholds unreachable. Both are re-flagged `isNormalized = true`. SANITY was
+  REMOVED rather than rescaled, because its problem is polarity, not scale: it reads HIGH when the
+  character is healthy, so no `value >= threshold` entry can mean "sanity is bad" on either scale, and a
+  guessed threshold would only trade an unreachable entry for a wrong-but-reachable one. Restoring it
+  needs a `lowIsBad` entry shape plus a healthy baseline reading that only an in-game session can take.
+  A sibling sweep of all 30 `safeStat(` call sites found one more instance of the same class:
+  `AutoPilot_Needs.getMoodleSnapshot` reported `sick` and `stressed` as `math.floor(value)` with no
+  `* 100`, so both read 0 for any character short of the maximum (that whole reporting path was later
+  deleted; see Removed). The deliverable is the guard, not the four fixes — see Tests.
+
 - **Unhappiness relief picked its food by the wrong moodle, and could make the character unhappier.**
   `AutoPilot_Inventory.preferTastyFood` ranked candidates by `getBoredomChange()` alone, but its only
   caller is the UNHAPPINESS arm of `doMoodRelief`. Boredom and unhappiness are different moodles, so a
@@ -181,6 +254,30 @@ the next Workshop update (the USER-ONLY tag / `sync_workshop.sh` / Update Item f
 
 ### Changed
 
+- **The endurance idle band is closed: the leveler trains instead of parking (V6.1-1).** A real
+  2026-07-26 session measured the leveler exercising for 1.5% of 15,630 ticks — 1,341 of 1,636 action
+  episodes logged `reason=rest_cooldown` while mean endurance sat at 85.3 and the 0.30 training floor
+  was never approached. The mod was not broken, it was parked: with `EXERCISE_ENDURANCE_RESUME = 0.90`
+  the run-aware sit threshold sat an idle character down across the whole 0.35-0.90 band and held it
+  there while endurance crawled across the flattest part of the recovery curve. On the user's explicit
+  decision (`docs/MILESTONE_V6_1.md` Q1, option (a)), the two shipped DEFAULTS move:
+  `EXERCISE_ENDURANCE_RESUME` 0.90 → **0.75** and `ENDURANCE_REST_TARGET` 0.95 → **0.80**. Both remain
+  player-tunable sliders with unchanged ranges, and the sliders read `AutoPilot_Constants[key]`, so this
+  moves the default and not the ceiling. `EXERCISE_ENDURANCE_MIN` (0.30) and `ENDURANCE_SIT_MIN` (0.35)
+  are untouched, preserving 0.30 < 0.35 < 0.75 < 0.80 and the >= 0.05 anti-thrash margin. A sibling
+  sweep caught a fourth production site carrying the same literal, `AutoPilot_Exercise`'s last-resort
+  0.90 fallback, so the fallback cannot disagree with the shipped constant.
+
+- **Looting prefers malus-free food too, not just eating (V6.0-2).** `lootNearbyFood` took the
+  highest-calorie candidate outright, so after V6.0-1 the eat path ranked malus-free food first while
+  the loot path kept hauling home exactly the Pasta the mod would then rank last. It now ranks on the
+  same two keys through the same public `AutoPilot_Inventory.foodMalusScore` helper: malus-free first,
+  calories deciding within a malus tier. This is deliberately a RANKING change and not a filter change —
+  the what-counts predicate (`cal > 0 and thirst >= 0`) is untouched, so the loot predicate stays a
+  superset of `getSupplyCounts`' and nothing lootable before this slice became unlootable. That matters
+  concretely: mismatched predicates previously caused an endless loot loop, because the mod hauls items
+  its own supply counter refuses to count.
+
 - **The flee-only combat telemetry now says evade, never engage (V6.1-2).** The 2026-07-26 session
   logged 90 of 105 combat ticks as `engage_running` (78) or `engage_cooldown` (12) on a path that can
   only flee -- PR #74 deleted the fight path because B42 exposes no AI-attack API -- so anyone reading
@@ -203,6 +300,51 @@ the next Workshop update (the USER-ONLY tag / `sync_workshop.sh` / Update Item f
   at all every bed ties and the previous nearest-wins behaviour returns. (PR #76)
 
 ### Tests
+
+- **CI now refuses a pull request that changes shipped client Lua without touching this file.** The
+  entries above were BACKFILLED, and that is the finding: seven of the seventeen merged commits that
+  touched `42/media/lua/client/` between PR #74 and PR #101 never touched `CHANGELOG.md` at all (#84,
+  #88, #89, #90, #92, #100, #101), so the whole approved V6.0 milestone plus V6.1-1 was missing from
+  the record this project calls authoritative, days before v0.2.0 was due to be cut from it. Nothing
+  failed, because nothing was checking. `ci.yml` gains a `Changelog guard` step (pull requests only; a
+  push to main has no base branch to diff against) that fails when the diff against the base touches
+  `42/media/lua/client/*.lua` and not `CHANGELOG.md`, with a `[no changelog]` commit-message override
+  for changes that genuinely have no user-visible effect — announced loudly in the log when used, so it
+  stays reviewable. `actions/checkout` now requests `fetch-depth: 0`, since the guard needs a merge
+  base.
+  New suite `tests/test_changelog_guard.py` (8 tests) EXTRACTS that step's script out of the workflow
+  yaml and runs it under `bash` against synthetic git repositories, the same drift-guard shape
+  `tests/test_release_gate.py` uses, so the workflow stays the single source of truth and the guard
+  cannot rot into an inert surface. It proves both directions plus the controls: shipped Lua without a
+  changelog FAILS, the same change with one PASSES, a test/docs-only change PASSES, the override PASSES
+  and announces itself, an empty diff FAILS (a guard that passes on zero input is worse than no guard),
+  an unresolvable base FAILS, and two wiring assertions keep the `pull_request` condition and
+  `fetch-depth: 0` in place. Replayed against real history it flags exactly the seven undocumented
+  commits and passes the other ten: no false positives, no false negatives.
+
+- New suite `tests/test_food_malus.lua` (V6.0-1, extended by V6.0-2): all four hunger-path selectors
+  feed a character carrying only Pasta (unhappy 40) and Ramen (unhappy 20) and pick the lower-malus
+  Ramen, poison and taint are rejected outright, and the loot path's ranking difference plus its
+  calorie key inside a tier are asserted. Its drift guard reads BOTH sources — what `lootNearbyFood`
+  picks up and what `getSupplyCounts` counts — so re-tightening either predicate alone fails the suite.
+  Proven non-vacuous by reinstating the old `unhappy <= 0` clause, which flips four assertions to FAIL
+  and then aborts on exactly the nil the fix exists to prevent.
+
+- New suite `tests/test_reason_line.lua` (V6.0-3) covers the decision-reason formatter and the one
+  source both the F11 panel and the HUD read; `tests/test_session_xp.lua` covers telemetry schema 3,
+  including the assertion that the run log still carries no XP field.
+
+- New suite `tests/test_stat_scales.lua` records every modelled stat's engine scale in
+  `tests/lua_mock_pz.lua` with a live-install citation and reads it against the glob-discovered
+  production sources, failing when a threshold entry's `isNormalized` flag or a percent-report
+  expression disagrees with the engine scale, when a stat reaches production with no recorded scale, or
+  when either finder matches nothing. `test_engine_symbols` models EXISTENCE; this one models SCALE.
+
+- New suite `tests/test_endurance_band.lua` (V6.1-1, 23 assertions) proves the behaviour DIFFERENCE
+  rather than the constants: every case runs `AutoPilot_Needs.check()` twice on the same character, once
+  on the shipped defaults and once with the V5.7 pair reinstalled, and asserts the two disagree at 85%
+  endurance. `tests/test_options_mapping.lua` gains an explicit `>= 0.05` anti-thrash margin assertion,
+  which V5.7 satisfied only by coincidence of two defaults.
 
 - New suite `tests/test_mood_during_rest.lua` (21 assertions): a bored seated character reads without
   standing up and without clearing the rest hold, an unhappy one eats, a contented one still just rests
