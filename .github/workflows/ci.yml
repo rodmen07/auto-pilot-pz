@@ -5,6 +5,19 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  # release.yml's "CI gate" job invokes this workflow with
+  # `uses: ./.github/workflows/ci.yml`.  GitHub only permits that when the
+  # called workflow's `on:` includes `workflow_call` ("For a workflow to be
+  # reusable, the values for `on` must include `workflow_call`"); without it
+  # the caller fails at parse time with "workflow is not reusable", BEFORE any
+  # step runs.  This trigger was missing from the day the CI gate was written,
+  # so every tag push would have killed the release on its first job — the
+  # gate meant to stop a broken tag from shipping was itself the breakage.
+  # tests/test_release_gate.py (TestCiGateIsActuallyCallable) keeps it here.
+  # Note the Changelog guard below stays PR-only via its `if:`: under a
+  # workflow_call the caller's event name (push) propagates, and a tag diffed
+  # against main would be empty, tripping that guard's own blind-guard.
+  workflow_call:
 
 # Least privilege: this suite only reads the checked-out tree. Nothing here
 # needs write access to contents, releases, packages, issues, or checks, so the

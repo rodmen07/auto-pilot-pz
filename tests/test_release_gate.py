@@ -53,6 +53,15 @@ reintroduction would actually use was invisible to it.  The step now matches
 both shapes; :class:`TestAnthropicImportGate` proves each direction plus an
 always-on negative control showing the old pattern really was blind.
 
+And the CI-GATE half, which turned out to be the broadest of the lot.  The
+``lint-and-test`` job at the top of ``release.yml`` calls this repo's CI suite
+as a reusable workflow (``uses: ./.github/workflows/ci.yml``), and GitHub only
+honours that call when the called workflow declares ``on: workflow_call`` —
+which ``ci.yml`` never did.  So the FIRST job of every release would have
+failed at parse time ("workflow is not reusable"), before the version gate,
+the packaging, or any other step this module exercises could run at all.
+:class:`TestCiGateIsActuallyCallable` pins the contract from both ends.
+
 Implementation notes:
 
 * No PyYAML.  This repo's Python surface is deliberately stdlib only (plus
@@ -78,6 +87,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).parent.parent
 RELEASE_WORKFLOW = ROOT / ".github" / "workflows" / "release.yml"
+CI_WORKFLOW = ROOT / ".github" / "workflows" / "ci.yml"
 MOD_INFO_42 = ROOT / "42" / "mod.info"
 
 STEP_NAME = "Verify version tag matches mod.info"
@@ -271,7 +281,70 @@ def parse_bash_array(script: str, name: str) -> list[str]:
     return re.findall(r'"([^"]+)"', script[idx + len(marker):end])
 
 
+def local_workflow_calls(workflow_text: str) -> list[str]:
+    """Return every local reusable-workflow target (``uses: ./...``) in order.
+
+    These are workflow-to-workflow calls, not action refs: the caller's job
+    delegates its entire definition to another file in this repository, and
+    GitHub refuses the call unless that file's ``on:`` includes
+    ``workflow_call``.  The reader returns an empty list rather than raising so
+    the blind-guard test below can assert the CI gate still EXISTS as its own
+    named failure.
+    """
+    calls: list[str] = []
+    for line in workflow_text.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("#") or "uses:" not in stripped:
+            continue
+        rest = stripped.split("uses:", 1)[1].strip()
+        if not rest:
+            continue
+        spec = rest.split()[0]
+        if spec.startswith("./"):
+            calls.append(spec.split("@", 1)[0])
+    return calls
+
+
+def trigger_keys(workflow_text: str, source: str) -> list[str]:
+    """Return the trigger names under a workflow's top-level ``on:`` block.
+
+    Handles the two shapes this repo's workflows use: a mapping block
+    (``on:`` followed by indented keys) and the flow list (``on: [a, b]``).
+    Hard-fails when no ``on:`` block or no triggers can be found: a reader
+    that answers "no triggers" for a malformed file would let the callable
+    test pass on exactly the breakage it exists to catch.
+    """
+    lines = workflow_text.splitlines()
+    for i, line in enumerate(lines):
+        flow = re.match(r"^(?:on|\"on\"|'on'):\s*\[(.+)\]\s*$", line)
+        if flow:
+            keys = [k.strip().strip("\"'") for k in flow.group(1).split(",")]
+            keys = [k for k in keys if k]
+            if not keys:
+                raise LookupError(f"empty flow-style on: list in {source}")
+            return keys
+        if re.match(r"^(?:on|\"on\"|'on'):\s*$", line):
+            keys = []
+            for block_line in lines[i + 1:]:
+                if block_line.strip() and not block_line.startswith((" ", "\t")):
+                    break  # next top-level key ends the on: block
+                key = re.match(r"^ {2}([A-Za-z_][A-Za-z0-9_]*):", block_line)
+                if key:
+                    keys.append(key.group(1))
+            if not keys:
+                raise LookupError(
+                    f"found an on: block in {source} but no trigger keys under "
+                    "it; the reader must never answer 'no triggers' silently"
+                )
+            return keys
+    raise LookupError(
+        f"no top-level on: block found in {source}; a workflow without "
+        "triggers cannot run at all, so this reader refuses to guess"
+    )
+
+
 WORKFLOW_TEXT = RELEASE_WORKFLOW.read_text(encoding="utf-8")
+CI_TEXT = CI_WORKFLOW.read_text(encoding="utf-8")
 GATE_SCRIPT = extract_step_script(WORKFLOW_TEXT, STEP_NAME)
 BUILD_SCRIPT = extract_step_script(WORKFLOW_TEXT, BUILD_STEP)
 VERIFY_SCRIPT = extract_step_script(WORKFLOW_TEXT, VERIFY_STEP)
@@ -841,6 +914,102 @@ class TestAnthropicImportGate(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("PASSED", result.stdout)
+
+
+class TestCiGateIsActuallyCallable(unittest.TestCase):
+    """The CI-gate job above all the others had never been runnable at all.
+
+    ``release.yml``'s first job delegates to this repo's CI suite with
+    ``uses: ./.github/workflows/ci.yml`` — a reusable-workflow call, and the
+    gate that stops a broken tag from producing a release artifact.  GitHub
+    only honours such a call when the CALLED workflow's ``on:`` includes
+    ``workflow_call`` ("For a workflow to be reusable, the values for ``on``
+    must include ``workflow_call``" — docs/actions, reuse-workflows); without
+    it the caller dies at parse time with "workflow is not reusable", before
+    a single step of any job runs.
+
+    ``ci.yml`` never declared it.  The call shape dates from the workflow's
+    first commit and ``gh run list --workflow Release`` is empty, so nothing
+    had ever exercised it: the fourth consecutive release-path defect found by
+    exercising a surface only a tag push runs (after the unpassable version
+    gate, the ``${{ }}`` injection shape, and the anthropic-import gate that
+    missed the ``from`` form).  Every release would have failed on its FIRST
+    job — including the gate's own reason to exist, a broken tag, which would
+    have been "stopped" only because nothing could run at all.
+
+    These tests pin the contract from both ends: the caller still has a local
+    CI gate (so the contract cannot be satisfied by deleting it), and every
+    locally-called workflow both exists and declares ``workflow_call``.  The
+    Changelog guard's PR-only ``if:`` is asserted too, because under a
+    workflow_call from a tag push the caller's event name (``push``)
+    propagates and a tag diffed against main is an empty diff, which that
+    guard's own blind-guard converts into a hard failure: losing the ``if:``
+    would re-break the release path while every pull request stayed green.
+    """
+
+    def test_release_workflow_still_has_a_local_ci_gate(self) -> None:
+        """Blind guard: zero local calls means the CI gate itself is gone."""
+        calls = local_workflow_calls(WORKFLOW_TEXT)
+        self.assertTrue(
+            calls,
+            "release.yml no longer calls any local reusable workflow: the "
+            "CI gate in front of packaging has been removed or renamed, and "
+            "the callable-contract tests below are running on nothing",
+        )
+        self.assertIn("./.github/workflows/ci.yml", calls)
+
+    def test_every_locally_called_workflow_exists(self) -> None:
+        for target in local_workflow_calls(WORKFLOW_TEXT):
+            with self.subTest(target=target):
+                self.assertTrue(
+                    (ROOT / target).is_file(),
+                    f"release.yml calls {target}, which does not exist",
+                )
+
+    def test_every_locally_called_workflow_declares_workflow_call(self) -> None:
+        """The behavior difference: this fails on the pre-fix ci.yml."""
+        for target in local_workflow_calls(WORKFLOW_TEXT):
+            with self.subTest(target=target):
+                text = (ROOT / target).read_text(encoding="utf-8")
+                self.assertIn(
+                    "workflow_call",
+                    trigger_keys(text, target),
+                    f"{target} is called as a reusable workflow by release.yml "
+                    "but its on: block does not include workflow_call, so the "
+                    "call fails at parse time ('workflow is not reusable') and "
+                    "the whole release dies on its first job",
+                )
+
+    def test_ci_workflow_keeps_its_push_and_pr_triggers(self) -> None:
+        """workflow_call is additive: the normal CI triggers must survive."""
+        keys = trigger_keys(CI_TEXT, "ci.yml")
+        self.assertIn("push", keys)
+        self.assertIn("pull_request", keys)
+
+    def test_changelog_guard_stays_pull_request_only(self) -> None:
+        """A tag push must SKIP the guard, not feed it an empty diff."""
+        block = "\n".join(extract_step_block(CI_TEXT, "Changelog guard"))
+        self.assertRegex(
+            block,
+            r"if:.*github\.event_name\s*==\s*'pull_request'",
+            "the Changelog guard has lost its pull_request-only condition; "
+            "called from release.yml on a tag push it would diff the tag "
+            "against main, get an empty diff, and hard-fail the CI gate",
+        )
+
+    def test_trigger_reader_refuses_a_workflow_without_triggers(self) -> None:
+        """Never-pass-blind: no on: block is an error, not an empty answer."""
+        with self.assertRaises(LookupError):
+            trigger_keys("name: X\njobs:\n  a:\n    runs-on: ubuntu-latest\n", "synthetic")
+
+    def test_trigger_reader_refuses_an_empty_on_block(self) -> None:
+        with self.assertRaises(LookupError):
+            trigger_keys("name: X\non:\njobs:\n  a: {}\n", "synthetic")
+
+    def test_trigger_reader_handles_the_flow_list_shape(self) -> None:
+        """The one alternative shape a future edit would plausibly use."""
+        keys = trigger_keys("on: [push, workflow_call]\njobs: {}\n", "synthetic")
+        self.assertEqual(keys, ["push", "workflow_call"])
 
 
 if __name__ == "__main__":
