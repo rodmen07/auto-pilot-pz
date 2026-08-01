@@ -19,6 +19,14 @@ jobs:
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The changelog guard below diffs this branch against its base, which
+          # needs the base commit and a merge base -- neither exists in the
+          # default depth-1 checkout.  This repo is 206 commits / 13 MB, so the
+          # full history costs about a second.  tests/test_changelog_guard.py
+          # asserts this line still says 0, because losing it turns the guard
+          # into a step that errors instead of one that judges.
+          fetch-depth: 0
 
       # Runs before the ~25s toolchain install so a supply-chain regression
       # fails fast.
@@ -60,6 +68,72 @@ jobs:
             exit 1
           fi
           echo "Action pin guard PASSED: every external action is pinned to a commit SHA."
+
+      # Also fails fast, before the toolchain install.  PULL REQUESTS ONLY: on a
+      # push to main there is no base branch to diff against, and the squash
+      # commit already carries both halves of whatever the PR changed.
+      #
+      # Exercised on every push and PR by tests/test_changelog_guard.py, which
+      # extracts THIS script out of the yaml and runs it against synthetic git
+      # repositories, so the guard cannot rot into an inert surface the way
+      # release.yml's version gate did (see tests/test_release_gate.py).
+      - name: Changelog guard
+        if: github.event_name == 'pull_request'
+        run: |
+          echo "=== Changelog guard: shipped client Lua must ship with a CHANGELOG entry ==="
+          BASE_REF="${GITHUB_BASE_REF:-main}"
+          BASE="origin/${BASE_REF}"
+          if ! git rev-parse --verify --quiet "${BASE}" >/dev/null; then
+            BASE="${BASE_REF}"
+          fi
+          if ! git rev-parse --verify --quiet "${BASE}" >/dev/null; then
+            echo "ERROR: cannot resolve the base branch (tried origin/${BASE_REF} and ${BASE_REF})."
+            echo "The guard has gone blind; it must never pass without a base to diff against."
+            exit 1
+          fi
+          MERGE_BASE="$(git merge-base "${BASE}" HEAD)" || MERGE_BASE=""
+          if [ -z "${MERGE_BASE}" ]; then
+            echo "ERROR: no merge base between ${BASE} and HEAD."
+            echo "actions/checkout needs fetch-depth: 0 here; a guard that cannot see the"
+            echo "history must fail, not pass."
+            exit 1
+          fi
+          CHANGED="$(git diff --name-only "${MERGE_BASE}" HEAD)"
+          if [ -z "${CHANGED}" ]; then
+            echo "ERROR: this branch changes no files against ${BASE}."
+            echo "A guard that reports success on zero input is worse than no guard."
+            exit 1
+          fi
+          echo "Changed file(s) against ${BASE}:"
+          printf '%s\n' "${CHANGED}" | sed 's/^/  /'
+          LUA="$(printf '%s\n' "${CHANGED}" | grep -E '^42/media/lua/client/.+\.lua$' || true)"
+          if [ -z "${LUA}" ]; then
+            echo "Changelog guard PASSED: no shipped client Lua changed."
+            exit 0
+          fi
+          if printf '%s\n' "${CHANGED}" | grep -qx 'CHANGELOG.md'; then
+            echo "Changelog guard PASSED: CHANGELOG.md changed alongside the shipped code."
+            exit 0
+          fi
+          if git log --format=%B "${MERGE_BASE}..HEAD" | grep -qF '[no changelog]'; then
+            echo "Changelog guard PASSED BY OVERRIDE: a commit message carries [no changelog]."
+            echo "That override is for changes with no user-visible effect only, and it stays"
+            echo "in the git log where a reviewer can see it."
+            exit 0
+          fi
+          echo "Changelog guard FAILED: shipped client Lua changed with no CHANGELOG.md entry:"
+          printf '%s\n' "${LUA}" | sed 's/^/  /'
+          echo
+          echo "CHANGELOG.md is this project's authoritative shipped record and release notes"
+          echo "are cut from it.  Between PR #74 and PR #101 SEVEN merged PRs changed"
+          echo "42/media/lua/client/ and never touched it (#84, #88, #89, #90, #92, #100,"
+          echo "#101), so an entire approved milestone was missing from the record days"
+          echo "before its release was due to be cut."
+          echo
+          echo "Fix: add an entry under '## [Unreleased]' in CHANGELOG.md, or put"
+          echo "[no changelog] in a commit message if the change truly has no user-visible"
+          echo "effect."
+          exit 1
 
       - name: Set up Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
