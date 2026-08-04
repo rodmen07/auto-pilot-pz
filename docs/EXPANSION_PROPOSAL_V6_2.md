@@ -1,9 +1,18 @@
 # AutoPilot: V6.2 Expansion Proposal
 
-> **STATUS: PROPOSED 2026-08-01, AWAITING USER DECISION.** Every open choice below carries an
-> overridable default, so "approve with defaults" (or "approve C1 only", etc.) is a complete
-> answer. Nothing here is implemented yet; net-new dev on this project is proposal-gated
-> (backlog rule, 2026-07-26).
+> **STATUS: DECIDED 2026-08-01 — APPROVED WITH DEFAULTS (user decision, direct, decision
+> walkthrough; recorded in the backlog banner).** C1 and C2 are approved as written (C1's D1-D4
+> defaults included), sequenced C1 then C2, each its own PR. C3 stays SESSION-GATED with default
+> WAIT. D4 (drop the superseded stash) is asked again after C1 merges, never silently. The body
+> below is preserved unedited as the decision record.
+>
+> Implementation state: **C1 SHIPPED** (moodle-aligned triggers, the PR that flipped this banner).
+> C2 is the next dev slice. C3 waits on the next in-game session's exercise-share measurement.
+>
+> Original banner, for the record: *STATUS: PROPOSED 2026-08-01, AWAITING USER DECISION.* Every
+> open choice below carries an overridable default, so "approve with defaults" (or "approve C1
+> only", etc.) is a complete answer. Nothing here is implemented yet; net-new dev on this project
+> is proposal-gated (backlog rule, 2026-07-26).
 
 ## 1. Why this proposal exists, and why now
 

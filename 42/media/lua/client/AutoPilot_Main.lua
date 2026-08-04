@@ -368,6 +368,11 @@ local REASON_LABELS = {
     sit_recover    = "recovering",
     thirst_thresh  = "thirsty",
     hunger_thresh  = "hungry",
+    -- V6.2 C1: the moodle arm fired where the stat slider alone would not
+    -- have — the character LOOKS thirsty/hungry on screen, so the label says
+    -- exactly that instead of restating the stat-threshold phrasing.
+    thirst_moodle  = "thirsty moodle",
+    hunger_moodle  = "hungry moodle",
     unhappy        = "low mood",
     weather        = "bad weather",
     temperature    = "body temperature",
