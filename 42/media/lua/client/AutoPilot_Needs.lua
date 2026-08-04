@@ -331,13 +331,18 @@ function AutoPilot_Needs.shouldInterrupt(player)
     -- Bleeding always interrupts
     if AutoPilot_Medical.hasCriticalWound(player) then return true end
 
-    -- Thirst interrupts at threshold
+    -- Thirst interrupts at the stat threshold OR when the game's own Thirsty
+    -- moodle shows (V6.2 C1, mirrors the ENDURANCE stat-or-moodle pair below).
+    -- MoodleType.THIRST verified in the 42.19 jar constant pool
+    -- (zombie/scripting/objects/MoodleType.class); see the mock's enum note.
     local thirst = AutoPilot_Utils.safeStat(player, CharacterStat.THIRST)
     if thirst >= AutoPilot_Constants.THIRST_THRESHOLD then return true end
+    if safeMoodleLevel(player, MoodleType.THIRST) >= 1 then return true end
 
-    -- Hunger interrupts
+    -- Hunger interrupts (same stat-or-moodle shape; MoodleType.HUNGRY)
     local hunger = AutoPilot_Utils.safeStat(player, CharacterStat.HUNGER)
     if hunger >= AutoPilot_Constants.HUNGER_THRESHOLD then return true end
+    if safeMoodleLevel(player, MoodleType.HUNGRY) >= 1 then return true end
 
     -- Exhaustion interrupts (stat threshold OR severe moodle — mirrors check())
     local endurance = AutoPilot_Utils.safeStat(player, CharacterStat.ENDURANCE)
@@ -385,10 +390,20 @@ function AutoPilot_Needs.check(player)
         -- fall through: address lower needs instead of idling on a blocked sleep
     end
 
-    -- 2. Thirst (0.0=hydrated, ~1.0=dying)
+    -- 2. Thirst (0.0=hydrated, ~1.0=dying).  V6.2 C1: the tunable stat
+    -- threshold is widened by the game's own Thirsty moodle (level >= 1), so
+    -- the mod reacts to the same signal the player sees on screen and the
+    -- trigger survives any engine retuning of the hidden stat scale.  A pure
+    -- widening: the stat arm is checked FIRST and keeps its reason token, so
+    -- behaviour at or above the slider is byte-identical to V6.1, and
+    -- "thirst_moodle" is recorded only when the stat alone would NOT have
+    -- fired (telemetry honesty, proposal default D3).
     local thirst = AutoPilot_Utils.safeStat(player, CharacterStat.THIRST)
     if thirst >= AutoPilot_Constants.THIRST_THRESHOLD then
         AutoPilot_Telemetry.setDecision("drink", "thirst_thresh")
+        return AutoPilot_Consumption.doDrink(player)
+    elseif safeMoodleLevel(player, MoodleType.THIRST) >= 1 then
+        AutoPilot_Telemetry.setDecision("drink", "thirst_moodle")
         return AutoPilot_Consumption.doDrink(player)
     end
 
@@ -411,12 +426,20 @@ function AutoPilot_Needs.check(player)
         end
     end
 
-    -- 3. Hunger (0.0=full, ~1.0=starving)
+    -- 3. Hunger (0.0=full, ~1.0=starving).  V6.2 C1: same stat-or-moodle
+    -- widening as the thirst branch above (MoodleType.HUNGRY, level >= 1);
+    -- the stat arm keeps precedence and its reason token, "hunger_moodle" is
+    -- recorded only when the moodle alone fired.
     local hunger = AutoPilot_Utils.safeStat(player, CharacterStat.HUNGER)
-    if hunger >= AutoPilot_Constants.HUNGER_THRESHOLD then
+    local hungerStatFired = hunger >= AutoPilot_Constants.HUNGER_THRESHOLD
+    if hungerStatFired or safeMoodleLevel(player, MoodleType.HUNGRY) >= 1 then
         print(string.format(
             "[Needs] Hunger triggered (%.0f%%). Attempting to eat.", hunger * 100))
-        AutoPilot_Telemetry.setDecision("eat", "hunger_thresh")
+        if hungerStatFired then
+            AutoPilot_Telemetry.setDecision("eat", "hunger_thresh")
+        else
+            AutoPilot_Telemetry.setDecision("eat", "hunger_moodle")
+        end
         local ate = AutoPilot_Consumption.doEat(player)
         if ate then return true end
         print("[Needs] doEat returned false — no food available, continuing.")

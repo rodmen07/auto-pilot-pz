@@ -134,10 +134,13 @@ Fixed pairs logged by `AutoPilot_Main`:
 
 Decision pairs set by `AutoPilot_Needs` via `setDecision`: `bandage`
 (`bleeding`, `wound`), `sleep` (`fatigue_thresh`), `rest`
-(`rest_cooldown`, `low_endurance`), `drink` (`thirst_thresh`), `shelter`
-(`weather`), `eat` (`hunger_thresh`, `unhappy`), `clothing`
-(`temperature`), `read` (`boredom`), `outside` (`boredom`), `exercise`
-(`training`), `scavenge` (`low_supplies`).
+(`rest_cooldown`, `low_endurance`), `drink` (`thirst_thresh`,
+`thirst_moodle`), `shelter` (`weather`), `eat` (`hunger_thresh`,
+`hunger_moodle`, `unhappy`), `clothing` (`temperature`), `read`
+(`boredom`), `outside` (`boredom`), `exercise` (`training`), `scavenge`
+(`low_supplies`). The `*_moodle` variants (V6.2 C1) mean the game's own
+Hungry/Thirsty moodle fired the trigger where the stat slider alone
+would not have.
 
 Older logs may also contain the legacy labels `loot`, `fight`, `flee`,
 `happiness`, `recover`, `blocked`, and (through V4.9) `barricade`

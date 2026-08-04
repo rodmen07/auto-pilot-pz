@@ -272,10 +272,13 @@
 --          test_threat_logic until 2026-07-25; a suite-local enum key hides the
 --          member from the enum-drift guard, so every member production reads
 --          now lives here); safeStat degrades missing keys to 0 by design
---   [M]  MoodleType   ENDURANCE/UNHAPPY/PAIN/PANIC/HEAVY_LOAD (PAIN and PANIC
+--   [M]  MoodleType   ENDURANCE/UNHAPPY/PAIN/PANIC/HEAVY_LOAD/HUNGRY/THIRST
+--          (PAIN and PANIC
 --          added for AutoPilot_Sleep.canSleepNow, which mirrors the engine
 --          sleep gate; HEAVY_LOAD for AutoPilot_Utils.hasCarryRoom, which
 --          mirrors the vanilla fitness gate at ISFitnessUI.lua:219;
+--          HUNGRY/THIRST for the V6.2 C1 moodle-aligned triggers, verified in
+--          the jar constant pool — see the enum note below;
 --          getMoodleLevel returns 0 for any key a test does not set).  B42
 --          spells these SCREAMING_SNAKE_CASE — modelling "Unhappy" here kept a
 --          nil-in-game read looking alive in the suites until 2026-07-25
@@ -438,6 +441,17 @@ MoodleType = {
     -- button (Tooltip_TooHeavyFitness) at level > 2 — i.e. vanilla will not let
     -- an overloaded character exercise, which is this mod's main job.
     HEAVY_LOAD = "HEAVY_LOAD",
+    -- V6.2 C1 (moodle-aligned hunger/thirst triggers): neither name appears in
+    -- the install's LUA at all, so these two were verified one level deeper
+    -- than the members above — read straight out of the 42.19 jar's constant
+    -- pool (python zipfile over projectzomboid.jar ->
+    -- zombie/scripting/objects/MoodleType.class: ... TIRED, HUNGRY, PANIC,
+    -- SICK, BORED, UNHAPPY, ... STRESS, THIRST, INJURED, PAIN, HEAVY_LOAD ...;
+    -- re-verified live 2026-08-04).  Same enum that provides every member
+    -- above, all five of which behave in-game.  Note the asymmetric spelling
+    -- is the engine's own: HUNGRY but THIRST, not HUNGER/THIRSTY.
+    HUNGRY = "HUNGRY",
+    THIRST = "THIRST",
 }
 
 -- ── CharacterTrait enum ───────────────────────────────────────────────────────

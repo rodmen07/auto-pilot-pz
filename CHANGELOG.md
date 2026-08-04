@@ -11,6 +11,18 @@ version tag and the GitHub release are NOT — that restriction was lifted by us
 
 ### Added
 
+- **Eating and drinking now also trigger on the game's own Hungry/Thirsty moodle (V6.2 C1).** The
+  hunger/thirst triggers used to read only the raw stats against the tunable sliders, so the mod's
+  timing needed explaining and was welded to a hidden stat scale. Both `check()` and
+  `shouldInterrupt()` now fire when the moodle reaches level 1 OR the stat crosses the slider — a
+  pure widening: the stat arm keeps precedence, so behaviour at or above the slider is unchanged and
+  the mod can never eat or drink later than before. When the moodle arm alone fired, telemetry says
+  so honestly (`reason=hunger_moodle` / `thirst_moodle`, with their own F11/HUD labels) instead of
+  pretending the slider tripped. `MoodleType.HUNGRY`/`MoodleType.THIRST` were verified in the 42.19
+  jar constant pool before use (neither name exists in the install's Lua). Revives the intent of the
+  repo's stashed phase-2 WIP as a fresh implementation; the stash itself is untouched (proposal
+  default D4).
+
 - **The media arm backs off when a device stops helping (`stalled`).** The tuned answer shipped below
   suppressed the outdoor walk for as long as a device stayed tuned, including against one whose lines the
   character had all heard (`isKnownMediaLine`) or one tuned to a dead channel — so a permanent "relief"
