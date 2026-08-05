@@ -4,10 +4,19 @@ All notable changes to AutoPilot are documented here.
 
 ## [Unreleased]
 
-Merged to `main` after the 0.1.0 version reset, still unversioned. Needs an in-game smoke test before
-the next Workshop update. `sync_workshop.sh` and the in-game "Update Item" flow remain USER-ONLY; the
-version tag and the GitHub release are NOT — that restriction was lifted by user decision on
-2026-07-26 and the line asserting otherwise here was stale.
+Nothing yet.
+
+## [0.2.0] - 2026-08-05
+
+Carries every change merged to `main` since the 0.1.0 version reset (2026-07-25) that has not shipped
+in a tagged release before: malus-aware eating and looting (V6.0), decision-reason visibility on the
+F11 panel and action HUD (V6.0-3), the endurance idle-band retune (V6.1-1), and moodle-aligned
+hunger/thirst triggers plus multiplier-honest XP/hr under fast-forward (V6.2), plus the DevSecOps
+hardening and QA coverage that rode along (release-path packaging/integrity checks now CI-executed,
+the luacheck version pin, the Changelog guard). The user's in-game smoke test on this range PASSED
+(reported 2026-08-05; see `docs/MILESTONE_V6_0.md`, `docs/MILESTONE_V6_1.md`). `sync_workshop.sh` and
+the in-game "Update Item" flow remain USER-ONLY; the version tag and the GitHub release are not (lifted
+by user decision 2026-07-26).
 
 ### Added
 
