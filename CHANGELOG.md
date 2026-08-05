@@ -147,6 +147,16 @@ version tag and the GitHub release are NOT — that restriction was lifted by us
 
 ### Fixed
 
+- **The F11 XP/hr and ETA no longer inflate under fast-forward (FF-4, V6.2 C2).** `AutoPilot_XP`
+  divided the XP delta by raw wall-clock time, so the same training read 5/20/40x the rate the moment
+  the player fast-forwarded, and the ETA swung the other way. The rolling window now accumulates
+  elapsed real time scaled by `getGameTime():getMultiplier()` (the same verified call, and the same
+  guard shape, as the FF-1 cadence fix in `AutoPilot_Main`) and divides by that: at 1x every number is
+  unchanged, and under fast-forward the rate stays put when speed changes. The window itself still
+  prunes on raw wall-clock time, so sleep's game-time jump cannot flush it. Display-only — the sole
+  consumer is the F11 perk line (`AutoPilot_UI`), re-verified by grep; no decision path reads the
+  rate. Closes FF-4, the last open finding from the 2026-07-24 fast-forward investigation.
+
 - **The mod could starve a character carrying edible food, because the eat path treated "joyless" as
   "inedible" (V6.0-1).** `AutoPilot_Inventory.isFoodSafe` ended `return unhappy <= 0 and boring <= 0`,
   and every hunger-path selector ran through it (`getBestFood`, `getBestFoodForHunger`,

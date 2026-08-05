@@ -9,10 +9,19 @@
 --   player:getPerkLevel(Perks.X)                     -> current level (0-10)
 --   PerkFactory.getPerk(perk):getTotalXpForLevel(n)  -> cumulative XP threshold
 --   getTimestampMs()                                 -> real-time wall clock ms
+--   getGameTime():getMultiplier()                    -> game-speed multiplier
+--     (the same call AutoPilot_Main's FF-1 cadence fix made load-bearing;
+--      mirrors the engine idiom, e.g. ISAnimalTracksFinder decrements its
+--      counter by getMultiplier() per tick)
 --
--- Rates use REAL time (wall clock), not game time: "XP per hour" and "time to
--- next level" describe the AFK player's actual wait, and game-time jumps
--- during sleep would corrupt the rate.
+-- Rates divide by REAL elapsed time SCALED by the game-speed multiplier
+-- (FF-4, V6.2 C2): at 1x speed the scaled clock equals the wall clock, so
+-- "XP per hour" is the AFK player's actual wait, byte-identical to the
+-- pre-fix behaviour; under fast-forward each real millisecond counts
+-- getMultiplier() times, so the displayed rate and ETA no longer inflate
+-- 5/20/40x with game speed.  The sample WINDOW still prunes on raw
+-- wall-clock ms: sleep's game-time jump cannot flush it, and a long
+-- fast-forward ages samples out at the same real pace as before.
 
 AutoPilot_XP = {}
 
@@ -48,6 +57,18 @@ local function _nowMs()
         return getGameTime():getCalender():getTimeInMillis()
     end)
     return (ok2 and type(gms) == "number") and gms or 0
+end
+
+-- FF-4 (V6.2 C2): game-speed multiplier for rate honesty.  Same verified call
+-- and same guard shape as AutoPilot_Main's FF-1 cadence fix: defaults to 1 on
+-- any failure or out-of-range value, so a mock without the surface, a load
+-- gap, or a paused game (multiplier 0) all degrade to the pre-fix wall-clock
+-- behaviour instead of corrupting the accumulator.
+local function _speedMult()
+    local mult = 1
+    pcall(function() mult = getGameTime():getMultiplier() end)
+    if type(mult) ~= "number" or mult < 1 then mult = 1 end
+    return mult
 end
 
 local function _getXp(player, perk)
@@ -88,6 +109,11 @@ local function _entry(player, perk)
             firstMs = now,
             firstXp = _getXp(player, perk),
             samples = {},
+            -- FF-4: the multiplier-scaled elapsed clock.  lastMs is the raw
+            -- wall-clock time of the previous accumulation; scaledMs is the
+            -- sum of (real interval x game speed at sample time).
+            lastMs   = now,
+            scaledMs = 0,
         }
         _track[pnum][key] = e
     end
@@ -104,7 +130,17 @@ function AutoPilot_XP.sample(player, perk)
     local now = _nowMs()
     local xp  = _getXp(player, perk)
 
-    table.insert(e.samples, { ms = now, xp = xp })
+    -- FF-4: accumulate game-speed-scaled elapsed time.  The scaled clock is
+    -- what the rate divides by; the RAW wall-clock ms stays on every sample
+    -- because the window prunes on it (see the header note).  The interval
+    -- since the previous sample is attributed to the CURRENT multiplier, the
+    -- same per-observation approximation the FF-1 cadence fix uses.
+    if now > e.lastMs then
+        e.scaledMs = e.scaledMs + (now - e.lastMs) * _speedMult()
+    end
+    e.lastMs = now
+
+    table.insert(e.samples, { ms = now, xp = xp, sms = e.scaledMs })
 
     -- Prune: outside the window, or over the hard cap.
     while #e.samples > SAMPLE_MAX
@@ -113,18 +149,21 @@ function AutoPilot_XP.sample(player, perk)
     end
 end
 
---- XP gained per hour of REAL time over the rolling window (0 when unknown).
+--- XP gained per hour over the rolling window (0 when unknown).  Elapsed time
+--- is REAL time scaled by the game-speed multiplier (FF-4): at 1x this is
+--- exactly wall-clock XP/hour; under fast-forward the same real second counts
+--- getMultiplier() times, so the rate and ETA stay put when speed changes.
 function AutoPilot_XP.ratePerHour(player, perk)
     if not player or not perk then return 0 end
     local e = _entry(player, perk)
     local n = #e.samples
     if n < 2 then return 0 end
     local first, last = e.samples[1], e.samples[n]
-    local dMs = last.ms - first.ms
-    if dMs <= 0 then return 0 end
+    local dScaledMs = last.sms - first.sms
+    if dScaledMs <= 0 then return 0 end
     local dXp = last.xp - first.xp
     if dXp <= 0 then return 0 end
-    return dXp * 3600000 / dMs
+    return dXp * 3600000 / dScaledMs
 end
 
 --- Full metrics snapshot for the UI / telemetry.
