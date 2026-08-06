@@ -789,6 +789,108 @@ class TestPersistentStateDriftGuard(unittest.TestCase):
             tr.EXPECTED_PERSISTENT_STATES & self.FLAGGED_STATE_PAIRS, set())
 
 
+# ── attributed activity tests ─────────────────────────────────────────────────
+# Regression tests for the MED measurement-integrity bug found 2026-08-05: the
+# Action mix and Time split count DECISION ticks only, while a queued action
+# executes over many busy/action_running ticks (thrash-guard cap 15/streak),
+# all filed under "idle".  Measured live on the 2026-08-01 sessions: exercise
+# was 2.0% of session 2 by decision ticks but 1185 of its 3907 ticks (30.3%)
+# were mod-queued exercise sets executing — the "1.5% exercise share" shape
+# that drove the V6.1-1 retune reads ~15x low against attributed time.  Every
+# test here fails against the pre-fix module (no attribute_activity, no
+# report section).
+
+def _one_session(entries: list[dict[str, object]]) -> list[dict[str, object]]:
+    """Renumber run_tick monotonically so split_sessions sees ONE session.
+
+    ``_ticks`` restarts run_tick at 0 on every call, which ``summarize``'s
+    session splitter reads as a new session; the direct
+    ``attribute_activity([...])`` tests are unaffected because they hand the
+    splitter nothing.
+    """
+    for index, entry in enumerate(entries, start=1):
+        entry["run_tick"] = index
+    return entries
+
+
+class TestAttributedActivity(unittest.TestCase):
+    """busy/action_running ticks are credited to the queueing decision."""
+
+    def test_running_ticks_credit_the_preceding_decision(self) -> None:
+        """The measured live shape: decision, 15-tick running streak,
+        post-action cooldown, repeat.  Running ticks belong to exercise;
+        cooldown stays overhead."""
+        session = (_ticks("exercise", "training", 1)
+                   + _ticks("busy", "action_running", 15)
+                   + _ticks("cooldown", "post_action", 4)
+                   + _ticks("exercise", "training", 1)
+                   + _ticks("busy", "action_running", 15))
+        decisions, running = tr.attribute_activity([session])
+        self.assertEqual(decisions, {"exercise": 2})
+        self.assertEqual(running, {"exercise": 30})
+
+    def test_persistent_states_are_not_decisions(self) -> None:
+        """A night of sleep is ONE decision: the asleep state lines and the
+        walk-to-bed running ticks both hang off sleep/fatigue_thresh."""
+        session = (_ticks("sleep", "fatigue_thresh", 1)
+                   + _ticks("busy", "action_running", 6)
+                   + _ticks("sleep", "asleep", 700))
+        decisions, running = tr.attribute_activity([session])
+        self.assertEqual(decisions, {"sleep": 1})
+        self.assertEqual(running, {"sleep": 6})
+
+    def test_foreign_action_is_neither_credited_nor_disturbing(self) -> None:
+        """busy/foreign_action is someone else's queue: not attributed, and
+        it does not steal ownership from the mod's last decision."""
+        session = (_ticks("exercise", "training", 1)
+                   + _ticks("busy", "foreign_action", 50)
+                   + _ticks("busy", "action_running", 10))
+        decisions, running = tr.attribute_activity([session])
+        self.assertEqual(decisions, {"exercise": 1})
+        self.assertEqual(running, {"exercise": 10})
+
+    def test_orphan_running_ticks_are_unattributed(self) -> None:
+        """A log rotated mid-session loses the owning decision; the running
+        ticks must be reported, not silently credited to anything."""
+        session = (_ticks("busy", "action_running", 8)
+                   + _ticks("exercise", "training", 1))
+        decisions, running = tr.attribute_activity([session])
+        self.assertEqual(running, {tr.UNATTRIBUTED: 8})
+
+    def test_attribution_never_crosses_sessions(self) -> None:
+        """A run_tick reset ends ownership: session B's leading running
+        ticks are unattributed even though session A ended on a decision."""
+        session_a = _ticks("exercise", "training", 1)
+        session_b = _ticks("busy", "action_running", 5)
+        decisions, running = tr.attribute_activity([session_a, session_b])
+        self.assertEqual(decisions, {"exercise": 1})
+        self.assertEqual(running, {tr.UNATTRIBUTED: 5})
+
+    def test_summarize_populates_attribution_fields(self) -> None:
+        session = _one_session(_ticks("exercise", "training", 1)
+                               + _ticks("busy", "action_running", 15))
+        summary = tr.summarize(session)
+        self.assertEqual(summary.decision_ticks, {"exercise": 1})
+        self.assertEqual(summary.attributed_running, {"exercise": 15})
+
+    def test_report_renders_attributed_activity_section(self) -> None:
+        """The section must expose the decision-vs-running split, because
+        the Action mix alone reads a training-heavy session as idle."""
+        session = _one_session(_ticks("exercise", "training", 2)
+                               + _ticks("busy", "action_running", 30)
+                               + _ticks("cooldown", "post_action", 8))
+        report = tr.format_report(tr.summarize(session))
+        self.assertIn("Attributed activity", report)
+        self.assertIn(f"decisions {2:6d}", report)
+        self.assertIn(f"running {30:6d}", report)
+        self.assertIn(f"total {32:6d}", report)
+        self.assertIn("80.0%", report)   # 32 of 40 ticks, no longer "idle"
+
+    def test_report_attributed_section_empty_log(self) -> None:
+        report = tr.format_report(tr.summarize([]))
+        self.assertIn("Attributed activity", report)
+
+
 # ── format_report tests ───────────────────────────────────────────────────────
 
 class TestFormatReport(unittest.TestCase):
@@ -799,6 +901,7 @@ class TestFormatReport(unittest.TestCase):
         self.assertIn("Action mix", report)
         self.assertIn("Top action transitions", report)
         self.assertIn("Time split", report)
+        self.assertIn("Attributed activity", report)
         self.assertIn("Threat events", report)
         self.assertIn("Sessions (STR/FIT deltas)", report)
         self.assertIn("exercise -> exercise", report)
