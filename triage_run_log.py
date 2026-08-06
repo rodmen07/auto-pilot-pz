@@ -8,6 +8,15 @@ human-readable triage report:
   * Action mix        - per-action tick counts and percentages
   * Transitions       - top action-to-action transitions (within a session)
   * Time split        - training / resting / survival / idle categories
+  * Attributed activity - busy/action_running ticks credited back to the
+                        decision that queued the action, because the raw
+                        Action mix counts DECISION ticks only: a queued
+                        exercise set executes as busy/action_running (capped
+                        at 15 ticks per streak by the thrash guard), so the
+                        decision-tick share structurally undercounts real
+                        activity (measured 2026-08-05: a session with 2.0%
+                        exercise by decision ticks had 30.3% of its ticks
+                        running mod-queued exercise sets)
   * Threat events     - threat ticks, episodes, max horde size, deaths
   * Sessions          - per-session STR/FIT level deltas and end status
   * Suspicious patterns - conservative session-scoped heuristics: action
@@ -161,6 +170,65 @@ EXPECTED_PERSISTENT_STATES = {
     ("idle", "no_action"),
 }
 
+# ── Attributed activity ───────────────────────────────────────────────────────
+# Action labels that never OWN a tick: they are lifecycle overhead written by
+# AutoPilot_Main's state gates, not decisions made by the survival chain, so
+# a busy/action_running streak is credited to the most recent line whose
+# action is outside this set (and whose (action, reason) is not an expected
+# persistent state).  cooldown/post_action is deliberately NOT attributed:
+# it is a designed pause after an action completes, not the action executing.
+OVERHEAD_ACTIONS = {"busy", "cooldown", "idle", "dead"}
+
+# Attribution key for busy/action_running ticks with no preceding decision in
+# the same session (a log rotated mid-session truncates the owning decision).
+UNATTRIBUTED = "(unattributed)"
+
+
+def attribute_activity(
+        sessions: list[list[dict[str, Any]]],
+) -> tuple[dict[str, int], dict[str, int]]:
+    """Credit ``busy/action_running`` ticks to the decision that queued them.
+
+    Returns ``(decision_ticks, attributed_running)``:
+
+    * ``decision_ticks[action]``  - count of lines that are real DECISIONS:
+      the action label is not lifecycle overhead (OVERHEAD_ACTIONS) and the
+      (action, reason) pair is not an expected persistent state, so e.g. a
+      night of ``sleep/asleep`` state lines counts the one
+      ``sleep/fatigue_thresh`` decision, not the ~700 asleep ticks.
+    * ``attributed_running[action]`` - count of ``busy/action_running``
+      ticks credited to the most recent decision in the SAME session
+      (attribution never crosses a run_tick reset).  Running ticks seen
+      before any decision - a rotation artifact - land under UNATTRIBUTED.
+
+    ``busy/foreign_action`` (an action the mod did NOT queue) is neither a
+    decision nor attributable, and it does not disturb the current owner:
+    the mod's own next running streak still belongs to the mod's last
+    decision.  This exists because the raw Action mix counts decision ticks
+    only, while each queued action executes over many busy/action_running
+    ticks (thrash-guard cap: 15 per streak), so the decision-tick share
+    understates real activity by an order of magnitude.
+    """
+    decision_ticks: Counter[str] = Counter()
+    attributed_running: Counter[str] = Counter()
+
+    for session in sessions:
+        owner: str | None = None
+        for entry in session:
+            action = entry.get("action", "idle")
+            reason = entry.get("reason", "")
+            if action == "busy" and reason == "action_running":
+                attributed_running[owner or UNATTRIBUTED] += 1
+                continue
+            if action in OVERHEAD_ACTIONS:
+                continue
+            if (action, reason) in EXPECTED_PERSISTENT_STATES:
+                continue
+            decision_ticks[action] += 1
+            owner = action
+
+    return dict(decision_ticks), dict(attributed_running)
+
 
 def categorize_action(action: str) -> str:
     """Map an action label to a triage category; unknown labels count as idle."""
@@ -207,6 +275,12 @@ class TriageSummary:
 
     # (prev_action, action) -> count, session-scoped (no cross-session pairs)
     transition_counts: dict[tuple[str, str], int] = field(default_factory=dict)
+
+    # ── Attributed activity (see attribute_activity) ─────────────────────────
+    # decision lines per action (persistent states and overhead excluded)
+    decision_ticks: dict[str, int] = field(default_factory=dict)
+    # busy/action_running ticks credited to the owning decision's action
+    attributed_running: dict[str, int] = field(default_factory=dict)
 
     # ── Threat events ────────────────────────────────────────────────────────
     threat_ticks: int = 0       # ticks with zombies > 0 (ff=active)
@@ -554,6 +628,8 @@ def summarize(entries: list[dict[str, Any]], skipped: int = 0) -> TriageSummary:
     summary.action_counts = dict(action_counts)
     summary.category_counts = dict(category_counts)
     summary.transition_counts = dict(transitions)
+    summary.decision_ticks, summary.attributed_running = \
+        attribute_activity(sessions)
     summary.suspicious = detect_suspicious(sessions)
     return summary
 
@@ -616,6 +692,30 @@ def format_report(summary: TriageSummary,
     for category in CATEGORY_ORDER:
         count = summary.category_counts.get(category, 0)
         lines.append(f"  {category:<9}  {count:6d}  {_pct(count, n)}")
+
+    lines.append("")
+    lines.append("-- Attributed activity (decision + running ticks) --")
+    attributed_keys = sorted(
+        set(summary.decision_ticks) | set(summary.attributed_running),
+        key=lambda a: -(summary.decision_ticks.get(a, 0)
+                        + summary.attributed_running.get(a, 0)))
+    if attributed_keys:
+        width = max(len(a) for a in attributed_keys)
+        for action in attributed_keys:
+            decisions = summary.decision_ticks.get(action, 0)
+            running = summary.attributed_running.get(action, 0)
+            total = decisions + running
+            lines.append(
+                f"  {action:<{width}}  decisions {decisions:6d}  "
+                f"running {running:6d}  total {total:6d}  {_pct(total, n)}")
+        lines.append(
+            "  (busy/action_running ticks credited to the decision that "
+            "queued the action;")
+        lines.append(
+            "   cooldown/post_action and busy/foreign_action remain idle "
+            "overhead)")
+    else:
+        lines.append("  (none)")
 
     lines.append("")
     lines.append("-- Threat events --")

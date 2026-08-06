@@ -187,6 +187,27 @@ Parsed N tick(s) across M session(s); K malformed line(s) skipped.
 
   The mod's purpose is training, so a healthy armed-and-safe log is
   training-heavy with survival claiming cycles only when needs fire.
+
+  **Caveat, and why the next section exists**: both the Action mix and
+  this split count DECISION ticks. A queued action *executes* as
+  `busy/action_running` (capped at 15 ticks per streak by the thrash
+  guard), which files under idle here, so a session that trained hard
+  can still read as mostly "idle". Measured live (2026-08-05, the
+  2026-08-01 sessions): exercise was 2.0% of a session by decision
+  ticks while 30.3% of its ticks were mod-queued exercise sets
+  executing. Read activity shares from Attributed activity, not from
+  this table.
+- **Attributed activity**: `busy/action_running` ticks credited back to
+  the most recent decision in the same session (the decision that queued
+  the action), shown as `decisions + running = total` per action.
+  `cooldown/post_action` and `busy/foreign_action` stay idle overhead:
+  the first is a designed pause, the second is a queue the mod does not
+  own. Running ticks with no preceding decision in their session (a log
+  rotated mid-session) report as `(unattributed)` rather than being
+  guessed at. This is the table to read for "how much did the mod
+  actually do" — in particular the V6.1-1 exercise-share question must
+  be answered from `exercise` here (or from the XP deltas in
+  `auto_pilot_sessions.log`), never from the Action mix percentage.
 - **Threat events**: threat ticks (`zombies > 0` or `ff=active`), threat
   episodes (consecutive runs of threat ticks), max zombies seen, combat
   ticks (`combat`/`fight`/`flee`), bleeding ticks (`bleeding > 0`), and
