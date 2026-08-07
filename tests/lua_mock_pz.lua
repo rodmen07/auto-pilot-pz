@@ -931,7 +931,30 @@ local _mockCalender = {
 -- so existing tests are unaffected; a test calls MockGameSpeed.set(m) to simulate
 -- fast-forward and exercise the FF-aware evaluation cadence in AutoPilot_Main.
 local _mockGameSpeed = 1
-MockGameSpeed = { set = function(m) _mockGameSpeed = m end }
+
+-- Game-speed INDEX, a SEPARATE engine number from the multiplier above:
+-- 0 paused, 1 normal, 2/3/4 the three fast-forward steps.  getGameSpeed() /
+-- setGameSpeed() are real 42.19 client globals (the engine calls them bare at
+-- client/TimedActions/WalkToTimedAction.lua:7 and
+-- client/Vehicles/ISUI/ISVehicleDashboard.lua:503-504), and the walk gate the
+-- mod now honours reads the INDEX, never the multiplier -- so a test that only
+-- set the multiplier would exercise nothing.  Default 1 (normal) so every
+-- existing suite is unaffected.
+local _mockGameSpeedIndex = 1
+
+MockGameSpeed = {
+    set      = function(m) _mockGameSpeed = m end,
+    setIndex = function(i) _mockGameSpeedIndex = i end,
+    getIndex = function() return _mockGameSpeedIndex end,
+}
+
+function getGameSpeed()
+    return _mockGameSpeedIndex
+end
+
+function setGameSpeed(i)
+    _mockGameSpeedIndex = i
+end
 
 local _mockGameTimeInstance = {
     getCalender = function(self) return _mockCalender end,

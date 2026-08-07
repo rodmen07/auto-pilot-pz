@@ -14,6 +14,14 @@ globals = {
     "getSpecificPlayer",
     "getCell",
     "getGameTime",
+    -- Game-speed INDEX accessors (0 paused, 1 normal, 2/3/4 fast-forward).
+    -- Distinct from getGameTime():getMultiplier().  Verified against the 42.19
+    -- install: the engine calls both bare at
+    -- client/Vehicles/ISUI/ISVehicleDashboard.lua:503-504, and
+    -- client/TimedActions/WalkToTimedAction.lua:7 gates isValid() on
+    -- getGameSpeed() <= 2.
+    "getGameSpeed",
+    "setGameSpeed",
     "getFileWriter",
     "getFileReader",
 

@@ -321,6 +321,20 @@ local function doFlee(player, zombies, escDx, escDy)
     local destSq = _fleeDestination(player, zombies, escDx, escDy)
 
     if destSq then
+        -- Make the walk RUNNABLE before queueing it.  ISWalkToTimedAction is
+        -- invalid above game-speed index 2 (engine source cited at
+        -- AutoPilot_Constants.WALK_MAX_GAME_SPEED), so at x20/x40 the queue
+        -- discards the escape walk on the tick it starts it: the mod then sees
+        -- the action gone next cycle, waits out FLEE_COOLDOWN_CYCLES, re-queues,
+        -- and repeats -- the period-5 flee/evade_cooldown loop with ZERO
+        -- evade_running ticks that ran 217 ticks against a single zombie in
+        -- session 4 of the live run log.  Fleeing is the one thing this mod
+        -- MUST be able to do, so the flee path buys it back a speed step rather
+        -- than queueing an action the engine has already decided to throw away.
+        if AutoPilot_Utils.clampGameSpeedForWalk() then
+            print("[Threat] Game speed lowered to the highest step the engine " ..
+                "will walk at, so the escape walk can actually run.")
+        end
         AutoPilot_Utils.queueModAction(ISWalkToTimedAction:new(player, destSq))
         AutoPilot_Threat._engageActive = true
         AutoPilot_Threat._fleeActive   = true
