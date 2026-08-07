@@ -98,9 +98,19 @@ INLINE_IGNORE_ANCHORS = {
 
 
 def _run_luacheck(cwd: Path, *args: str) -> subprocess.CompletedProcess:
-    """Run the linter in ``cwd`` so it auto-discovers the ``.luacheckrc`` there."""
+    """Run the linter in ``cwd`` so it auto-discovers the ``.luacheckrc`` there.
+
+    ``--no-color`` is not cosmetic here.  luacheck decides how to render a
+    reported name from whether colour is on: with colour it emits the bare name
+    wrapped in SGR escapes (``unused variable \\x1b[0m\\x1b[1munusedThing``),
+    and without colour it QUOTES it (``unused variable 'unusedThing'``).  The
+    first cut of this module asserted on the quoted form, which passed on the
+    Windows dev box and failed on the Linux runner against *identical, correct*
+    linter output -- the gate had found the defect and the test still went red.
+    Pinning ``--no-color`` makes the output the same string everywhere.
+    """
     return subprocess.run(
-        [LUACHECK, *args],
+        [LUACHECK, "--no-color", *args],
         cwd=str(cwd),
         capture_output=True,
         text=True,
@@ -144,11 +154,26 @@ class TestUnusedLocalCheckIsLive(unittest.TestCase):
             "luacheck accepted a file containing an unused local, so check 211 "
             "is suppressed again somewhere in .luacheckrc:\n" + result.stdout,
         )
-        self.assertIn(
-            "unused variable 'unusedThing'",
+        # The determinism `--no-color` buys is itself asserted, so a future
+        # luacheck that ignored the flag would say so here rather than through a
+        # confusing substring miss on one platform only.
+        self.assertNotIn(
+            "\x1b",
             result.stdout,
-            "expected the 211 diagnostic naming the unused local:\n" + result.stdout,
+            "luacheck emitted ANSI escapes despite --no-color; the assertions "
+            "below are about rendered text and cannot be trusted:\n"
+            + repr(result.stdout),
         )
+        # Asserted as three independent substrings rather than one rendered
+        # sentence: the diagnostic's exact spacing and quoting are luacheck
+        # presentation details that differ with colour and version, while the
+        # location, the check's wording and the name are the actual content.
+        for fragment in ("probe.lua:1:7", "unused variable", "unusedThing"):
+            self.assertIn(
+                fragment,
+                result.stdout,
+                f"expected {fragment!r} in the 211 diagnostic:\n" + result.stdout,
+            )
 
     def test_unused_local_is_not_reported_when_211_is_suppressed(self) -> None:
         """GATE OFF: the same file, under the configuration shipped before this
@@ -279,7 +304,7 @@ class TestShippedTreeIsCleanUnderTheLiveCheck(unittest.TestCase):
         files = sorted(str(p) for p in CLIENT_DIR.glob("*.lua"))
         self.assertGreater(len(files), 0, "no client Lua found; the guard has gone blind")
         result = subprocess.run(
-            [LUACHECK, *files, "--config", ".luacheckrc"],
+            [LUACHECK, "--no-color", *files, "--config", ".luacheckrc"],
             cwd=str(ROOT),
             capture_output=True,
             text=True,
