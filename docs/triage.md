@@ -228,13 +228,14 @@ and each finding is a flag for a human to look at, never a verdict. Each
 finding prints as `[pattern] detail` plus a one-line hint. Thresholds are
 named constants at the top of `triage_run_log.py`.
 
-### Automated detectors (the three the tool runs)
+### Automated detectors (the four the tool runs)
 
 | Pattern tag | Signature | Threshold |
 |---|---|---|
 | `[action streak]` | One action label held 40+ consecutive ticks within a session, counting only lines whose `(action, reason)` pair is not an expected persistent state (`sleep/asleep`, `busy/foreign_action`, `idle/no_action` — see `EXPECTED_PERSISTENT_STATES`). | `STREAK_MIN_TICKS = 40` |
 | `[flee/combat cycle]` | Combat re-entered 4+ times, each within 3 non-combat ticks of the previous fight ending (combat = `combat`/`fight`/`flee`). | `COMBAT_CYCLE_MIN_CYCLES = 4`, `COMBAT_CYCLE_MAX_GAP = 3` |
 | `[empty-loot spiral]` | 15+ scavenge ticks in a session while hunger or thirst still rose by 15+ points. | `LOOT_SPIRAL_MIN_SCAVENGE = 15`, `LOOT_SPIRAL_NEED_RISE = 15` |
+| `[flee stall]` | One combat **episode** (unbroken run of combat ticks) with 6+ flee decisions, at least one `evade_cooldown` tick, and **zero** `evade_running` ticks. Episode-scoped, not session-scoped. | `FLEE_STALL_MIN_DECISIONS = 6` |
 
 What each one usually means:
 
@@ -253,6 +254,39 @@ What each one usually means:
   flee threshold, so consider relocating home.
 - **empty-loot spiral**: loot trips are coming back empty while needs
   climb; nearby containers may be depleted, so a new home area may help.
+- **flee stall**: no queued escape walk ever survived to the next
+  evaluation cycle. A healthy evade has a three-phase shape per flee — one
+  decision tick (`flee_*`), one or more `evade_running` ticks while the
+  queued `ISWalkToTimedAction` executes, then `FLEE_COOLDOWN_CYCLES` (4)
+  ticks of `evade_cooldown` — so an episode with many decisions and zero
+  `evade_running` means the character only ever hops for less than one
+  cycle and then stands still through each cooldown. **The finding reports
+  the game-speed range, and that is the datum that tells the two readings
+  apart:** at x1 it points at the flee walk itself (a destination square
+  too close to take a full cycle to reach, or the walk being cleared),
+  while under fast-forward a perfectly normal walk finishes inside one
+  cycle and the real problem is that `FLEE_COOLDOWN_CYCLES` is counted in
+  evaluation cycles (real time), so it spans far more game time than it
+  was tuned for. The detector deliberately does not pick between them.
+
+  Two design points, both learned from the log that motivated it:
+
+  - **Episode-scoped, not session-scoped.** One session routinely holds
+    both healthy pursuits and stalled ones, and a session-wide
+    `evade_running` count hides the stall behind the healthy episodes.
+    Measured 2026-08-07 on the live log, session 4: three 40+ combat
+    streaks, two healthy (25 and 24 `evade_running` ticks, x1) and one
+    stalled (0, x11-x21). A session-scoped test would have reported
+    nothing.
+  - **`evade_cooldown` must be present.** That cooldown is set only inside
+    `doFlee`'s success branch, so its absence means no walk was ever
+    queued — the separate, self-labelled `flee_blocked` (trapped)
+    condition, not a stall.
+
+  It also sees what the streak detector cannot: the same log held a
+  33-tick stalled episode at `run_tick` 3523-3555 (7 flee decisions, 0
+  `evade_running`, x1) that never reached `STREAK_MIN_TICKS` and so was
+  never reported at all.
 
 Retired detector, recorded so it is not re-invented: `[zero-XP training]`
 (retired 2026-07-26) flagged 30+ training ticks with no STR/FIT level
@@ -331,7 +365,7 @@ points that way.
 The two fixtures split the roles: `tests/fixtures/run_log_v2_sample.log`
 (20 lines, 2 sessions, first ends in a death) is the clean control that
 no detector may ever fire on; `tests/fixtures/run_log_v2_suspicious.log`
-(111 lines, 4 sessions) is the trap log where each session trips exactly
+(141 lines, 5 sessions) is the trap log where each session trips exactly
 one detector. Both are schema v2 on purpose, doubling as the
 backward-compat proof; detectors needing v3-only fields (`wood`/`doc`)
 should build inline v3 lines in the test instead, the way

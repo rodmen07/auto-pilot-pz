@@ -11,15 +11,20 @@ emits schema_version=4, which drops wood= again.  The v2 fixtures stay as the
 backward-compat control (old logs must keep parsing) and the v3/v4 variants
 are covered inline in TestSchemaV3WoodDoc and TestSchemaV4NoWood.
 
-A second fixture (tests/fixtures/run_log_v2_suspicious.log) is a four-session
-log written when each session tripped exactly one suspicious-pattern
-detector: a 45-tick exercise streak, a 32-tick zero-XP training loop, a
-combat-bandage oscillation with 4 re-entries, and a 16-tick empty-loot
-scavenge spiral.  The zero-XP detector was RETIRED 2026-07-26 (see the
-tombstone note in TestSuspiciousPatterns), so session 2 now doubles as a
-below-threshold training control: 32 exercise ticks must NOT trip the streak
-detector.  The main fixture doubles as the clean control: no detector may
-fire on it.
+A second fixture (tests/fixtures/run_log_v2_suspicious.log) is a five-session
+log written so each session trips exactly one suspicious-pattern detector: a
+45-tick exercise streak, a 32-tick zero-XP training loop, a combat-bandage
+oscillation with 4 re-entries, a 16-tick empty-loot scavenge spiral, and (added
+2026-08-07) a 30-tick flee stall of 6 flee decisions with no evade_running
+tick.  The zero-XP detector was RETIRED 2026-07-26 (see the tombstone note in
+TestSuspiciousPatterns), so session 2 now doubles as a below-threshold training
+control: 32 exercise ticks must NOT trip the streak detector.  Session 5 is
+deliberately 30 ticks, under STREAK_MIN_TICKS (40), so it cannot also trip the
+streak detector.  It stays schema v2 like the rest of the file (the
+backward-compat control), which also exercises the detector's "speed not
+recorded" branch; the v5 speed field is covered inline in
+TestFleeStallDetector, the way TestSchemaV3WoodDoc covers v3-only fields.  The
+main fixture doubles as the clean control: no detector may fire on it.
 """
 
 from __future__ import annotations
@@ -509,9 +514,9 @@ class TestSuspiciousPatterns(unittest.TestCase):
         cls.bad_total = len(bad_entries)
 
     def test_suspicious_fixture_parses(self) -> None:
-        self.assertEqual(self.bad_total, 111)
+        self.assertEqual(self.bad_total, 141)
         self.assertEqual(self.bad_skipped, 0)
-        self.assertEqual(len(self.bad_sessions), 4)
+        self.assertEqual(len(self.bad_sessions), 5)
 
     def test_streak_fires_on_bad_fixture(self) -> None:
         findings = tr.detect_action_streaks(self.bad_sessions)
@@ -585,17 +590,46 @@ class TestSuspiciousPatterns(unittest.TestCase):
     def test_loot_spiral_silent_on_clean_fixture(self) -> None:
         self.assertEqual(tr.detect_loot_spirals(self.clean_sessions), [])
 
+    def test_flee_stall_fires_on_bad_fixture(self) -> None:
+        findings = tr.detect_flee_stalls(self.bad_sessions)
+        self.assertEqual(len(findings), 1)
+        f = findings[0]
+        self.assertEqual(f.pattern, "flee stall")
+        self.assertIn("session 5", f.detail)
+        self.assertIn("re-issued 6 flee decision(s)", f.detail)
+        self.assertIn("0 'evade_running' tick(s)", f.detail)
+        self.assertIn("24 'evade_cooldown' tick(s)", f.detail)
+        self.assertTrue(f.hint)
+
+    def test_flee_stall_silent_on_clean_fixture(self) -> None:
+        self.assertEqual(tr.detect_flee_stalls(self.clean_sessions), [])
+
+    def test_flee_stall_session_stays_under_streak_threshold(self) -> None:
+        """Session 5 must trip ONLY the new detector.
+
+        Its 30 combat ticks are deliberately below STREAK_MIN_TICKS (40), so
+        the action-streak detector still reports exactly one finding, on
+        session 1.  If this ever fails, the fixture session grew and the two
+        detectors have started overlapping.
+        """
+        streaks = tr.detect_action_streaks(self.bad_sessions)
+        self.assertEqual(len(streaks), 1)
+        self.assertIn("session 1", streaks[0].detail)
+        self.assertEqual(len(self.bad_sessions[4]), 30)
+        self.assertLess(len(self.bad_sessions[4]), tr.STREAK_MIN_TICKS)
+
     def test_detect_suspicious_combines_all_detectors(self) -> None:
         findings = tr.detect_suspicious(self.bad_sessions)
         self.assertEqual(
             [f.pattern for f in findings],
-            ["action streak", "flee/combat cycle", "empty-loot spiral"],
+            ["action streak", "flee/combat cycle", "empty-loot spiral",
+             "flee stall"],
         )
 
     def test_summarize_populates_suspicious(self) -> None:
         entries, skipped = tr.parse_run_log(FIXTURE_SUSPICIOUS)
         summary = tr.summarize(entries, skipped)
-        self.assertEqual(len(summary.suspicious), 3)
+        self.assertEqual(len(summary.suspicious), 4)
 
     def test_clean_summary_has_no_findings(self) -> None:
         entries, skipped = tr.parse_run_log(FIXTURE)
@@ -789,6 +823,157 @@ class TestPersistentStateDriftGuard(unittest.TestCase):
             tr.EXPECTED_PERSISTENT_STATES & self.FLAGGED_STATE_PAIRS, set())
 
 
+# ── Flee-stall detector (added 2026-08-07 by the QA triage of session 4) ──────
+# The live log held three 40+ combat streaks that the action-streak detector
+# reported identically, with one hint ("the rotation is stuck").  They were
+# not one phenomenon: two ran at game speed x1 with 25 and 24 evade_running
+# ticks (the queued escape walk survived across cycles - a real pursuit, and
+# expected behaviour), while the third had ZERO, meaning every walk was gone
+# 0.75 s later.  Separating them needs the evade_running count, which is why
+# this detector exists.  It also found a FOURTH episode the streak detector
+# could not see at all: 33 ticks at run_tick 3523-3555, under the 40-tick
+# streak threshold, 7 flee decisions, 0 evade_running, at game speed x1.
+
+def _flee_cycles(count: int, cooldown: int = 4,
+                 reason: str = "flee_default") -> list[dict[str, object]]:
+    """One decision tick plus *cooldown* evade_cooldown ticks, *count* times."""
+    out: list[dict[str, object]] = []
+    for _ in range(count):
+        out.extend(_ticks("combat", reason, 1))
+        out.extend(_ticks("combat", tr.EVADE_COOLDOWN_REASON, cooldown))
+    return out
+
+
+class TestFleeStallDetector(unittest.TestCase):
+    """A flee stall is 'no escape walk survived a cycle', not 'lots of combat'."""
+
+    def test_stalled_episode_fires(self) -> None:
+        session = _one_session(_flee_cycles(6))
+        findings = tr.detect_flee_stalls([session])
+        self.assertEqual(len(findings), 1)
+        self.assertIn("re-issued 6 flee decision(s)", findings[0].detail)
+
+    def test_healthy_evade_is_silent(self) -> None:
+        """The discriminating property: one surviving walk clears the episode.
+
+        Shaped after the live 126-tick streak (21 decisions, 25
+        evade_running, 80 evade_cooldown) which is a real pursuit at x1.
+        Identical decision count to the firing case above; only the
+        evade_running ticks differ.
+        """
+        session: list[dict[str, object]] = []
+        for _ in range(6):
+            session.extend(_ticks("combat", "flee_default", 1))
+            session.extend(_ticks("combat", tr.EVADE_RUNNING_REASON, 2))
+            session.extend(_ticks("combat", tr.EVADE_COOLDOWN_REASON, 4))
+        self.assertEqual(tr.detect_flee_stalls([_one_session(session)]), [])
+
+    def test_stall_beside_a_healthy_episode_in_one_session_still_fires(
+            self) -> None:
+        """Episode-scoped, not session-scoped.
+
+        This is exactly the live session-4 shape: healthy pursuits and a
+        stalled episode in the SAME session.  A session-scoped
+        implementation counts the healthy episode's evade_running ticks and
+        reports nothing, which is the whole defect this test pins.
+        """
+        healthy: list[dict[str, object]] = []
+        for _ in range(6):
+            healthy.extend(_ticks("combat", "flee_default", 1))
+            healthy.extend(_ticks("combat", tr.EVADE_RUNNING_REASON, 2))
+            healthy.extend(_ticks("combat", tr.EVADE_COOLDOWN_REASON, 4))
+        session = _one_session(
+            healthy + _ticks("idle", "no_action", 5) + _flee_cycles(6))
+        findings = tr.detect_flee_stalls([session])
+        self.assertEqual(len(findings), 1)
+        self.assertIn("re-issued 6 flee decision(s)", findings[0].detail)
+
+    def test_below_threshold_is_silent(self) -> None:
+        session = _one_session(_flee_cycles(tr.FLEE_STALL_MIN_DECISIONS - 1))
+        self.assertEqual(tr.detect_flee_stalls([session]), [])
+
+    def test_trapped_without_cooldown_is_silent(self) -> None:
+        """flee_blocked queues no walk, so it sets no cooldown.
+
+        A trapped character holding position is a separate, self-labelled
+        condition; firing the stall detector on it would report a walk that
+        never happened.
+        """
+        session = _one_session(_ticks("combat", "flee_blocked", 20))
+        self.assertEqual(tr.detect_flee_stalls([session]), [])
+
+    def test_varying_speed_is_reported_as_a_range(self) -> None:
+        """The speed range is the datum that tells the two readings apart."""
+        session = _one_session(_flee_cycles(6))
+        for index, entry in enumerate(session):
+            entry["speed"] = 15 + (index % 3)
+        findings = tr.detect_flee_stalls([session])
+        self.assertEqual(len(findings), 1)
+        self.assertIn("game speed x15-x17", findings[0].detail)
+
+    def test_constant_speed_is_reported_as_a_single_value(self) -> None:
+        session = _one_session(_flee_cycles(6))
+        for entry in session:
+            entry["speed"] = 1
+        findings = tr.detect_flee_stalls([session])
+        self.assertIn("game speed x1", findings[0].detail)
+        self.assertNotIn("x1-x", findings[0].detail)
+
+    def test_missing_speed_is_reported_not_guessed(self) -> None:
+        """Pre-v5 logs carry no speed field; say so rather than imply x1."""
+        findings = tr.detect_flee_stalls([_one_session(_flee_cycles(6))])
+        self.assertIn("speed not recorded (pre-v5 log)", findings[0].detail)
+
+
+class TestEvadeReasonDriftGuard(unittest.TestCase):
+    """The two evade lifecycle labels must stay in lockstep with the Lua (L-003).
+
+    detect_flee_stalls is built entirely on EVADE_RUNNING_REASON and
+    EVADE_COOLDOWN_REASON.  If either is renamed in the Lua the way
+    engage_* -> evade_* was renamed in V6.1-2 (PR #95), the detector would
+    silently stop discriminating: every episode would read as having zero
+    evade_running ticks, and it would fire on healthy pursuits forever.
+    Files are glob-discovered and the token is searched across ALL of them,
+    so a future module split cannot quietly move the emitter out of range.
+    """
+
+    LUA_CLIENT_DIR = (Path(__file__).parent.parent
+                      / "42" / "media" / "lua" / "client")
+    ENGAGE_REASON_LITERAL = re.compile(
+        r'_engageReason\s*=\s*"([a-z_]+)"')
+
+    def _emitted_reasons(self) -> set[str]:
+        files = sorted(self.LUA_CLIENT_DIR.glob("AutoPilot_*.lua"))
+        self.assertGreater(
+            len(files), 0,
+            "blind guard: no production Lua modules found — fix the path "
+            "before trusting this guard's silence")
+        found: set[str] = set()
+        for f in files:
+            found.update(self.ENGAGE_REASON_LITERAL.findall(
+                f.read_text(encoding="utf-8")))
+        self.assertGreaterEqual(
+            len(found), 2,
+            "blind guard: the _engageReason literal regex matched almost "
+            "nothing; if the assignment shape changed, update the regex "
+            "rather than trusting silence")
+        return found
+
+    def test_both_evade_lifecycle_labels_are_emitted_by_the_lua(self) -> None:
+        found = self._emitted_reasons()
+        self.assertIn(
+            tr.EVADE_RUNNING_REASON, found,
+            "the production Lua no longer emits this label — the flee-stall "
+            "detector would read every episode as stalled")
+        self.assertIn(
+            tr.EVADE_COOLDOWN_REASON, found,
+            "the production Lua no longer emits this label — the flee-stall "
+            "detector would never fire again")
+
+    def test_lifecycle_labels_are_distinct(self) -> None:
+        self.assertNotEqual(tr.EVADE_RUNNING_REASON, tr.EVADE_COOLDOWN_REASON)
+
+
 # ── attributed activity tests ─────────────────────────────────────────────────
 # Regression tests for the MED measurement-integrity bug found 2026-08-05: the
 # Action mix and Time split count DECISION ticks only, while a queued action
@@ -922,9 +1107,10 @@ class TestFormatReport(unittest.TestCase):
         self.assertIn("[action streak]", report)
         self.assertIn("[flee/combat cycle]", report)
         self.assertIn("[empty-loot spiral]", report)
+        self.assertIn("[flee stall]", report)
         # The retired zero-XP detector must not resurface in the report.
         self.assertNotIn("[zero-XP training]", report)
-        self.assertEqual(report.count("hint:"), 3)
+        self.assertEqual(report.count("hint:"), 4)
         self.assertNotIn("none detected", report)
 
     def test_empty_summary_report_does_not_raise(self) -> None:
