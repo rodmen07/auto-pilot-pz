@@ -126,6 +126,26 @@ COMBAT_CYCLE_MAX_GAP = 3         # max non-combat ticks between fights in a cycl
 COMBAT_CYCLE_MIN_CYCLES = 4      # combat re-entries needed to flag oscillation
 LOOT_SPIRAL_MIN_SCAVENGE = 15    # scavenge ticks needed to consider a spiral
 LOOT_SPIRAL_NEED_RISE = 15       # hunger or thirst rise across the session
+FLEE_STALL_MIN_DECISIONS = 6     # flee decisions re-issued in one combat episode
+
+# ── Evade lifecycle reasons ───────────────────────────────────────────────────
+# AutoPilot_Threat.check() writes exactly one of these two labels on a tick
+# where it did NOT make a fresh decision (AutoPilot_Threat.lua, the
+# _engageReason assignments):
+#
+#   evade_running   the escape walk queued on an earlier cycle is STILL
+#                   executing, so the queue is left alone.
+#   evade_cooldown  the walk finished; _fleeCooldown (FLEE_COOLDOWN_CYCLES,
+#                   4) is counting down before the next flee decision.
+#
+# Every other reason on a combat tick is a fresh decision (flee_default,
+# flee_wounded, flee_horde, flee_unarmed, flee_encircled, flee_moodles,
+# flee_blocked, flee_forced, and the historical undifferentiated "threat").
+# Naming only these two, rather than enumerating the flee vocabulary, keeps
+# the drift surface at two tokens; tests/test_triage_run_log.py pins both
+# against the production Lua.
+EVADE_RUNNING_REASON = "evade_running"
+EVADE_COOLDOWN_REASON = "evade_cooldown"
 
 # ── Expected persistent states ────────────────────────────────────────────────
 # (action, reason) pairs that legitimately hold for hundreds of consecutive
@@ -547,6 +567,92 @@ def detect_loot_spirals(
     return findings
 
 
+def detect_flee_stalls(
+        sessions: list[list[dict[str, Any]]]) -> list[SuspiciousFinding]:
+    """Flag combat episodes where no escape walk ever survived a cycle.
+
+    A healthy evade has a three-phase shape per flee: one decision tick
+    (flee_*), then one or more ``evade_running`` ticks while the queued
+    ISWalkToTimedAction executes, then FLEE_COOLDOWN_CYCLES (4) ticks of
+    ``evade_cooldown``.  An episode with MANY decisions and ZERO
+    ``evade_running`` ticks means every walk was already gone 0.75 s later,
+    so the character travels only in sub-cycle hops and then stands still
+    through each cooldown.
+
+    This is episode-scoped, not session-scoped, on purpose: one session
+    routinely holds both healthy pursuits and stalled ones, and a
+    session-wide count of ``evade_running`` hides the stalled episode
+    behind the healthy ones.  (Measured 2026-08-07 on the live log,
+    session 4: three combat streaks, two healthy with 25 and 24
+    ``evade_running`` ticks, one stalled with 0 — a session-scoped test
+    would have reported nothing.)
+
+    ``evade_cooldown`` must be present before firing: it is set only inside
+    doFlee's success branch, so its absence means no walk was ever queued
+    at all, which is the separate, self-labelled ``flee_blocked`` (trapped)
+    condition rather than a stall.
+
+    The detail reports the game-speed range because that is the datum that
+    tells the two readings apart, and deliberately does not pick between
+    them: under fast-forward a normal walk legitimately completes inside
+    one evaluation cycle, so a stall at high speed points at the real-time
+    cooldown rather than at a broken walk.
+    """
+    findings: list[SuspiciousFinding] = []
+    hint = ("No queued escape walk survived to the next evaluation cycle, so "
+            "the character hops and then stands still through each cooldown. "
+            "Check the reported game speed: at 1x this points at the flee "
+            "walk itself (no reachable destination, or the walk being "
+            "cleared); under fast-forward the walk simply finishes inside "
+            "one cycle, which makes the real-time FLEE_COOLDOWN_CYCLES span "
+            "far more game time than it was tuned for.")
+    for index, session in enumerate(sessions, start=1):
+        start = 0
+        total = len(session)
+        while start < total:
+            if session[start].get("action") not in COMBAT_ACTIONS:
+                start += 1
+                continue
+            end = start
+            while end < total and session[end].get("action") in COMBAT_ACTIONS:
+                end += 1
+            episode = session[start:end]
+            start = end
+
+            reasons = Counter(e.get("reason", "") for e in episode)
+            if reasons[EVADE_RUNNING_REASON]:
+                continue        # at least one walk did survive a cycle
+            cooldown = reasons[EVADE_COOLDOWN_REASON]
+            if not cooldown:
+                continue        # no walk was ever queued (trapped, not stalled)
+            decisions = len(episode) - cooldown
+            if decisions < FLEE_STALL_MIN_DECISIONS:
+                continue
+
+            speeds = [e["speed"] for e in episode
+                      if isinstance(e.get("speed"), int)]
+            if not speeds:
+                speed_note = "speed not recorded (pre-v5 log)"
+            elif min(speeds) == max(speeds):
+                speed_note = f"game speed x{min(speeds)}"
+            else:
+                speed_note = f"game speed x{min(speeds)}-x{max(speeds)}"
+
+            findings.append(SuspiciousFinding(
+                pattern="flee stall",
+                detail=(f"session {index}: {len(episode)} consecutive combat "
+                        f"tick(s) at run_tick "
+                        f"{episode[0].get('run_tick')}-"
+                        f"{episode[-1].get('run_tick')} re-issued "
+                        f"{decisions} flee decision(s) with 0 "
+                        f"'{EVADE_RUNNING_REASON}' tick(s) and {cooldown} "
+                        f"'{EVADE_COOLDOWN_REASON}' tick(s); {speed_note} "
+                        f"(threshold {FLEE_STALL_MIN_DECISIONS} decisions)"),
+                hint=hint,
+            ))
+    return findings
+
+
 def detect_suspicious(
         sessions: list[list[dict[str, Any]]]) -> list[SuspiciousFinding]:
     """Run every suspicious-pattern detector and concatenate the findings."""
@@ -554,6 +660,7 @@ def detect_suspicious(
     findings.extend(detect_action_streaks(sessions))
     findings.extend(detect_combat_cycles(sessions))
     findings.extend(detect_loot_spirals(sessions))
+    findings.extend(detect_flee_stalls(sessions))
     return findings
 
 
