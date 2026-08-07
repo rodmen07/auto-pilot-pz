@@ -4,7 +4,26 @@ All notable changes to AutoPilot are documented here.
 
 ## [Unreleased]
 
-Nothing yet.
+### Fixed
+
+- **Fleeing now works under fast-forward.** The engine refuses to RUN a queued walk above game-speed
+  index 2: `ISWalkToTimedAction:isValid()` ends `return getGameSpeed() <= 2;`
+  (`media/lua/client/TimedActions/WalkToTimedAction.lua:7` in the 42.19 install, and the identical
+  line in `WalkToTimedActionF.lua`). AutoPilot did not know that, so at x20 and x40 the action queue
+  discarded every escape walk on the tick it started it. The mod saw the queue empty on the next
+  evaluation, waited out `FLEE_COOLDOWN_CYCLES`, re-queued, and repeated — a character standing still
+  while a zombie followed it, with the run log recording a healthy-looking flee the whole time.
+  Recorded live in `auto_pilot_run.log` session 4, `run_tick` 6101-6317: 217 unbroken combat ticks,
+  44 flee decisions, 173 `evade_cooldown` and **zero** `evade_running`, at `speed=11-21`. The flee
+  path now lowers the game speed to `WALK_MAX_GAME_SPEED` (index 2) before queueing, so the walk
+  actually runs. Index 2 is still fast-forward (x5), so an unattended run keeps most of its speed-up,
+  and the speed is never raised back: your next input on the speed control always wins. A paused game
+  is never resumed. This does **not** explain the separate x1 stall in the same session (`run_tick`
+  3523-3555), which stays open as a bug.
+
+  Note the number that made this invisible: `getGameSpeed()` is the speed **index** (0/1/2/3/4), a
+  different number from `getGameTime():getMultiplier()` (1/5/20/40) that the run log's `speed` field
+  carries. Earlier fast-forward investigations read the multiplier and so could not see this gate.
 
 ## [0.2.0] - 2026-08-05
 

@@ -147,6 +147,57 @@ function AutoPilot_Utils.queueModAction(action)
     ISTimedActionQueue.add(action)
 end
 
+-- ── Game-speed gate for queued walks ─────────────────────────────────────────
+-- The engine refuses to RUN a queued walk above a fixed game-speed index:
+-- ISWalkToTimedAction:isValid() ends `return getGameSpeed() <= 2`.  A mod that
+-- does not know this queues a walk, the queue invalidates it on the same tick,
+-- and the mod sees a "successful" flee that moved nobody -- forever, because
+-- nothing about the situation changed.  See WALK_MAX_GAME_SPEED for the live
+-- citation and the run-log evidence.
+
+--- Current game-speed INDEX (0 paused, 1 normal, 2/3/4 fast-forward), or nil
+--- when the engine global is unavailable (tests without the stub, and any
+--- build that ever drops it).  Never raises.
+---
+--- Verified-surface note: getGameSpeed() is a real 42.19 client global -- the
+--- engine's own code calls it bare at WalkToTimedAction.lua:7,
+--- ISVehicleDashboard.lua:503 and ISReadABook.lua:382.
+function AutoPilot_Utils.getGameSpeedIndex()
+    local ok, idx = pcall(function() return getGameSpeed() end)
+    if ok and type(idx) == "number" then return idx end
+    return nil
+end
+
+--- Lower the game speed just far enough that a queued walk will actually run,
+--- and only when it is currently too high.  Returns true only when this call
+--- changed the speed.
+---
+--- Deliberately NOT a drop to real time: WALK_MAX_GAME_SPEED is index 2, which
+--- is still fast-forward (x5), so an unattended run keeps most of its speed-up
+--- and only gives up the two steps the engine will not walk at.
+---
+--- Deliberately NOT restored afterwards.  The mod never fights the player for
+--- the speed control: it lowers the ceiling once, when it is about to need a
+--- walk, and the player's next input wins outright.  Restoring a remembered
+--- speed would override a player who deliberately slowed the game down.
+---
+--- A PAUSED game (index 0) is already <= the ceiling, so it is never resumed
+--- by this helper -- unpausing on the mod's own initiative would be exactly the
+--- kind of hijack the paragraph above rules out.
+function AutoPilot_Utils.clampGameSpeedForWalk()
+    local idx = AutoPilot_Utils.getGameSpeedIndex()
+    local maxIdx = AutoPilot_Constants.WALK_MAX_GAME_SPEED
+    if not idx or idx <= maxIdx then return false end
+
+    local ok = pcall(function() setGameSpeed(maxIdx) end)
+    if not ok then return false end
+
+    -- Confirm rather than assume: if the engine refused, say so, so callers
+    -- (and the run log) never record a clamp that did not happen.
+    local after = AutoPilot_Utils.getGameSpeedIndex()
+    return after ~= nil and after <= maxIdx
+end
+
 -- ── Carried-inventory iteration (V4.8) ────────────────────────────────────────
 -- player:getInventory():getItems() returns ONLY the top-level items of the main
 -- inventory; it does not descend into worn or carried sub-containers.  Every

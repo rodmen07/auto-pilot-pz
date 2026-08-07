@@ -42,6 +42,27 @@ AutoPilot_Constants.WALK_SNAP_RADIUS = 5
 -- Default walk distance when walk_to receives a direction but no explicit range.
 AutoPilot_Constants.WALK_DEFAULT_DIST = 20
 
+-- Highest game-speed INDEX at which the ENGINE will let a queued walk run.
+--
+-- This is an engine constraint, not a tunable.  Verified live in the 42.19
+-- install: `ISWalkToTimedAction:isValid()` is exactly
+--     if self.character:getVehicle() then return false end
+--     return getGameSpeed() <= 2;
+-- (media/lua/client/TimedActions/WalkToTimedAction.lua:5-8, and the identical
+-- line in WalkToTimedActionF.lua:7).  getGameSpeed() is the speed INDEX
+-- (0 paused, 1 normal, 2/3/4 the three fast-forward steps) and is a DIFFERENT
+-- number from getGameTime():getMultiplier(), the time multiplier the run log
+-- records in its `speed` field (1 / 5 / 20 / 40).
+--
+-- Consequence, which is why this constant exists: at index 3 (x20) and index 4
+-- (x40) the action queue throws away EVERY walk this mod queues on the very
+-- tick it starts it, so a flee "succeeds" in Lua and moves nobody.  That is the
+-- live 217-tick evade stall in auto_pilot_run.log session 4 (run_tick
+-- 6101-6317: 44 flee decisions, 173 evade_cooldown, ZERO evade_running, all at
+-- speed=11-21).  Index 2 (x5) is still fast-forward and still walks, so the
+-- clamp keeps most of the speed-up rather than dropping to real time.
+AutoPilot_Constants.WALK_MAX_GAME_SPEED = 2
+
 -- Bandage-loot radius.  Kept at 30 so the character does not wander far
 -- while actively bleeding; first-aid kits are usually within the same building.
 AutoPilot_Constants.MEDICAL_LOOT_RADIUS = 30
