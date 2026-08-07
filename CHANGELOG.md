@@ -25,6 +25,26 @@ All notable changes to AutoPilot are documented here.
   different number from `getGameTime():getMultiplier()` (1/5/20/40) that the run log's `speed` field
   carries. Earlier fast-forward investigations read the multiplier and so could not see this gate.
 
+### Changed
+
+- **The linter now reports unused local variables again (luacheck check 211), and the four it had
+  been hiding are fixed.** No player-visible behaviour changes; this removes a latent hazard and
+  closes a blind spot. `.luacheckrc` had suppressed 211 repo-wide since it was written, on the
+  stated grounds that unused locals are "common in PZ boilerplate (loop indices, etc.)".
+  Measurement falsified both halves: an unused *loop* variable is check **213**, which reports
+  **0 warnings** across all 24 shipped client files, so the justification named a check whose
+  category does not occur here; and the suppression was concealing four real findings. The one that
+  mattered: `AutoPilot_Medical` held `local MEDICAL_LOOT_RADIUS = AutoPilot_Constants.MEDICAL_LOOT_RADIUS`,
+  a **file-load-time snapshot of a constant `AutoPilot_Adaptive` mutates at runtime** after
+  bleed-out deaths. Nothing read it — the bandage-loot scan correctly reads the constant live — but
+  anyone tidying that call site to use the local would have silently frozen the adaptive widening,
+  with no warning from lint or from any test. That is the same dead-local class PR #49 had to find
+  by hand, precisely because this ignore had blinded the linter to it. Also removed: a vestigial
+  `intent` binding in `AutoPilot_Threat` left over from before combat became flee-only. Check 212
+  (unused *argument*) stays ignored deliberately — PZ callback signatures are mirrored whole — and
+  the two noop `print` shadows that legitimately go unused are now suppressed inline, at the one
+  line each applies to, instead of repo-wide.
+
 ## [0.2.0] - 2026-08-05
 
 Carries every change merged to `main` since the 0.1.0 version reset (2026-07-25) that has not shipped

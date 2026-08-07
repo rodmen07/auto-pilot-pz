@@ -533,7 +533,12 @@ function AutoPilot_Threat.check(player)
     -- what makes it possible to leave an in-progress engage (and any foreign
     -- action) alone instead of clearing a queue we are about to refill with the
     -- same intent.
-    local intent, reason, escDx, escDy = _decideEngagement(player, zombies)
+    -- The intent slot is DISCARDED on purpose.  Combat has been flee-only since
+    -- V5.6 (B42 exposes no attack API), so every decision resolves to a flee and
+    -- the returned intent carries nothing this function branches on; only the
+    -- reason and the escape vector are read below.  Spelled `_` rather than a
+    -- named local so luacheck 211 keeps judging every other local in this file.
+    local _, reason, escDx, escDy = _decideEngagement(player, zombies)
     AutoPilot_Threat._engageReason = reason
 
     -- Make room only for a NEW decision, and only from the mod's own

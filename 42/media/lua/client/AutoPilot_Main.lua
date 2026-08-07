@@ -9,6 +9,13 @@ AutoPilot = {}
 local _realPrint = print
 
 local function _apNoop(...) end
+-- luacheck: ignore print
+-- The shadow is deliberate and uniform across the 19 modules that carry it: it
+-- makes any print() added to this file a noop by default, so debug output can
+-- never reach a player's console by accident.  This file calls print() nowhere
+-- today, which is exactly why luacheck 211 flags it -- the shadow is a standing
+-- guarantee about FUTURE lines here, not dead code.  Suppressed at the one line
+-- it applies to rather than repo-wide, so 211 keeps judging every other local.
 local print = _apNoop
 
 local TICK_INTERVAL          = AutoPilot_Constants.TICK_INTERVAL
