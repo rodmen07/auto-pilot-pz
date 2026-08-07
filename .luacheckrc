@@ -132,6 +132,33 @@ globals = {
     "getClimateManager",
 }
 
--- 211: unused local variable  — common in PZ boilerplate (loop indices, etc.)
--- 212: unused argument        — tolerate when mirroring PZ callback signatures
-ignore = { "211", "212" }
+-- 212: unused argument — tolerated when a function mirrors a PZ callback or
+-- engine signature it does not read every parameter of.  Measured 2026-08-07:
+-- 3 instances across the 24 shipped client files, every one a genuine
+-- signature mirror, so this suppression still earns its place.
+--
+-- 211 (unused local VARIABLE) was ignored here too until 2026-08-07, on the
+-- stated grounds that unused locals are "common in PZ boilerplate (loop
+-- indices, etc.)".  Measurement falsified both halves of that:
+--
+--   * An unused LOOP variable is luacheck 213, not 211, so the justification
+--     named a different check.  Running the pinned linter with `--enable 213`
+--     over 42/media/lua/client/*.lua reports 0 warnings in 24 files: the
+--     category this suppression was written for does not occur here at all.
+--   * The suppression was hiding four real 211s, one of them a live hazard.
+--     AutoPilot_Medical carried `local MEDICAL_LOOT_RADIUS =
+--     AutoPilot_Constants.MEDICAL_LOOT_RADIUS`, a FILE-LOAD-TIME snapshot of a
+--     constant AutoPilot_Adaptive MUTATES at runtime after bleed-out deaths.
+--     Nothing read it -- the call site correctly reads the constant live -- but
+--     anyone "tidying" that call site to use the local would have silently
+--     frozen the adaptive widening, with no warning from lint or tests.  That
+--     is the same dead-local class PR #49 had to find BY HAND, precisely
+--     because this ignore had blinded the linter to it.
+--
+-- The two deliberate unused locals that remain (the noop `print` shadow in
+-- AutoPilot_Main and AutoPilot_XP) are suppressed inline, at the one line each
+-- applies to, so the check keeps judging every other local in those files.
+--
+-- tests/test_luacheck_unused_locals.py runs the pinned linter against THIS
+-- config in both directions, so 211 cannot be re-suppressed silently.
+ignore = { "212" }

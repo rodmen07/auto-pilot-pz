@@ -26,6 +26,12 @@
 AutoPilot_XP = {}
 
 local function _apNoop(...) end
+-- luacheck: ignore print
+-- Deliberate noop shadow, uniform across the 19 modules that carry it: any
+-- print() added to this file is silenced by default so debug output cannot
+-- reach a player's console by accident.  This file calls print() nowhere today,
+-- which is why luacheck 211 flags it; the shadow is a standing guarantee about
+-- FUTURE lines, not dead code.  Suppressed at its one line, not repo-wide.
 local print = _apNoop
 
 -- _track[pnum][perkKey] = {

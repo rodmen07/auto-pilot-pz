@@ -84,8 +84,6 @@ local function findBandage(player)
 end
 
 -- Scan nearby containers for bandage-type items and loot the first one found.
-local MEDICAL_LOOT_RADIUS = AutoPilot_Constants.MEDICAL_LOOT_RADIUS
-
 local function lootNearbyBandage(player)
     local px, py, pz = player:getX(), player:getY(), player:getZ()
     local result = false
