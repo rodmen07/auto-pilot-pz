@@ -302,6 +302,7 @@ function AutoPilot_Sleep.doSleep(player)
     else
         local adjacent = AdjacentFreeTileFinder.Find(bedSq, player)
         if adjacent then
+            AutoPilot_Utils.prepareWalk("walk to bed")
             local walkAction = ISWalkToTimedAction:new(player, adjacent)
             walkAction:setOnComplete(ISWorldObjectContextMenu.onSleepWalkToComplete, pnum, bedObj)
             AutoPilot_Utils.queueModAction(walkAction)

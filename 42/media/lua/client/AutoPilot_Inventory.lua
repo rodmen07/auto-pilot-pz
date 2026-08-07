@@ -368,6 +368,10 @@ local function _queueTransfer(player, item, container, label, allowOverload)
         local px, py = player:getX(), player:getY()
         local distSq = (contSq:getX() - px)^2 + (contSq:getY() - py)^2
         if distSq > 4 then
+            -- The engine discards any walk queued above game-speed index 2, and
+            -- walkAdj queues an ISWalkToTimedAction internally, so BOTH branches
+            -- below need the gate -- not just the fallback.
+            AutoPilot_Utils.prepareWalk("loot")
             local walkOk = pcall(function()
                 luautils.walkAdj(player, contSq, true)
             end)
@@ -589,6 +593,7 @@ function AutoPilot_Inventory.drinkFromSource(player, waterObj)
     -- Walk adjacent to the water source
     local sq = waterObj:getSquare()
     if sq then
+        AutoPilot_Utils.prepareWalk("drink")
         local walkOk = pcall(function()
             luautils.walkAdj(player, sq, true)
         end)
@@ -648,6 +653,9 @@ function AutoPilot_Inventory.refillWaterContainer(player, waterObj)
 
     local sq = waterObj:getSquare()
     if sq then
+        -- walkAdj with no ISWalkToTimedAction fallback, which is exactly why a
+        -- grep for ISWalkToTimedAction alone did not find this site.
+        AutoPilot_Utils.prepareWalk("water refill")
         pcall(function() luautils.walkAdj(player, sq, true) end)
     end
 
@@ -813,6 +821,7 @@ function AutoPilot_Inventory.placeItem(player, keyword)
 
     -- Queue walk then transfer
     if bestDist > 4 then
+        AutoPilot_Utils.prepareWalk("store item")
         AutoPilot_Utils.queueModAction(
             ISWalkToTimedAction:new(player, objSq))
     end

@@ -331,10 +331,7 @@ local function doFlee(player, zombies, escDx, escDy)
         -- session 4 of the live run log.  Fleeing is the one thing this mod
         -- MUST be able to do, so the flee path buys it back a speed step rather
         -- than queueing an action the engine has already decided to throw away.
-        if AutoPilot_Utils.clampGameSpeedForWalk() then
-            print("[Threat] Game speed lowered to the highest step the engine " ..
-                "will walk at, so the escape walk can actually run.")
-        end
+        AutoPilot_Utils.prepareWalk("escape")
         AutoPilot_Utils.queueModAction(ISWalkToTimedAction:new(player, destSq))
         AutoPilot_Threat._engageActive = true
         AutoPilot_Threat._fleeActive   = true

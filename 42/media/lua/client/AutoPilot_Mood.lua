@@ -78,6 +78,7 @@ local function doGoOutside(player)
             return sq:isOutside() and sq:isFree(false)
         end)
         if outsideSq then
+            AutoPilot_Utils.prepareWalk("go outside")
             AutoPilot_Utils.queueModAction(ISWalkToTimedAction:new(player, outsideSq))
             return true
         end
