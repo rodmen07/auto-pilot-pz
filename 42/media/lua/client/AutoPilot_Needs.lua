@@ -192,6 +192,7 @@ local function doSeekShelter(player)
         end)
         if inside then
             print("[Needs] Seeking shelter inside home.")
+            AutoPilot_Utils.prepareWalk("seek shelter")
             AutoPilot_Utils.queueModAction(ISWalkToTimedAction:new(player, inside))
             return true
         end

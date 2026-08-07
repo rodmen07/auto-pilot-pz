@@ -313,6 +313,71 @@ do
         AutoPilot_Constants.WALK_MAX_GAME_SPEED, 2)
 end
 
+-- ── Test 9: END-TO-END at a site the flee fix did NOT cover ─────────────────
+-- Tests 1-8 prove the clamp itself and the flee call site.  This one drives a
+-- REAL production function that PR #120 left un-gated, through the
+-- luautils.walkAdj path specifically -- the shape the follow-up item's
+-- `grep ISWalkToTimedAction` did not find, and the path that actually executes
+-- (its ISWalkToTimedAction fallback runs only when walkAdj raises).
+--
+-- walkAdj is subject to the identical engine gate because it ends in
+-- ISTimedActionQueue.add(ISWalkToTimedAction:new(...)) -- 42.19
+-- shared/luautils.lua:147.  So the question this test answers is not "was a
+-- walk queued" (one always was, which is exactly why the livelock was
+-- invisible) but "was it queued at a speed the engine will actually run".
+print("\n=== Walk gate 9: end-to-end at a newly gated site (drinkFromSource) ===")
+do
+    -- Dependencies the real AutoPilot_Inventory needs (mirrors
+    -- tests/test_resource_economy.lua).  Loaded last, so the lightweight
+    -- AutoPilot_Inventory stub the Threat tests above used is finished with.
+    local speedAtWalk = nil
+    ISInventoryTransferAction = {
+        new = function(_, _player, item, _from, _to, _count)
+            return { type = "transfer", item = item }
+        end,
+    }
+    ISTakeWaterAction = {
+        new = function(_, _player, _container, _waterObj, _tainted)
+            return { type = "take_water" }
+        end,
+    }
+    luautils = {
+        -- Record the speed the engine WOULD have judged this walk at.
+        walkAdj = function(_player, _sq, _keep)
+            speedAtWalk = AutoPilot_Utils.getGameSpeedIndex()
+        end,
+    }
+    dofile("42/media/lua/client/AutoPilot_Inventory.lua")
+
+    local waterObj = {
+        isTaintedWater = function(_) return false end,
+        getSquare      = function(_) return makeSquare(5, 5, 0) end,
+    }
+
+    -- ON: at x20 the walk is dispatched only after the clamp brought the speed
+    -- inside the engine's walkable range.
+    MockGameSpeed.setIndex(3)
+    speedAtWalk = nil
+    local queuedOn = AutoPilot_Inventory.drinkFromSource(makePlayer(), waterObj)
+    assert_true("ON: the drink walk was dispatched", speedAtWalk ~= nil)
+    assert_true("ON: dispatched at a speed the engine will walk at",
+        speedAtWalk ~= nil and speedAtWalk <= MAX_WALK_SPEED)
+    assert_true("ON: the drink action itself still queued", queuedOn)
+
+    -- OFF: with the seam neutralised the identical call dispatches at index 3,
+    -- the doomed walk ISWalkToTimedAction:isValid() throws away.
+    local origPrepare = AutoPilot_Utils.prepareWalk
+    AutoPilot_Utils.prepareWalk = function(_) return false end
+    MockGameSpeed.setIndex(3)
+    speedAtWalk = nil
+    local queuedOff = AutoPilot_Inventory.drinkFromSource(makePlayer(), waterObj)
+    AutoPilot_Utils.prepareWalk = origPrepare
+
+    assert_true("OFF: a walk is still dispatched (the mod always thought it moved)",
+        queuedOff and speedAtWalk ~= nil)
+    assert_eq("OFF: but at index 3, which the engine discards", speedAtWalk, 3)
+end
+
 -- Leave the shared mock at normal speed for any suite that follows.
 MockGameSpeed.setIndex(1)
 

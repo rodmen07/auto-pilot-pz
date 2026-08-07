@@ -198,6 +198,42 @@ function AutoPilot_Utils.clampGameSpeedForWalk()
     return after ~= nil and after <= maxIdx
 end
 
+--- THE seam every walk in this mod passes through before it is dispatched.
+---
+--- Call this immediately before any ISWalkToTimedAction:new or
+--- luautils.walkAdj in the shipped tree.  tests/test_walk_gate_coverage.lua
+--- enforces exactly that, by function block, so a new walk site cannot land
+--- un-gated the way four walkAdj sites in Inventory and Media silently did.
+---
+--- Why a seam and not one clamp per call site.  The engine's gate is
+--- cross-cutting: it applies to every walk the mod will ever dispatch, in six
+--- modules, and the call sites are NOT interchangeable in shape (three are
+--- luautils.walkAdj with an ISWalkToTimedAction fallback, four are a plain
+--- queued walk, one decorates the action with setOnComplete first).  Gating
+--- them individually would mean re-deriving the same engine fact nine times
+--- and would leave site ten to be discovered by a player.  One named seam plus
+--- one coverage guard costs a line per site and cannot silently rot.
+---
+--- CRITICALLY, luautils.walkAdj needs this just as much as a direct queue
+--- does: walkAdj ends in ISTimedActionQueue.add(ISWalkToTimedAction:new(...))
+--- (42.19 shared/luautils.lua:147), the very action the engine invalidates.
+--- Three of this mod's walkAdj sites carry an ISWalkToTimedAction fallback
+--- that runs ONLY when walkAdj raises, so gating the fallback alone would have
+--- left the path that actually executes un-gated in the normal case.
+---
+--- `label` names the walk in the console line so a player reading the log can
+--- tell which behaviour bought the speed step.  The line prints only on the
+--- transition, because clampGameSpeedForWalk returns true only when it really
+--- changed the speed; once at the ceiling every later call is a silent no-op.
+function AutoPilot_Utils.prepareWalk(label)
+    if not AutoPilot_Utils.clampGameSpeedForWalk() then return false end
+    print("[AutoPilot] Game speed lowered to index "
+        .. tostring(AutoPilot_Constants.WALK_MAX_GAME_SPEED)
+        .. ", the highest the engine will walk at, so the "
+        .. tostring(label) .. " walk can actually run.")
+    return true
+end
+
 -- ── Carried-inventory iteration (V4.8) ────────────────────────────────────────
 -- player:getInventory():getItems() returns ONLY the top-level items of the main
 -- inventory; it does not descend into worn or carried sub-containers.  Every

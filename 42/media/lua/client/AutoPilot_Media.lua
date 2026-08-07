@@ -295,6 +295,7 @@ end
 local function _walkToDevice(player, obj)
     local okSq, sq = pcall(function() return obj:getSquare() end)
     if not (okSq and sq) then return false end
+    AutoPilot_Utils.prepareWalk("device")
     local walkOk = pcall(function()
         luautils.walkAdj(player, sq, true)
     end)

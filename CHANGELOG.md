@@ -6,6 +6,31 @@ All notable changes to AutoPilot are documented here.
 
 ### Fixed
 
+- **Every other thing AutoPilot walks to now works under fast-forward too, not just fleeing.** The
+  flee fix below covered one of nine walk sites. At x20 and x40 the engine was still discarding the
+  walk for **looting a container, drinking from a water source, refilling a water container, storing
+  an item, approaching a television or radio, stepping outside when bored, seeking shelter from the
+  rain, and walking to a bed** — each one the same silent livelock: the mod queues a walk, the queue
+  throws it away on the same tick, the mod sees an empty queue next cycle and re-decides forever,
+  while the run log records a healthy-looking action. In practice the whole mod stood still above x5.
+  All nine sites now lower the speed to `WALK_MAX_GAME_SPEED` (index 2) first, through one shared
+  seam, `AutoPilot_Utils.prepareWalk(label)`. The behaviour is unchanged from the flee fix: index 2 is
+  still x5 fast-forward, the speed is never raised back, your next input on the speed control always
+  wins, and a paused game is never resumed. The console says which walk bought the speed step, and
+  only on the transition.
+
+  **Four of those sites could not be found by searching for `ISWalkToTimedAction`**, which is how they
+  were missed the first time. They call `luautils.walkAdj`, which queues the identical action
+  internally (`shared/luautils.lua:147` in the 42.19 install) and is therefore gated identically — and
+  at three of them `walkAdj` is the path that normally runs, with the `ISWalkToTimedAction` fallback
+  reached only if `walkAdj` raises. Gating the visible line alone would have left the executing path
+  broken.
+
+  `tests/test_walk_gate_coverage.lua` now makes site ten impossible to miss: it glob-discovers the
+  shipped modules and fails if any function block dispatches a walk without clamping first, in the
+  right order, counting `walkAdj` as a walk. Seating on furniture is deliberately exempt and was
+  checked rather than assumed — `ISPathFindAction:isValid()` is `return true` and reads no game speed.
+
 - **Fleeing now works under fast-forward.** The engine refuses to RUN a queued walk above game-speed
   index 2: `ISWalkToTimedAction:isValid()` ends `return getGameSpeed() <= 2;`
   (`media/lua/client/TimedActions/WalkToTimedAction.lua:7` in the 42.19 install, and the identical
