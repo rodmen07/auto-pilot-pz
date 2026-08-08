@@ -54,6 +54,17 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # This job holds `contents: write` and hands control to a third-party
+          # action, so its token is the most valuable one in the repository.
+          # `persist-credentials` defaults to true, which leaves that token
+          # readable from the workspace for every step below until the `Post`
+          # step runs.  Nothing here performs a network git operation, so it is
+          # turned off.  ci.yml's `Checkout credential guard` asserts the same
+          # property at run time (it runs on the tag push too, in the CI gate
+          # job above); tests/test_checkout_credentials.py asserts THIS line
+          # exists, because no pull request ever executes this job.
+          persist-credentials: false
 
       - name: Verify version tag matches mod.info
         # Reads TAG_NAME from the job-level env block above.  This step had been
