@@ -102,8 +102,10 @@ end
 ---                 beds.  Per the user's 2026-07-24 design a bed is valid rest
 ---                 furniture -- the character SITS on it via ISRestAction and
 ---                 doRest never sleeps -- so the sit-to-recover path uses a bed
----                 when it is the nearest furniture.
-local function findRestFurniture(player, sitOnly)   -- luacheck: ignore sitOnly
+---                 when it is the nearest furniture.  Deliberately unused, and
+---                 sanctioned as such in tests/test_luacheck_unused_args.py
+---                 rather than hidden behind an inline suppression.
+local function findRestFurniture(player, sitOnly)
     local px, py, pz = player:getX(), player:getY(), player:getZ()
     local bestObj  = nil
     local bestZone = 99      -- 0 = inside the home circle (safe), 1 = outside
