@@ -54,6 +54,99 @@ jobs:
           # into a step that errors instead of one that judges.
           fetch-depth: 0
 
+      # THE CREDENTIAL CHECK, deliberately the first step after the checkout:
+      # it reads the state that checkout just left behind, before any code this
+      # repo does not control has run in this job.
+      #
+      # `actions/checkout` persists the job's GITHUB_TOKEN by DEFAULT
+      # (`persist-credentials` defaults to `true` -- read out of action.yml at
+      # the very SHA pinned above, not out of the docs).  It no longer writes
+      # the token into `.git/config` itself: it writes
+      # `$RUNNER_TEMP/git-credentials-<uuid>.config` holding
+      # `http.https://github.com/.extraheader = AUTHORIZATION: basic <token>`
+      # and puts an `includeIf.gitdir:<workspace>/.git.path` entry in
+      # `.git/config` pointing at it, so `git config` still resolves the header
+      # from anywhere inside the workspace.  With persistence ON the removal
+      # runs in `Post Checkout repository`, i.e. AFTER every step below; with it
+      # OFF, checkout's own `finally` removes it before the first step runs
+      # (src/git-source-provider.ts: `if (!settings.persistCredentials)`).
+      #
+      # This step asserts the OFF state AT RUN TIME on the real runner, rather
+      # than trusting the yaml to spell it, and it runs inside release.yml's
+      # tag-push CI gate too because that job calls this workflow.
+      # tests/test_checkout_credentials.py extracts this script and executes it
+      # against synthetic repositories in BOTH directions, so it cannot rot into
+      # an inert surface the way release.yml's version gate did.
+      - name: Checkout credential guard
+        run: |
+          echo "=== Checkout credential guard: no git credential may outlive the checkout ==="
+
+          if ! git rev-parse --git-dir >/dev/null 2>&1; then
+            echo "ERROR: this is not a git working tree, so there is no checkout to inspect."
+            echo "The guard has gone blind; it must never pass without a repository to read."
+            exit 1
+          fi
+
+          # Positive control.  Every lookup below decides from an EMPTY result,
+          # and an unreadable config reads empty exactly like a clean one, so
+          # prove the query mechanism can find a value that is definitely there
+          # before trusting a single one of its absences.
+          PROBE="$(git config --local --get remote.origin.url || true)"
+          if [ -z "${PROBE}" ]; then
+            echo "ERROR: 'git config --local --get remote.origin.url' returned nothing."
+            echo "If the local config cannot be read then every absence checked below is"
+            echo "meaningless.  The guard has gone blind; it must never pass on one."
+            exit 1
+          fi
+          echo "Local git config is readable (origin ${PROBE})."
+
+          FOUND=0
+
+          # The RESOLVED view (no --local on purpose): an includeIf pointing at
+          # the credentials file makes the header visible here even though
+          # .git/config never literally contains it.
+          HEADERS="$(git config --get-regexp '^http\..*\.extraheader$' 2>/dev/null || true)"
+          if [ -n "${HEADERS}" ]; then
+            echo "FOUND a persisted HTTP auth header:"
+            printf '%s\n' "${HEADERS}" | sed 's/ .*/ <redacted>/; s/^/  /'
+            FOUND=$((FOUND + 1))
+          fi
+
+          INCLUDES="$(git config --local --get-regexp '^includeIf\..*\.path$' 2>/dev/null || true)"
+          CREDS="$(printf '%s' "${INCLUDES}" | grep -i 'git-credentials' || true)"
+          if [ -n "${CREDS}" ]; then
+            echo "FOUND an includeIf entry pointing at a credentials config file:"
+            printf '%s\n' "${CREDS}" | sed 's/^/  /'
+            FOUND=$((FOUND + 1))
+          fi
+
+          SSH_CMD="$(git config --local --get core.sshCommand 2>/dev/null || true)"
+          if [ -n "${SSH_CMD}" ]; then
+            echo "FOUND a persisted core.sshCommand: ${SSH_CMD}"
+            FOUND=$((FOUND + 1))
+          fi
+
+          if [ "${FOUND}" -gt 0 ]; then
+            echo
+            echo "Checkout credential guard FAILED: ${FOUND} credential surface(s) survive the checkout."
+            echo
+            echo "Every step in this job runs after the checkout, including code this repo"
+            echo "does not control -- pip installing requirements-dev.txt, luarocks"
+            echo "installing luacheck, and in release.yml a third-party action holding"
+            echo "contents: write.  A token left reachable from the workspace is usable by"
+            echo "all of it, for the whole job."
+            echo
+            echo "Fix: give the actions/checkout step"
+            echo "    with:"
+            echo "      persist-credentials: false"
+            echo "Nothing in this repo runs a network git operation after checkout (the"
+            echo "changelog guard diffs locally against the history fetch-depth: 0 already"
+            echo "fetched), so the credential has no remaining job here."
+            exit 1
+          fi
+
+          echo "Checkout credential guard PASSED: no auth header, no credentials include, no core.sshCommand."
+
       # Runs before the ~25s toolchain install so a supply-chain regression
       # fails fast.
       - name: Action pin guard
