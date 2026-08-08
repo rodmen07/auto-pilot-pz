@@ -81,9 +81,17 @@ STEP_NAME = "Checkout credential guard"
 BASH = shutil.which("bash")
 GIT = shutil.which("git")
 
-# A plausible-looking token, so the redaction assertion has something concrete
-# to prove never reaches the log.  It is not a credential of any kind.
-FAKE_TOKEN = "AUTHORIZATION: basic eC1hY2Nlc3MtdG9rZW46bm90LWEtcmVhbC10b2tlbg=="
+# The header value the redaction assertion proves never reaches the log.
+#
+# It is deliberately NOT base64: the first version of this constant spelled a
+# realistic `basic <base64>` payload and GitGuardian's basic-auth detector
+# failed the PR for it (run 31273006377, `lint-and-test` green, `GitGuardian
+# Security Checks` red).  That is the scanner working correctly -- a test about
+# not leaking credentials has no business committing a credential-shaped
+# string -- and the guard keys on the config KEY, never on the value's shape,
+# so nothing is weakened by making the value obviously inert.  Do not "fix"
+# this by ignoring the finding.
+FAKE_TOKEN = "AUTHORIZATION: basic not-a-credential-only-a-test-sentinel"
 
 
 def _require_tools() -> tuple[str, str]:
