@@ -4,6 +4,19 @@ All notable changes to AutoPilot are documented here.
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-08-08
+
+Six fixes, four of them in the path the last in-game report complained about: getting away
+from a zombie. Fleeing did not work above the second fast-forward notch at all, and neither
+did anything else AutoPilot walked to; at the in-between game speeds the mod was thinking a
+third less often than it was designed to; and after an escape that had moved nobody it stood
+still anyway. The other two are a death-learning bound that could push your own settings the
+wrong way, and four repeat-action timers that were too short to ever hold.
+
+**This build has had no in-game verification** — nothing in this project can be checked in
+game headlessly, and CI runs luacheck plus the unit suites only. A smoke test should cover
+the evade/flee path under fast-forward, since that is what four of these six fixes touch.
+
 ### Fixed
 
 - **Death learning could undo your own settings, and then tell you it had improved them.** After you
