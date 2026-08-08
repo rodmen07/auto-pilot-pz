@@ -53,6 +53,13 @@ jobs:
           # asserts this line still says 0, because losing it turns the guard
           # into a step that errors instead of one that judges.
           fetch-depth: 0
+          # Do NOT leave the job's GITHUB_TOKEN reachable from the workspace
+          # after the checkout finishes.  It defaults to true; the guard step
+          # below explains the mechanism and asserts this line took effect.
+          # Nothing in this job runs a network git operation after checkout --
+          # the changelog guard diffs locally against the history fetch-depth: 0
+          # has already fetched -- so the credential has no remaining job here.
+          persist-credentials: false
 
       # THE CREDENTIAL CHECK, deliberately the first step after the checkout:
       # it reads the state that checkout just left behind, before any code this
