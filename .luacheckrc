@@ -132,10 +132,34 @@ globals = {
     "getClimateManager",
 }
 
--- 212: unused argument — tolerated when a function mirrors a PZ callback or
--- engine signature it does not read every parameter of.  Measured 2026-08-07:
--- 3 instances across the 24 shipped client files, every one a genuine
--- signature mirror, so this suppression still earns its place.
+-- 212: unused argument — suppression kept PERMANENTLY (decided 2026-08-08),
+-- and MONITORED rather than merely tolerated.  A function mirroring a PZ
+-- callback or engine signature it does not read every parameter of is a fact
+-- about the engine's API, not a defect; what is NOT acceptable is a check
+-- nobody watches, which is exactly how 211 below hid a live hazard.
+--
+-- Re-measured 2026-08-08 with the CI-pinned luacheck over the 24 shipped
+-- client files, `--enable 212` reports 23 findings, not the 3 the earlier note
+-- here claimed:
+--
+--   * 19 "unused variable length argument" — one per module carrying the
+--     `local function _apNoop(...) end` debug-print shadow;
+--   * 4 named "unused argument" — three `self` (two ISButton/panel methods in
+--     AutoPilot_UI, the PZAPI ModOptions `o:apply()` in AutoPilot_Options) and
+--     `sitOnly` in AutoPilot_Rest, retained for signature compatibility.
+--
+-- The old count of 3 was the named findings only: check 212 also covers an
+-- unused `...`, which luacheck renders as "unused variable length argument",
+-- so counting by grepping the output for the words "unused argument" sees 3 of
+-- 23.  tests/test_luacheck_unused_args.py parses every finding line and
+-- asserts luacheck's own "in N files" trailer covers all 24 files, so the
+-- count cannot go quietly wrong that way again.  That guard requires every 212
+-- finding to be a sanctioned one, so a NEW unused argument fails CI even
+-- though the lint step below stays green on it.
+--
+-- AutoPilot_Rest's `-- luacheck: ignore sitOnly` was deleted in the same
+-- change: with 212 ignored repo-wide the inline comment silenced nothing, and
+-- it hid that site from the guard as well as from the linter.
 --
 -- 211 (unused local VARIABLE) was ignored here too until 2026-08-07, on the
 -- stated grounds that unused locals are "common in PZ boilerplate (loop
@@ -160,5 +184,6 @@ globals = {
 -- applies to, so the check keeps judging every other local in those files.
 --
 -- tests/test_luacheck_unused_locals.py runs the pinned linter against THIS
--- config in both directions, so 211 cannot be re-suppressed silently.
+-- config in both directions, so 211 cannot be re-suppressed silently, and
+-- tests/test_luacheck_unused_args.py does the same for what 212 hides.
 ignore = { "212" }

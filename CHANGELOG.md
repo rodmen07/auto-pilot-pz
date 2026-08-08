@@ -76,6 +76,23 @@ All notable changes to AutoPilot are documented here.
 
 ### Changed
 
+- **The last repo-wide linter blind spot (luacheck check 212, unused argument) is now watched, and
+  the count that justified it was wrong by 20.** No player-visible behaviour changes. 212 stays
+  suppressed — a function mirroring a Project Zomboid callback signature it does not read every
+  parameter of is a fact about the engine's API, not a defect — but the suppression is no longer
+  unobserved. `tests/test_luacheck_unused_args.py` runs the pinned linter with `--enable 212` on
+  every PR and requires each finding to be individually sanctioned, so a **new** unused argument
+  fails CI even though the lint step stays green on it, and a sanctioned entry whose declaration
+  disappears fails too. The decision it records was taken on a re-measurement: the note in
+  `.luacheckrc` claimed **3** findings, "every one a genuine signature mirror", and the real number
+  is **23** — 19 unused `...` varargs (the `_apNoop` debug-print shadow each module carries) plus 4
+  named arguments (three `self`, one `sitOnly`). Check 212 covers an unused vararg too, which
+  luacheck renders as "unused variable length argument", so a count taken by grepping the output for
+  the words "unused argument" saw 3 of 23. The guard parses every finding line and asserts
+  luacheck's own `in N files` trailer covers all 24 client files, so it cannot go quietly wrong the
+  same way. `AutoPilot_Rest`'s `-- luacheck: ignore sitOnly` comment was deleted in the same change:
+  with 212 ignored repo-wide it silenced nothing, and it hid that site from the new guard.
+
 - **The linter now reports unused local variables again (luacheck check 211), and the four it had
   been hiding are fixed.** No player-visible behaviour changes; this removes a latent hazard and
   closes a blind spot. `.luacheckrc` had suppressed 211 repo-wide since it was written, on the

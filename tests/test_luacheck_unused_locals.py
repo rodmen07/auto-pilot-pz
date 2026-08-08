@@ -76,15 +76,16 @@ CLEAN_LUA = "local used = 1\nreturn used\n"
 #     that any print() added to the file is silenced by default.  Neither calls
 #     print() today, which is why 211 flags the shadow; it is a standing
 #     guarantee about FUTURE lines, not dead code.
-#   AutoPilot_Rest, `sitOnly` — an argument retained for signature
-#     compatibility after the V5.4 design change stopped it excluding beds
-#     (documented at the declaration).  Pre-dates this guard, and is currently
-#     REDUNDANT because 212 is ignored repo-wide; it is kept, not deleted,
-#     because it is the correct suppression should 212 ever be un-blinded too.
+#
+# AutoPilot_Rest's `-- luacheck: ignore sitOnly` used to be sanctioned here as a
+# third entry, on the grounds that it would become load-bearing if check 212
+# were ever un-blinded.  212 was decided PERMANENTLY IGNORED on 2026-08-08 and
+# monitored instead by tests/test_luacheck_unused_args.py, so that comment
+# silenced nothing and actively hid the site from the new guard; it and this
+# entry were deleted together.
 ALLOWED_INLINE_IGNORES = {
     ("AutoPilot_Main.lua", "print"),
     ("AutoPilot_XP.lua", "print"),
-    ("AutoPilot_Rest.lua", "sitOnly"),
 }
 
 # What each sanctioned suppression is attached to.  If the construct goes away,
@@ -93,7 +94,6 @@ ALLOWED_INLINE_IGNORES = {
 INLINE_IGNORE_ANCHORS = {
     ("AutoPilot_Main.lua", "print"): "local print = _apNoop",
     ("AutoPilot_XP.lua", "print"): "local print = _apNoop",
-    ("AutoPilot_Rest.lua", "sitOnly"): "findRestFurniture(player, sitOnly)",
 }
 
 
@@ -195,6 +195,11 @@ class TestUnusedLocalCheckIsLive(unittest.TestCase):
         """212 stays ignored deliberately: PZ callback signatures are mirrored
         whole, so an unused parameter is a fact about the engine's API, not a
         defect.  Pinned so un-blinding 211 is not read as un-blinding both.
+
+        That suppression is permanent as of 2026-08-08 and is monitored by
+        :mod:`tests.test_luacheck_unused_args`, which requires every 212 finding
+        in shipped client Lua to be an individually sanctioned one.  This
+        assertion is the OFF half of that guard's behavior difference.
         """
         name = self._write("arg.lua", UNUSED_ARG_LUA)
         result = _run_luacheck(self.tmp, name)
