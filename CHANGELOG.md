@@ -4,6 +4,29 @@ All notable changes to AutoPilot are documented here.
 
 ## [Unreleased]
 
+### Changed
+
+- **The README no longer says this project is dead.** Its first screen opened with a banner
+  headed "⚠️ DEPRECATED — NO LONGER MAINTAINED", announcing that AutoPilot had been
+  decommissioned on 2026-07-21, that the Workshop item was delisted, and that no further
+  releases or bug fixes would be made. That decommission was reversed on 2026-07-24, four days
+  after the banner was written, and the banner stayed up through two releases — so anyone the
+  release page sent to the repository read "no longer maintained" first. It is gone, replaced by
+  a short note recording what it used to say and that every clause of it was false.
+
+  Five other claims on the same page were stale and are corrected: the status line said `V3.3`
+  (the mod is on `0.2.1`); two places named a version the panel title has not shown since the
+  version scheme was reset, and now derive it instead of restating it; the project layout
+  pointed at a `media/lua/client/` legacy mirror that no longer exists in the tree; the priority
+  chain listed 8 steps where the code has 10 (scavenge and explore were missing); and the module
+  roster claimed 17 modules while listing 16, against 24 actually shipped.
+
+  The roster is now a checked claim rather than prose: `tests/test_readme_truth.py` reads the
+  count in the heading and every module named beneath it, globs `42/media/lua/client/*.lua`, and
+  fails the build if they disagree in either direction — the same treatment `CHANGELOG.md`,
+  `ROADMAP.md` and the version string already have. Extracting or deleting a module now has to
+  edit the README in the same commit.
+
 ### Added
 
 - **Death learning now covers the two deaths it was quietly ignoring: getting bitten, and being

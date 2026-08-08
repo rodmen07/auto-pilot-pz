@@ -10,8 +10,9 @@
 -- strings only; the data layer owns the logic and the tests).  V4.3 adds
 -- the training-program day line ("today: STR day (program: ...)"), also
 -- pre-formatted, by AutoPilot_Leveler.getProgramStatus.  V5.3 puts the
--- loaded mod version in the window title ("AutoPilot Leveler  v5.1"), which
--- is the only in-game answer to "which build is this server running".
+-- loaded mod version in the window title ("AutoPilot Leveler  v" ..
+-- AutoPilot_Constants.VERSION), which is the only in-game answer to "which
+-- build is this server running".
 --
 -- Built on vanilla ISUI widgets (ISCollapsableWindow + ISButton), standard
 -- :new -> :initialise -> :addToUIManager pattern.  Configures the LOCAL
@@ -93,7 +94,9 @@ end
 -- ── Rendering ────────────────────────────────────────────────────────────────
 
 --- V5.3: panel title carrying the version of the code that is ACTUALLY
---- loaded, e.g. "AutoPilot Leveler  v5.1".
+--- loaded -- "AutoPilot Leveler  v" followed by AutoPilot_Constants.VERSION.
+--- No example version is spelled out here on purpose: the two comments that
+--- did carry one still read "v5.1" long after the scheme reset to 0.1.0.
 ---
 --- Pure string formatting, deliberately factored out of :new so it can be
 --- unit-tested: no suite instantiates the panel (it needs the live ISUI
