@@ -4,6 +4,29 @@ All notable changes to AutoPilot are documented here.
 
 ## [Unreleased]
 
+### Added
+
+- **Death learning now covers the two deaths it was quietly ignoring: getting bitten, and being
+  killed by a group too small to count as a horde.** After you die, AutoPilot reads its death log
+  and nudges a few tuning numbers so it stops repeating whatever killed you — eat sooner after a
+  starvation, carry more water after a dehydration, look further after a horde. It sorts each death
+  into one of eight causes, but only five of them had a rule attached. The three that did not
+  taught it nothing at all: dying of infection after a bite, dying among a handful of zombies too
+  few to count as a horde, and dying of something it could not identify.
+
+  The first two are the deaths it most needs to learn from, because AutoPilot cannot fight — the
+  game gives a mod no way to swing a weapon, so its only defence is to notice a zombie early and
+  walk the other way. Both of those deaths mean one got close enough to touch you, which means it
+  was noticed too late. Each now widens the detection radius by 2 tiles per recorded death, up to
+  30, so the mod starts backing off sooner. Like every death-learning nudge it can only move the
+  number in the helpful direction: if you have already set a wider radius on the options screen,
+  nothing changes.
+
+  The third cause, `unknown`, stays deliberately inert — there is nothing to learn from a death
+  with no identifiable cause, and a rule there would tune the mod on noise. That is now recorded in
+  the code as a decision instead of looking like an oversight, and a new test suite fails if any
+  future death cause is added without either a rule or a written reason it has none.
+
 ## [0.2.1] - 2026-08-08
 
 Six fixes, four of them in the path the last in-game report complained about: getting away
