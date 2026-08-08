@@ -1,33 +1,20 @@
 # AutoPilot Leveler for Project Zomboid Build 42
 
-> # ⚠️ DEPRECATED — NO LONGER MAINTAINED
->
-> **This project was decommissioned on 2026-07-21 and is no longer developed, supported, or
-> published.** The Steam Workshop item has been delisted. No further releases, bug fixes, or
-> compatibility updates will be made — including for future Project Zomboid builds.
->
-> **Why:** not a technical failure. At decommission the mod was healthy — V5.8, 21 Lua modules,
-> 14 test suites, 1107 assertions passing, luacheck clean, CI green. What it never settled was a
-> differentiated *purpose*. It went through three identities in quick succession (broad
-> auto-survival → auto-exercise leveler → back toward autonomous survival), and the final pivot
-> was prompted by the realisation that the auto-trainer niche it occupied is already well served
-> by existing mods. Rather than rebuild it a third time into a crowded category, the owner chose
-> to stop.
->
-> **State at decommission:** fully working on Build 42.19.0 Unstable. Nothing is half-finished or
-> broken. If you want to run or fork it, the last release (V5.8) is functional — see
-> `CHANGELOG.md` for the complete shipped record and `docs/architecture.md` for the module map.
->
-> **If you are a former Workshop subscriber:** your locally-installed copy will keep working for
-> as long as it stays compatible with your game build. It will not receive updates.
->
-> Everything below this notice describes the mod as it was, and is preserved unedited as a
-> historical record.
-
 Auto-exercise leveler with a survival fail-safe. Reach a stable spot, press
 F10, and your character grinds Strength/Fitness while you step away.
 
-Status: V3.3 — Build 42.19.0 Unstable. Steam Workshop ID 3767254910.
+Status: ACTIVE — Build 42.19.0 Unstable. Steam Workshop ID 3767254910.
+
+> **Note on this file's history:** between 2026-07-21 and 2026-08-08 this README opened with a
+> banner headed *"⚠️ DEPRECATED — NO LONGER MAINTAINED"*, stating that the project *"was
+> decommissioned on 2026-07-21 and is no longer developed, supported, or published"*, that the
+> Workshop item had been delisted, and that *"no further releases, bug fixes, or compatibility
+> updates will be made."* **Every clause of that is false.** The decommission was reversed on
+> 2026-07-24, four days after it was written, and development has been continuous since: `v0.2.0`
+> was released 2026-08-05 and `v0.2.1` on 2026-08-08. The banner is removed rather than quoted
+> in full because, unlike `ROADMAP.md` and the backlogs, this file is read by people deciding
+> whether to install the mod, and a superseded warning left in place still warns. The full
+> original text is preserved in this file's git history and in the pull request that removed it.
 
 See WORKSHOP.md for the Workshop description, MULTIPLAYER.md for server
 setup, and TESTING.md for the pre-release checklist.
@@ -47,8 +34,8 @@ This guide is for a technical user who wants to:
   and rest
 - Metrics: F11 panel with level, XP-to-next, session gain, XP/hour, ETA,
   live trainer status, and sets-per-day counter; the panel title reports the
-  loaded mod version (V5.3), so a stale Workshop copy on a server is visible
-  at a glance
+  version of the code that is actually loaded, so a stale Workshop copy on a
+  server is visible at a glance
 - Survival fail-safe: hunger, thirst, sleep, wounds, temperature; and a
   FLEE-ONLY threat response when zombies actually engage (chasing/visible/close).
   The mod does NOT fight: Build 42 gives an AI-driven character no way to swing a
@@ -129,28 +116,40 @@ python -m pytest tests/test_game_logs.py -v
 ## Project Layout (What To Edit)
 
 - `42/media/lua/client/` — **active Build 42 source of truth** (edit only this tree)
-- `media/lua/client/` — **deprecated legacy mirror** (do not edit; kept as reference only)
 - `tests/` — Lua and Python tests
 - `check.sh` — lint + API guard + Lua tests + pytest
 - `deploy.sh` — copy `42/` into live PZ mod folder
 - `sync_after_merge.bat` — fetch/ff and optional deploy on Windows
 
-## Core Runtime Modules (17 under 42/media/lua/client/)
+## Core Runtime Modules (24 under `42/media/lua/client/`)
+
+This roster is a guarded claim, not prose: `tests/test_readme_truth.py` reads the count above
+and every module named below, globs `42/media/lua/client/*.lua`, and fails the build if the two
+disagree in either direction. Extracting or deleting a module means editing this section in the
+same commit.
 
 Leveler:
 - AutoPilot_Main.lua: orchestrator for the local player (eval loop, F10 arm/disarm, HUD/status)
 - AutoPilot_Leveler.lua: training focus selection (Auto/Strength/Fitness) with ModData persistence
+- AutoPilot_Exercise.lua: the trainer — exercise selection, XP-productivity fatigue tracking, manual-cancel backoff, daily set counter
 - AutoPilot_XP.lua: XP metrics engine (session gain, XP/hour, ETA to next level)
 - AutoPilot_UI.lua: F11 leveler panel (focus, live metrics, trainer status, arm/disarm button)
 - AutoPilot_Options.lua: PZAPI.ModOptions sliders and rebindable keys
+- AutoPilot_SessionHistory.lua: session history data layer behind the panel's history block
 
 Survival fail-safe:
-- AutoPilot_Needs.lua: priority state machine for survival needs and exercise
+- AutoPilot_Needs.lua: priority state machine for survival needs and idle behaviour
 - AutoPilot_Threat.lua: zombie detection and flee-only threat response
-- AutoPilot_Inventory.lua: food/drink/loot/equipment helpers
+- AutoPilot_Consumption.lua: eat and drink behaviour
+- AutoPilot_Sleep.lua: sleep behaviour and bed-finding
+- AutoPilot_Rest.lua: rest-in-place (furniture or ground, never sleep) and seating classification
 - AutoPilot_Medical.lua: wound detection and treatment
+- AutoPilot_Mood.lua: boredom and unhappiness relief (read, media, go outside)
+- AutoPilot_Media.lua: boredom and unhappiness relief from a switched-on television or radio
+- AutoPilot_Comfort.lua: physical-comfort upkeep — drying off with a towel (the Wet moodle)
+- AutoPilot_Inventory.lua: food/drink/loot/equipment helpers
 - AutoPilot_Home.lua: home anchor persistence and bounds logic
-- AutoPilot_Map.lua: depleted-square tracking
+- AutoPilot_Map.lua: visited-building and depleted-container tracking
 
 Learning and infrastructure:
 - AutoPilot_DeathLog.lua: death context snapshots plus a recent-decision ring buffer
@@ -161,14 +160,19 @@ Learning and infrastructure:
 
 ## Priority Model (High to Low)
 
-1. Bleeding
-2. Thirst
-3. Hunger
-4. Non-bleeding wounds
-5. Exhaustion/rest
-6. Sleep
-7. Boredom
-8. Exercise
+The chain `AutoPilot_Needs.check()` walks, highest first (its own header comment is the
+authoritative copy):
+
+1. Bleeding — bandage immediately
+2. Thirst — drink from a tap or sink, then inventory, then loot
+3. Hunger — eat
+4. Wounds — treat non-bleeding wounds (scratches, bites)
+5. Tired — sleep (recovers both fatigue and endurance)
+6. Exhausted — rest in place (endurance critically low, but not sleepy)
+7. Scavenge — proactive supply top-up before stats drop
+8. Explore — frontier scouting and supply runs
+9. Bored or sad — read literature, then a tv/radio, then go outside
+10. Idle — exercise (strength/fitness alternating by level)
 
 ## Technical Constraints (Important)
 
@@ -182,7 +186,9 @@ So AutoPilot is fully local and rule-based by design.
 ## Versioning and Release Notes
 
 - Current modversion: 0.2.1 (root mod.info and 42/mod.info, which must always match)
-- Major release label style: V5.8
+- Release tags are semver `vX.Y.Z`. The pre-2026-07-25 scheme labelled releases `V5.8`-style;
+  it was reset to `0.1.0` by owner decision and those old labels survive only in `CHANGELOG.md`
+  and `ROADMAP.md` as history.
 - Workshop publish assets/checklist live in WORKSHOP.md and TESTING.md
 
 The version is stated in four places and `tests/test_version_sync.py` fails
@@ -201,9 +207,14 @@ API for reading its own mod metadata.
 
 To check which build is actually loaded in a game (including on a server,
 where the client runs the Steam-downloaded Workshop copy rather than your
-source tree), press F11: the panel title reads `AutoPilot Leveler  v5.1`.
-Compare it against the version stated in the Workshop description. They
-diverging is exactly the cache mismatch this reporting exists to expose.
+source tree), press F11: the panel title reads `AutoPilot Leveler  v` followed
+by the "Current modversion" above — that string comes from
+`AutoPilot_Constants.VERSION`, which is the version compiled into the code the
+game actually loaded. Compare it against the version stated in the Workshop
+description. They diverging is exactly the cache mismatch this reporting
+exists to expose. (No literal version number is repeated here on purpose: this
+paragraph carried a stale `v5.1` for months, and one guarded home for the
+version is the point of the checklist above.)
 
 ## Telemetry
 
