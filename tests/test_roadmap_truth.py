@@ -14,11 +14,12 @@ no way to disagree out loud.  This module is that way.
 
 WHAT IS GUARDED, AND WHAT IS DELIBERATELY NOT
 ---------------------------------------------
-Guarded (three claims, each low-churn and single-valued):
+Guarded (four claims, each low-churn and single-valued):
 
   1. the ``modversion`` string, against ``mod.info`` and ``42/mod.info``
   2. the "latest tag" claim, against the repository's own tags
   3. the client Lua module count, against ``42/media/lua/client/*.lua``
+  4. the Lua TEST-SUITE count, against ``tests/test_*.lua`` (added 2026-08-08)
 
 Claim 2 is NOT a plain equality: see :func:`classify_tag_claim`.  It was one
 for about five hours on 2026-08-08, and the first release cut that followed
@@ -28,14 +29,33 @@ at, so there is unavoidably a window where the claim is ahead of reality.  The
 guard now allows exactly that window and nothing else, and the exemption is
 forward-only so it cannot be entered by moving backwards.
 
-Deliberately NOT guarded: **line counts, suite and assertion totals, and
-commit share.**  Those change on almost every pull request, so a guard over
-them would redden unrelated work daily and be disabled or ``# noqa``'d within a
-week, which is strictly worse than no guard — a disabled guard still reads as
+Deliberately NOT guarded: **line counts, the assertion total, and commit
+share.**  Those change on almost every pull request, so a guard over them would
+redden unrelated work daily and be disabled or ``# noqa``'d within a week,
+which is strictly worse than no guard — a disabled guard still reads as
 coverage.  They stay the job of the periodic product truth audit, which
 re-measures them live.  The line drawn here is: *guard what changes on a
 deliberate, dated decision (a release, a module added or deleted); audit what
 changes as a side effect of ordinary work.*
+
+THE SUITE COUNT MOVED ACROSS THAT LINE ON 2026-08-08, and the superseded
+wording of this paragraph is quoted here because the change is a NARROWING of
+the exclusion, not a reversal of its reasoning: *"Deliberately NOT guarded:
+line counts, suite and assertion totals, and commit share."*  Claim 4 is the
+suite count only; the assertion total stays out, and the two were separated on
+measured evidence rather than taste.  Over the ten commits merged after PR #127
+(``6377aa4..fbb0170``), every one of the four that changed the suite count
+corrected ``ROADMAP.md`` in the SAME commit — #130 (39→40), #132 (40→41),
+#133 (41→42), #137 (42→43) — while the one commit that moved the assertion
+total without adding a file, #129, did not.  The asymmetry is structural and
+not a discipline gap: a pull request that adds ``tests/test_foo.lua`` can SEE
+that it changed the suite count, and a pull request that adds three assertions
+to an existing suite cannot see that it moved a sum over all 43 suites without
+re-measuring the whole tree.  A guard on the first reddens only the author who
+is already responsible; a guard on the second would redden authors who had no
+way to know, which is exactly the failure mode this paragraph was written to
+avoid.  The decision, its table and its counterexample live under *"Figure
+maintenance"* in ``ROADMAP.md``'s "Current state" section.
 
 WHY THE ANCHORS ARE STRICT
 --------------------------
@@ -68,6 +88,7 @@ ROADMAP = ROOT / "ROADMAP.md"
 MOD_INFO_ROOT = ROOT / "mod.info"
 MOD_INFO_42 = ROOT / "42" / "mod.info"
 CLIENT_LUA_DIR = ROOT / "42" / "media" / "lua" / "client"
+LUA_TEST_DIR = ROOT / "tests"
 
 # ---------------------------------------------------------------------------
 # The anchors.  Each is deliberately narrow enough that the tombstoned copies
@@ -78,6 +99,20 @@ CLIENT_LUA_DIR = ROOT / "42" / "media" / "lua" / "client"
 ANCHOR_MODVERSION = r"modversion is \*\*`([^`]+)`\*\*"
 ANCHOR_LATEST_TAG = r"the latest tag is \*\*`([^`]+)`\*\*"
 ANCHOR_MODULE_COUNT = r"(?m)^- (\d+) Lua modules under `42/media/lua/client/`"
+
+# The suite-count claim sits mid-line inside the same bullet as the module
+# count, so it cannot be line-anchored the way ANCHOR_MODULE_COUNT is.  What
+# separates the live claim from its five tombstoned predecessors -- all of them
+# on that one 10 kB line, all bolded identically -- is the quoting convention
+# this repository uses for superseded prose: a tombstone is wrapped in `*"` ...
+# `"*`, and the live claim is not.  The negative lookbehind is therefore a
+# structural read of the tombstone marker, not a guess about wording, and the
+# exactly-once rule in extract_claim() is what catches the day it stops being
+# true: a sixth tombstone written with different quoting makes this AMBIGUOUS
+# and hard-fails, rather than silently binding the guard to a dead figure.
+# TestTombstonedProseDoesNotFoolTheGuard pins all five real tombstones as a
+# committed control so this cannot rot into a comment.
+ANCHOR_SUITE_COUNT = r"(?<!\*\")\*\*(\d+) Lua test suites, \d+ assertions, 0 failures\*\*"
 
 FIX_HINT = (
     "ROADMAP.md and the repository disagree.  Fix the ROADMAP claim (it is the\n"
@@ -142,6 +177,18 @@ def client_module_paths() -> list[Path]:
     glob with a zero-match hard failure announces itself instead.
     """
     return sorted(CLIENT_LUA_DIR.glob("*.lua"))
+
+
+def lua_suite_paths() -> list[Path]:
+    """Glob-discovered Lua test suites -- the same rule as the module glob.
+
+    One file is one suite: this is exactly what ``check.sh`` runs and what the
+    roadmap's "N Lua test suites" figure counts.  Discovery is a glob with a
+    zero-match hard failure at the call site, never a hand list, so a suite
+    added by a future split is counted the moment it lands rather than the day
+    somebody remembers to extend an array.
+    """
+    return sorted(LUA_TEST_DIR.glob("test_*.lua"))
 
 
 def newest_tag() -> str | None:
@@ -398,6 +445,34 @@ class TestRoadmapClaimsMatchReality(unittest.TestCase):
             + FIX_HINT,
         )
 
+    def test_suite_count_claim_matches_the_lua_test_glob(self) -> None:
+        """Claim 4, added 2026-08-08 by the figure-maintenance decision.
+
+        The suite count is glob-derived, so the pull request that moves it can
+        see that it moved it -- which is why this is guarded and the assertion
+        total stated in the same sentence is not.  See the module docstring.
+        """
+        suites = lua_suite_paths()
+        # Zero-match hard failure, same rule as the module glob: a guard that
+        # "passes" because it found no suites at all is measuring nothing.
+        self.assertGreater(
+            len(suites),
+            0,
+            f"no test_*.lua files found under {LUA_TEST_DIR}.  Discovery is\n"
+            "glob-driven; zero matches means the test tree moved and this guard\n"
+            "is measuring nothing.",
+        )
+        claimed = extract_claim(roadmap_text(), ANCHOR_SUITE_COUNT, "suite count")
+        self.assertEqual(
+            int(claimed),
+            len(suites),
+            f"ROADMAP.md claims {claimed} Lua test suites, the tests/test_*.lua "
+            f"glob finds {len(suites)}:\n  "
+            + "\n  ".join(p.name for p in suites)
+            + "\n"
+            + FIX_HINT,
+        )
+
 
 # ---------------------------------------------------------------------------
 # Committed controls.  A check never observed failing is not trusted, so every
@@ -407,7 +482,21 @@ class TestRoadmapClaimsMatchReality(unittest.TestCase):
 # gate did (see tests/test_release_gate.py).
 # ---------------------------------------------------------------------------
 
-# A minimal stand-in for ROADMAP.md that carries the three live claims AND the
+# The five superseded suite-count figures, quoted VERBATIM out of the real
+# ROADMAP.md, wrapping marker included.  These are the exact strings the live
+# anchor must refuse: they are bolded identically to the live claim, they sit
+# on the same physical line, and a loose regex matches all six.  Pinned as data
+# rather than described in a comment so a widened anchor fails a test instead of
+# passing a review.
+SUPERSEDED_SUITE_FIGURES = (
+    '*"**42 Lua test suites, 1913 assertions, 0 failures**"*',
+    '*"**41 Lua test suites, 1813 assertions, 0 failures**"*',
+    '*"**40 Lua test suites, 1785 assertions, 0 failures**"*',
+    '*"**39 Lua test suites, 1777 assertions, 0 failures**"*',
+    '*"**37 Lua test suites, 1777 assertions, 0 failures**',
+)
+
+# A minimal stand-in for ROADMAP.md that carries the four live claims AND the
 # tombstoned prose quoted verbatim out of the real file, because the tombstones
 # are what a naive scanner trips on.
 SYNTHETIC_ROADMAP = """\
@@ -420,7 +509,13 @@ SYNTHETIC_ROADMAP = """\
 2026-07-25, PR #73; bumped to `0.2.0` by PR #111).
 
 - 24 Lua modules under `42/media/lua/client/` (`AutoPilot_Comfort.lua` added
-  2026-07-26 for towel drying)
+  2026-07-26 for towel drying); **43 Lua test suites, 2000 assertions, 0 failures**
+  (both figures re-measured live 2026-08-08; superseded wording, quoted where it
+  stood: *"**42 Lua test suites, 1913 assertions, 0 failures**"*.  The earlier
+  note is kept for the record: *"**41 Lua test suites, 1813 assertions, 0 failures**"*,
+  and before that *"**40 Lua test suites, 1785 assertions, 0 failures**"*, and
+  *"**39 Lua test suites, 1777 assertions, 0 failures**"*, and
+  *"**37 Lua test suites, 1777 assertions, 0 failures** (re-measured live 2026-08-07)"*.)
 
 the user chose a fresh design against the then-current 21-module architecture
 
@@ -456,6 +551,12 @@ class TestTombstonedProseDoesNotFoolTheGuard(unittest.TestCase):
             "the anchor matched the historical '21 modules' / '21-module' prose "
             "instead of the live claim",
         )
+        self.assertEqual(
+            extract_claim(SYNTHETIC_ROADMAP, ANCHOR_SUITE_COUNT, "suite count"),
+            "43",
+            "the anchor matched one of the five tombstoned suite-count figures "
+            "(42/41/40/39/37) instead of the live claim",
+        )
 
     def test_the_tombstones_really_are_present_in_the_control(self) -> None:
         # Without this the control could pass by containing no tombstones at
@@ -464,6 +565,17 @@ class TestTombstonedProseDoesNotFoolTheGuard(unittest.TestCase):
         self.assertIn("git release tags stopped at v1.2.1", SYNTHETIC_ROADMAP)
         self.assertIn("21 modules", SYNTHETIC_ROADMAP)
         self.assertIn("21-module architecture", SYNTHETIC_ROADMAP)
+        for superseded in SUPERSEDED_SUITE_FIGURES:
+            self.assertIn(superseded, SYNTHETIC_ROADMAP)
+        # ...and the loose form a naive scanner would use really does match all
+        # six, so "the narrow anchor found one" is a fact about the anchor
+        # rather than a fact about the input.
+        self.assertEqual(
+            len(re.findall(r"(\d+) Lua test suites", SYNTHETIC_ROADMAP)),
+            6,
+            "the control is meant to carry one live suite-count claim plus five "
+            "tombstones; if it does not, the anchor test above proves nothing",
+        )
 
     def test_the_real_roadmap_still_carries_those_tombstones(self) -> None:
         # Ties the control to reality: if the real file stops keeping
@@ -471,6 +583,15 @@ class TestTombstonedProseDoesNotFoolTheGuard(unittest.TestCase):
         text = roadmap_text()
         self.assertIn("the last tag is v1.2.1", text)
         self.assertIn("21 modules", text)
+        for superseded in SUPERSEDED_SUITE_FIGURES:
+            self.assertIn(
+                superseded,
+                text,
+                "the real ROADMAP.md no longer carries this tombstoned "
+                "suite-count figure, so the control above has stopped modelling "
+                "it.  Update SUPERSEDED_SUITE_FIGURES in the same commit that "
+                "removed it, rather than deleting this assertion.",
+            )
 
 
 class TestEachCheckFiresOnDoctoredInput(unittest.TestCase):
@@ -513,6 +634,55 @@ class TestEachCheckFiresOnDoctoredInput(unittest.TestCase):
             23,
             len(client_module_paths()),
             "23 was chosen as a wrong count; it is no longer wrong",
+        )
+
+    def test_stale_suite_count_is_caught(self) -> None:
+        """Claim 4 fires on a wrong number -- the ON half of the decision."""
+        live = len(lua_suite_paths())
+        stale = SYNTHETIC_ROADMAP.replace(
+            "**43 Lua test suites,", f"**{live + 1} Lua test suites,"
+        )
+        self.assertNotEqual(stale, SYNTHETIC_ROADMAP, "the perturbation did nothing")
+        self.assertEqual(
+            int(extract_claim(stale, ANCHOR_SUITE_COUNT, "suite count")), live + 1
+        )
+        self.assertNotEqual(
+            live + 1,
+            live,
+            "the doctored count must differ from the glob, or this proves nothing",
+        )
+
+    def test_an_assertion_total_change_does_not_redden_this_guard(self) -> None:
+        """Claim 4 stays silent when the UNGUARDED figure moves.
+
+        This is the 2026-08-08 figure-maintenance decision expressed as a
+        behaviour difference rather than as prose, and it runs against the REAL
+        ``ROADMAP.md`` rather than the synthetic one, because the boundary only
+        means something on the document people actually edit: a pull request
+        that adds assertions to an existing suite must not go red here, and a
+        pull request that adds a suite file must.  If this test ever has to be
+        deleted to make a build pass, the decision has been reversed and the
+        docstring above it is the thing to correct.
+        """
+        text = roadmap_text()
+        suites = extract_claim(text, ANCHOR_SUITE_COUNT, "suite count")
+        live = re.search(
+            r"(?<!\*\")\*\*" + suites + r" Lua test suites, (\d+) assertions, 0 failures\*\*",
+            text,
+        )
+        self.assertIsNotNone(live, "the live suite/assertion sentence moved")
+        assert live is not None  # narrowing, for the type checker
+        moved_total = str(int(live.group(1)) + 7)
+        moved = text[: live.start(1)] + moved_total + text[live.end(1) :]
+        self.assertNotEqual(moved, text, "the perturbation did nothing")
+        self.assertEqual(
+            int(extract_claim(moved, ANCHOR_SUITE_COUNT, "suite count")),
+            len(lua_suite_paths()),
+            "moving the assertion total reddened the suite-count guard.  Those\n"
+            "two figures share a sentence but not an owner: the suite count is\n"
+            "guarded because a pull request can see it change, the assertion\n"
+            "total is not because it cannot.  See 'Figure maintenance' in\n"
+            "ROADMAP.md.",
         )
 
 
