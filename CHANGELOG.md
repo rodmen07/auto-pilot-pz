@@ -6,6 +6,31 @@ All notable changes to AutoPilot are documented here.
 
 ### Fixed
 
+- **Death learning could undo your own settings, and then tell you it had improved them.** After you
+  die, AutoPilot reads its death log and nudges a few tuning numbers so it stops repeating whatever
+  killed you: eat sooner after a starvation, carry more water after a dehydration, look further after
+  a horde. Each nudge has a safety bound so the mod can never tune itself into nonsense. Those bounds
+  were written against the *shipped* numbers, but they were applied on top of *yours* — your options
+  are loaded first and the death-learning deltas go on top. So if you had already set something past
+  a bound, the "adjustment" dragged it back the wrong way:
+
+  - hunger trigger set to 5% → one starvation death **raised** it to 10% (it ate *later*);
+  - thirst trigger set to 5% → one dehydration death **raised** it to 10%;
+  - food stockpile set to 8 → one starvation death **cut** it to 6;
+  - drink stockpile set to 8 → one dehydration death **cut** it to 5;
+  - detection radius set to 40 → two horde deaths **shrank** it to 30 (it saw *less* far).
+
+  Every one of those is reachable from the shipped options screen, and each was recorded in the F11
+  panel as an applied improvement. A bound may now only ever *stop* an adjustment, never reverse it:
+  an adjustment can never move a value backwards past where it started. If you are inside the bounds
+  — which is everyone on defaults — nothing changes at all.
+
+  New suite `tests/test_adaptive_bounds.lua` (100 assertions) registers the real options page against
+  a recording mock, reads each slider's own range back out of it, and drives every death-learning
+  rule across that range, so a new rule or a widened slider is covered without anyone remembering to
+  add a case. It is also the first coverage the death-log aggregator has had for its 25-death window
+  and its away-from-home bucket.
+
 - **Four "don't do that again so soon" timers were too short to ever do anything.** AutoPilot spaces
   out repeated actions by parking a deadline on the *in-game* calendar — the same clock that runs
   about twenty-four times faster than real time at the default one-hour day length. Four of those
