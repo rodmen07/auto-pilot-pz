@@ -982,9 +982,12 @@ do
 end
 
 -- ── FF-1: evaluation cadence scales with game speed (2026-07-24) ─────────────
--- Fast-forward is a GAME-TIME multiplier (getGameTime():setMultiplier(5/20/40)),
+-- Fast-forward is a GAME-TIME multiplier (getGameTime():setMultiplier(m), where
+-- m is an arbitrary positive integer -- up to 100 in the run log, NOT one of
+-- 5/20/40 as this comment claimed until 2026-08-08; see the cadence-fidelity
+-- tests at the end of this file for the measurement),
 -- NOT extra ticks; OnTick keeps firing at ~20/s real.  A flat +1 per frame made
--- decisions every ~15 frames of REAL time = 5-40x fewer per game-minute under
+-- decisions every ~15 frames of REAL time = m-times fewer per game-minute under
 -- fast-forward (the character went unmonitored across long game windows).  onTick
 -- now advances the counter by getGameTime():getMultiplier(), so the SAME 3 frames
 -- reach the eval gate at 5x that would take 15 at 1x.  Behavior-difference proof.
@@ -1049,6 +1052,77 @@ do
     assert_true("a nil multiplier is clamped to 1 so the mod still evaluates (no error, no freeze)",
         #_telemLog > 0)
     MockGameSpeed.set(1)  -- restore normal speed for any later tests
+end
+
+-- ── Cadence fidelity across the multipliers the game ACTUALLY uses (2026-08-08)
+-- The two FF-1 tests above check 1x and 5x only, and 15 (TICK_INTERVAL) divides
+-- both, so the counter always landed exactly on the gate and the `= 0` reset
+-- discarded nothing.  That is precisely why the discard survived: it is
+-- invisible at every speed the suite exercised.
+--
+-- The multiplier is NOT one of 5/20/40.  auto_pilot_run.log's own `speed` field
+-- over one 11.7k-tick capture records 1, 4, 9, 10, 11, 12, 13, 14, 15, 16, 17,
+-- 18, 20, 23, 30, 31, 32, 33, 80 and 100 -- most of them non-divisors, and 54%
+-- of the ticks above TICK_INTERVAL.  Behaviour-difference proof (L-001) for the
+-- carry and for its bound; each case names what the pre-fix code returned.
+local function evalsOverFrames(speed, frames)
+    reset()
+    _mockPlayers[0] = makePlayer(0)
+    arm()
+    MockGameSpeed.set(speed)
+    AutoPilot.tickCounter = 0
+    _telemLog = {}
+    for _ = 1, frames do
+        MockRealTime.advance(16); fireEvent("OnTick")
+    end
+    return #_telemLog
+end
+
+print("\n-- Test: the cadence carries its remainder (real multipliers, not just 1x/5x)")
+do
+    -- x11 (in the run log): 11 does not divide 15, so the pre-fix counter had to
+    -- reach 22 before firing and threw the surplus 7 away every time -- one
+    -- evaluation per 2 frames (15 in 30).  Carrying the remainder restores the
+    -- designed rate of interval-per-evaluation: 30 frames x 11 / 15 = 22.
+    assert_eq("x11: 30 frames yield 22 evaluations (pre-fix: 15, a 47% under-sample)",
+        evalsOverFrames(11, 30), 22)
+
+    -- The exact divisors must be untouched, or the fix changed 1x behaviour.
+    assert_eq("x1 unchanged: 30 frames yield 2 evaluations",
+        evalsOverFrames(1, 30), 2)
+    assert_eq("x5 unchanged: 30 frames yield 10 evaluations",
+        evalsOverFrames(5, 30), 10)
+
+    MockGameSpeed.set(1)
+end
+
+print("\n-- Test: an unpayable fast-forward debt is bounded, so 1x cannot burst")
+do
+    -- Above TICK_INTERVAL the cadence SATURATES: OnTick fires once per frame, so
+    -- x100 cannot be kept up with and the mod samples every 100 units of game
+    -- time instead of every 15.  That ceiling is an engine limit, but the debt it
+    -- generates must not be banked -- an uncapped carry would repay it at one
+    -- evaluation per frame for ~113 frames after the player drops back to 1x.
+    reset()
+    _mockPlayers[0] = makePlayer(0)
+    arm()
+    MockGameSpeed.set(100)
+    AutoPilot.tickCounter = 0
+    _telemLog = {}
+    for _ = 1, 20 do MockRealTime.advance(16); fireEvent("OnTick") end
+    assert_eq("x100 saturates at one evaluation per frame (the engine ceiling)",
+        #_telemLog, 20)
+
+    MockGameSpeed.set(1)
+    _telemLog = {}
+    for _ = 1, 14 do MockRealTime.advance(16); fireEvent("OnTick") end
+    -- 1 = the single interval of carry the cap allows.  Uncapped carry gives 14
+    -- (one per frame); the pre-fix `= 0` reset gives 0.  This assertion is the
+    -- only one in the suite that separates all three.
+    assert_eq("dropping to 1x spends exactly one carried interval, then normal cadence",
+        #_telemLog, 1)
+
+    MockGameSpeed.set(1)
 end
 
 -- ── Summary ───────────────────────────────────────────────────────────────────
