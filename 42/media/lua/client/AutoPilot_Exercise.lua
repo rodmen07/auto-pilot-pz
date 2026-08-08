@@ -457,7 +457,7 @@ function AutoPilot_Exercise.doExercise(player, focus)
                 endurance * 100, inRun and "floor" or "resume",
                 endGate * 100,
                 inRun and "ending the training run" or "still recovering"))
-            exerciseWaitLogMs = ms + 30000
+            exerciseWaitLogMs = ms + AutoPilot_Constants.EXERCISE_WAIT_LOG_MS
         end
         -- Whether the run just ended on the floor or never started, the next
         -- attempt has to clear the RESUME gate: that is the hysteresis.

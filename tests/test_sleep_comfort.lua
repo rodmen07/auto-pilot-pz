@@ -110,10 +110,17 @@ local function sleepyPlayer()
     })
 end
 
--- doSleep keeps a 15s cooldown between attempts; step past it and clear the
--- recorded queue so each case observes only its own decision.
+-- doSleep debounces re-queues on the GAME calendar; step past that deadline
+-- and clear the recorded queue so each case observes only its own decision.
+-- 2026-08-08: this advance was a flat 60000 chosen to clear a hard-coded
+-- `ms + 15000`.  That 15 GAME seconds was SHORTER than one evaluation cycle
+-- (~18000 game ms at the default day length), i.e. the guard had always
+-- expired before doSleep next ran and could never gate anything.  The deadline
+-- is now AutoPilot_Constants.SLEEP_RETRY_COOLDOWN_MS and this helper is
+-- derived from it rather than from a literal, so the fixture cannot silently
+-- fall back under the deadline the next time the constant moves.
 local function reset()
-    MockTime.advance(60000)
+    MockTime.advance(AutoPilot_Constants.SLEEP_RETRY_COOLDOWN_MS + 1)
     ISTimedActionQueue_calls = {}
     -- The bed is chosen only when the character can reach it; asserting on the
     -- CHOICE means taking the adjacent branch, which passes the bed straight to

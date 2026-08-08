@@ -15,6 +15,14 @@ AutoPilot_Consumption = {}
 
 -- Phase 3: consecutive loot cycles with no food/drink found (triggers supply run)
 local _emptyLootCycles = 0
+
+-- Re-drink debounce, a deadline on the GAME CALENDAR clock (see the doDrink
+-- read below).  2026-08-08: the two literals that wrote it (8000 and 5000)
+-- were 8 and 5 GAME seconds, both shorter than one evaluation cycle (~18 game
+-- seconds at the default day length), so the guard had already expired every
+-- time doDrink next ran and could never return false.  Sized from
+-- AutoPilot_Constants.DRINK_COOLDOWN_MS now; the floor is enforced by
+-- tests/test_game_clock_debounce.lua.
 local drinkCooldownMs = 0
 
 -- Helper: handle empty loot cycle tracking and supply run triggering.
@@ -100,7 +108,7 @@ function AutoPilot_Consumption.doDrink(player)
         AutoPilot_Inventory.refillWaterContainer(player, waterObj)
         local drank = AutoPilot_Inventory.drinkFromSource(player, waterObj)
         if drank then
-            drinkCooldownMs = ms + 8000
+            drinkCooldownMs = ms + AutoPilot_Constants.DRINK_COOLDOWN_MS
         end
         return drank
     end
@@ -118,7 +126,7 @@ function AutoPilot_Consumption.doDrink(player)
             return false
         end
         AutoPilot_Utils.queueModAction(ISEatFoodAction:new(player, drink, 1))
-        drinkCooldownMs = ms + 5000
+        drinkCooldownMs = ms + AutoPilot_Constants.DRINK_COOLDOWN_MS
         return true
     end
 

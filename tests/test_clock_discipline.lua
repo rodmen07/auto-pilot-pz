@@ -33,6 +33,12 @@
 --   * V5.4 (fixed in AutoPilot_Rest): the rest hold was `ms + 60000` against
 --     the GAME calendar -- sixty in-game seconds, ~2.5 real seconds -- so the
 --     character stood back up having recovered nothing.
+--   * The same shape in Consumption and Sleep (fixed 2026-08-08): four more
+--     deadlines shorter than one evaluation cycle, two of which this table
+--     carried as PROSE (see the entries below) and one of which nothing named
+--     at all.  This suite classifies CLOCK CALLS; the DURATIONS added to them
+--     are the other half of the class and are enforced separately by
+--     tests/test_game_clock_debounce.lua.
 --
 -- The 2026-07-24 fast-forward investigation confirmed FF-1..4 but its broad
 -- clock-mix sweep errored out, leaving a recorded GAP ("timing issues beyond
@@ -152,9 +158,11 @@ end
 -- the record, the ## Bugs section holds the open items) are cited inline.
 local CLASSIFICATION = {
     ["AutoPilot_Consumption.lua"] = {
-        GAME_CAL_MS = "drinkCooldownMs re-queue guard; game-time by design "
-            .. "(sweep finding: 8000/5000 game-ms expire faster than one "
-            .. "decision cycle at default day length -- filed LOW)",
+        GAME_CAL_MS = "drinkCooldownMs re-queue guard; game-time by design. "
+            .. "The sweep's finding (8000/5000 game-ms expire faster than one "
+            .. "decision cycle at default day length) was FIXED 2026-08-08 -- "
+            .. "the deadline is AutoPilot_Constants.DRINK_COOLDOWN_MS and the "
+            .. "floor is enforced by tests/test_game_clock_debounce.lua",
     },
     ["AutoPilot_DeathLog.lua"] = {
         GAME_HOURS = "death snapshots record survived GAME hours; real time "
@@ -194,9 +202,13 @@ local CLASSIFICATION = {
             .. "choice and check() releases on recovery, not the timer",
     },
     ["AutoPilot_Sleep.lua"] = {
-        GAME_CAL_MS = "pain-blocked sleep retry delay (sweep finding: the "
-            .. "'delaying sleep for 60s' print means 60 GAME seconds, ~2.5 "
-            .. "real seconds at default day length -- filed LOW)",
+        GAME_CAL_MS = "pain-blocked sleep back-off + the two dispatch re-queue "
+            .. "guards.  The sweep's finding (the 'delaying sleep for 60s' "
+            .. "print means 60 GAME seconds, ~2.5 real seconds) was FIXED "
+            .. "2026-08-08, and so was a THIRD instance the sweep did not "
+            .. "name: both dispatch sites wrote a raw `ms + 15000`, under one "
+            .. "evaluation cycle.  All three are named constants now, floored "
+            .. "by tests/test_game_clock_debounce.lua",
     },
     ["AutoPilot_Telemetry.lua"] = {
         GAME_CAL_MS = "end-marker timestamp field (sweep finding: same JSON "
