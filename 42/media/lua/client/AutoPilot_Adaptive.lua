@@ -64,6 +64,12 @@ local RULES = {
       per_death = -20, floor = 80 },
 }
 
+-- Exposed for tests.  tests/test_adaptive_bounds.lua drives EVERY rule across
+-- the player-configurable option range rather than at the shipped default, so
+-- it has to read the real table: a hand-copied list would go stale the first
+-- time a rule is added, and staleness there reads as coverage.
+AutoPilot_Adaptive.RULES = RULES
+
 -- ── Aggregation ──────────────────────────────────────────────────────────────
 
 --- Count deaths per cause bucket from parsed death tables.
@@ -96,6 +102,24 @@ function AutoPilot_Adaptive.applyRules(counts)
                 local to = from + rule.per_death * n
                 if rule.floor then to = math.max(rule.floor, to) end
                 if rule.cap   then to = math.min(rule.cap,   to) end
+                -- The floor/cap above are written against the SHIPPED
+                -- defaults, but `from` is whatever the PLAYER configured:
+                -- AutoPilot_Main applies AutoPilot_Options first and this
+                -- module second.  Clamping a player value that already sits
+                -- past the bound moved the constant the WRONG WAY and then
+                -- recorded the move as an adjustment -- "starved -> eat
+                -- earlier" raised a 5% hunger trigger to 10%, "see further"
+                -- shrank a 40-tile detection radius to 30, and the two
+                -- stockpile rules cut an 8-item minimum to 6 and 5.  So a
+                -- bound may only ever STOP the adjustment, never reverse it:
+                -- an adjustment can never move a constant backwards past
+                -- where it started.  Proven both ways in
+                -- tests/test_adaptive_bounds.lua (Tests 4 and 5).
+                if rule.per_death < 0 then
+                    to = math.min(to, from)
+                elseif rule.per_death > 0 then
+                    to = math.max(to, from)
+                end
                 if to ~= from then
                     AutoPilot_Constants[rule.key] = to
                     table.insert(applied, {
