@@ -40,8 +40,13 @@ jobs:
     #      this file.
     #   3. Testability.  With these in the environment the step scripts run
     #      outside Actions unchanged, which is what `tests/test_release_gate.py`
-    #      does on every PR.  This job runs ONLY on a tag push (USER-ONLY here),
-    #      so nothing below the CI gate had ever been executed by anything.
+    #      does on every PR.  This job runs ONLY on a tag push, so for a long
+    #      time nothing below the CI gate had ever been executed by anything.
+    #      (Superseded wording, kept where it stood: "This job runs ONLY on a
+    #      tag push (USER-ONLY here), so nothing below the CI gate had ever
+    #      been executed by anything."  Both halves are false now: tag pushes
+    #      were delegated 2026-07-26 and the fence was retired 2026-08-08, and
+    #      the v0.2.0 cut on 2026-08-05 ran these steps for the first time.)
     env:
       TAG_NAME: ${{ github.ref_name }}
       ARCHIVE_NAME: AutoPilot-${{ github.ref_name }}.zip

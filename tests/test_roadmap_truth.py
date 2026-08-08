@@ -20,6 +20,14 @@ Guarded (three claims, each low-churn and single-valued):
   2. the "latest tag" claim, against the repository's own tags
   3. the client Lua module count, against ``42/media/lua/client/*.lua``
 
+Claim 2 is NOT a plain equality: see :func:`classify_tag_claim`.  It was one
+for about five hours on 2026-08-08, and the first release cut that followed
+found that a plain equality makes a release impossible to cut without a red
+run -- the roadmap has to name the tag in the commit the tag will later point
+at, so there is unavoidably a window where the claim is ahead of reality.  The
+guard now allows exactly that window and nothing else, and the exemption is
+forward-only so it cannot be entered by moving backwards.
+
 Deliberately NOT guarded: **line counts, suite and assertion totals, and
 commit share.**  Those change on almost every pull request, so a guard over
 them would redden unrelated work daily and be disabled or ``# noqa``'d within a
@@ -148,6 +156,18 @@ def newest_tag() -> str | None:
     (``v0.2.0`` is lightweight, ``V1.0`` is annotated); ``taggerdate`` would be
     empty for the lightweight ones.
     """
+    tags = all_tags()
+    return tags[0] if tags else None
+
+
+def all_tags() -> list[str] | None:
+    """Every tag in this checkout, most recently CREATED first, or None.
+
+    ``None`` means *git could not answer* (no git binary, not a repository);
+    ``[]`` means *git answered and there are no tags*.  The two are different
+    and the caller treats them differently: the first is an absent instrument,
+    the second is a checkout that lost its tags, which must never pass.
+    """
     try:
         proc = subprocess.run(
             [
@@ -166,8 +186,122 @@ def newest_tag() -> str | None:
         return None
     if proc.returncode != 0:
         return None
-    tags = [line.strip() for line in proc.stdout.splitlines() if line.strip()]
-    return tags[0] if tags else None
+    return [line.strip() for line in proc.stdout.splitlines() if line.strip()]
+
+
+def version_tuple(tag: str) -> tuple[int, ...] | None:
+    """Parse a version tag into a comparable integer tuple, or None.
+
+    ``v0.2.1`` -> ``(0, 2, 1)``; ``V1.0`` -> ``(1, 0, 0)``; ``v0.1.0-beta1``
+    -> ``(0, 1, 0)``.  Returns ``None`` for anything that is not a dotted
+    numeric version, so an unparseable tag can never be silently ordered.
+    """
+    body = tag[1:] if tag[:1] in ("v", "V") else tag
+    body = body.split("-", 1)[0].split("+", 1)[0]
+    parts = body.split(".")
+    if not parts or not all(part.isdigit() for part in parts):
+        return None
+    nums = tuple(int(part) for part in parts)
+    return nums + (0,) * (3 - len(nums)) if len(nums) < 3 else nums
+
+
+# The three verdicts the latest-tag claim can carry.  Only STALE fails.
+CLAIM_CURRENT = "current"
+CLAIM_IN_FLIGHT = "in-flight"
+CLAIM_STALE = "stale"
+
+
+def classify_tag_claim(
+    claimed: str,
+    newest: str,
+    existing_tags: list[str],
+    modversion: str,
+) -> tuple[str, str]:
+    """Judge the roadmap's latest-tag claim.  Returns ``(verdict, detail)``.
+
+    WHY THIS IS NOT A PLAIN EQUALITY ANY MORE
+    -----------------------------------------
+    It was one, from 2026-08-08 until the first release cut that followed --
+    about five hours -- and a plain equality makes cutting a release
+    IMPOSSIBLE without a red run.  Both horns were observed, not reasoned
+    about, before this function was written:
+
+      * Claim the new tag in the prep pull request, before it exists, and the
+        pull request is red (``'v0.2.1' != 'v0.2.0'``), so it cannot merge.
+      * Leave the claim at the old tag, merge, then push the new tag, and
+        ``release.yml``'s CI gate -- which runs ``this suite`` on the tagged
+        tree -- is red the other way (``'v0.2.0' != 'v0.2.1'``).  That job is
+        ``needs:`` of the packaging job, so **no release artifact is ever
+        built**.
+
+    The tag must therefore be named by the commit it will later point at, and
+    the guard has to tolerate exactly that one window and nothing else.
+
+    WHAT IS STILL GUARDED (the exemption is deliberately narrow, and FORWARD
+    ONLY, so it cannot be walked into as a bypass)
+    ----------------------------------------------------------------------
+    A claim that differs from the newest tag is accepted ONLY when all three
+    hold, each of them checkable and none of them a matter of opinion:
+
+      1. it names exactly ``v<modversion>`` -- the version this tree is
+         actually prepped for, which ``test_modversion_claim_matches_both_mod_
+         info_files`` already binds to both ``mod.info`` files and
+         ``tests/test_version_sync.py`` binds to the Lua constant and README;
+      2. that tag does NOT exist yet, so "in flight" cannot be claimed about a
+         tag that has already been cut;
+      3. it is strictly NEWER than the newest existing tag.  Without this the
+         exemption could be entered by moving BACKWARDS -- bump ``mod.info``
+         down and any older version name would satisfy (1) and (2) -- which is
+         how a narrow exemption turns into a loophole.
+
+    The incident that motivated the guard is still caught: the roadmap said
+    ``v1.2.1`` while ``mod.info`` said ``0.2.0`` and the newest tag was
+    ``v0.2.0``.  That fails (1), so it is STALE, exactly as before.
+    """
+    if claimed == newest:
+        return CLAIM_CURRENT, f"the claim names the newest tag ({newest!r})."
+
+    expected = f"v{modversion}"
+    if claimed != expected:
+        return CLAIM_STALE, (
+            f"ROADMAP.md claims the latest tag is {claimed!r}, but the newest tag\n"
+            f"by creation date is {newest!r} and this tree is prepped for\n"
+            f"modversion {modversion!r} (which would be tagged {expected!r}).\n"
+            "The claim names neither, so it is simply stale.\n"
+            "This is the exact drift PR #124 found by hand: the file said the last\n"
+            "tag was v1.2.1 for weeks after v0.2.0 was cut and released."
+        )
+
+    if claimed in existing_tags:
+        return CLAIM_STALE, (
+            f"ROADMAP.md claims the latest tag is {claimed!r} and that tag DOES\n"
+            f"exist, but the newest tag by creation date is {newest!r}.  The\n"
+            "release-in-flight exemption is only for a tag that has not been cut\n"
+            "yet; a tag that exists but is not the newest means the claim has\n"
+            "fallen behind a later cut."
+        )
+
+    claimed_version = version_tuple(claimed)
+    newest_version = version_tuple(newest)
+    if claimed_version is None or newest_version is None:
+        return CLAIM_STALE, (
+            f"cannot order {claimed!r} against {newest!r}: one of them is not a\n"
+            "dotted numeric version, so the release-in-flight exemption cannot be\n"
+            "granted (it is forward-only, and 'forward' has to be computable)."
+        )
+    if claimed_version <= newest_version:
+        return CLAIM_STALE, (
+            f"ROADMAP.md claims the latest tag is {claimed!r}, which is not NEWER\n"
+            f"than the newest existing tag {newest!r}.  The release-in-flight\n"
+            "exemption is forward-only on purpose: were it not, bumping mod.info\n"
+            "backwards would let any older version name satisfy the guard."
+        )
+
+    return CLAIM_IN_FLIGHT, (
+        f"release in flight: this tree is prepped for modversion {modversion!r},\n"
+        f"the claim names {claimed!r} accordingly, that tag does not exist yet,\n"
+        f"and it is newer than {newest!r}."
+    )
 
 
 def roadmap_text() -> str:
@@ -217,26 +351,30 @@ class TestRoadmapClaimsMatchReality(unittest.TestCase):
                 "no .git directory: the instrument is absent, not disagreeing"
             )
         claimed = extract_claim(roadmap_text(), ANCHOR_LATEST_TAG, "latest tag")
-        actual = newest_tag()
+        tags = all_tags()
         # Blind-guard: git IS available (there is a .git), so zero tags means
         # the checkout does not carry them -- a tagless checkout would
         # otherwise let this claim pass unchecked forever.
-        self.assertIsNotNone(
-            actual,
+        self.assertTrue(
+            tags,
             "git reported NO tags in this checkout, so the 'latest tag' claim\n"
             "cannot be verified.  In CI this means the checkout lost its tags:\n"
             "actions/checkout needs `fetch-depth: 0` (which fetches tags) or an\n"
             "explicit `fetch-tags: true`.  ci.yml sets fetch-depth: 0 today for\n"
             "the Changelog guard; if that line goes, this guard goes blind too.",
         )
-        self.assertEqual(
-            claimed,
-            actual,
-            f"ROADMAP.md claims the latest tag is {claimed!r}, but the newest tag\n"
-            f"by creation date is {actual!r}.\n"
-            "This is the exact drift PR #124 found by hand: the file said the last\n"
-            "tag was v1.2.1 for weeks after v0.2.0 was cut and released.\n" + FIX_HINT,
+        assert tags is not None  # narrowing for type checkers
+        modversion = mod_info_version(MOD_INFO_ROOT)
+        self.assertIsNotNone(
+            modversion,
+            f"no modversion= line in {MOD_INFO_ROOT}; the latest-tag claim is\n"
+            "judged against the version this tree is prepped for, so it cannot\n"
+            "be judged at all without one.",
         )
+        assert modversion is not None  # narrowing for type checkers
+
+        verdict, detail = classify_tag_claim(claimed, tags[0], tags, modversion)
+        self.assertNotEqual(verdict, CLAIM_STALE, detail + "\n" + FIX_HINT)
 
     def test_module_count_claim_matches_the_client_lua_glob(self) -> None:
         modules = client_module_paths()
@@ -437,6 +575,172 @@ class TestNewestTagOrdering(unittest.TestCase):
                 newest_tag(),
                 "newest_tag() must be stable across calls",
             )
+
+
+class TestTagClaimClassifier(unittest.TestCase):
+    """The whole decision surface of :func:`classify_tag_claim`, driven from
+    inputs rather than from whatever state this checkout happens to be in.
+
+    The live test above can only ever exercise ONE point of this surface -- the
+    one today's repository sits on -- so the interesting cases (a release in
+    flight, a claim that has fallen behind, an attempt to walk into the
+    exemption backwards) would otherwise never be executed at all.  Feeding the
+    function its four inputs directly is what makes them reachable.
+    """
+
+    # Realistic tag lists: this repository's actual tags, including the
+    # pre-reset ones that sort lexicographically ABOVE the live ones.
+    TAGS_BEFORE = ["v0.2.0", "V1.0", "v1.2.1", "v1.2.0"]
+    TAGS_AFTER = ["v0.2.1", "v0.2.0", "V1.0", "v1.2.1", "v1.2.0"]
+
+    def test_steady_state_is_current(self) -> None:
+        """The ordinary case: the claim names the tag that exists."""
+        verdict, detail = classify_tag_claim(
+            "v0.2.1", "v0.2.1", self.TAGS_AFTER, "0.2.1"
+        )
+        self.assertEqual(verdict, CLAIM_CURRENT, detail)
+
+    def test_release_in_flight_is_allowed(self) -> None:
+        """The window this exemption exists for, and the reason it exists.
+
+        This is the exact state the v0.2.1 prep commit is in: mod.info bumped,
+        roadmap naming the tag it is about to get, tag not pushed yet.  Under
+        the plain equality this replaced, this state was RED, which is what
+        made a release uncuttable without a red run.
+        """
+        verdict, detail = classify_tag_claim(
+            "v0.2.1", "v0.2.0", self.TAGS_BEFORE, "0.2.1"
+        )
+        self.assertEqual(verdict, CLAIM_IN_FLIGHT, detail)
+
+    def test_the_incident_the_guard_was_written_for_is_still_caught(self) -> None:
+        """PR #124's finding: roadmap said v1.2.1 long after v0.2.0 shipped.
+
+        The claim names an EXISTING tag that is not the newest, and does not
+        match ``v<modversion>``, so it is stale under the new logic exactly as
+        it was under the old equality.
+        """
+        verdict, _ = classify_tag_claim(
+            "v1.2.1", "v0.2.0", self.TAGS_BEFORE, "0.2.0"
+        )
+        self.assertEqual(verdict, CLAIM_STALE)
+
+    def test_a_claim_left_behind_by_a_completed_cut_is_stale(self) -> None:
+        """The tag was pushed and the roadmap was never updated afterwards."""
+        verdict, _ = classify_tag_claim(
+            "v0.2.0", "v0.2.1", self.TAGS_AFTER, "0.2.1"
+        )
+        self.assertEqual(verdict, CLAIM_STALE)
+
+    def test_the_exemption_cannot_be_entered_by_going_backwards(self) -> None:
+        """Condition 3, the one that keeps a narrow exemption from becoming a
+        bypass: bumping mod.info DOWN must not license an older tag name.
+
+        Without the forward-only check this input satisfies conditions 1 and 2
+        (the claim equals ``v<modversion>``, and no such tag exists), so it
+        would be waved through as "a release in flight" forever.
+        """
+        verdict, _ = classify_tag_claim(
+            "v0.1.5", "v0.2.0", self.TAGS_BEFORE, "0.1.5"
+        )
+        self.assertEqual(verdict, CLAIM_STALE)
+
+    def test_the_exemption_cannot_name_a_tag_that_already_exists(self) -> None:
+        """Condition 2: "not cut yet" has to be true, not merely asserted."""
+        verdict, _ = classify_tag_claim(
+            "v1.2.1", "v0.2.0", self.TAGS_BEFORE, "1.2.1"
+        )
+        self.assertEqual(verdict, CLAIM_STALE)
+
+    def test_a_claim_that_disagrees_with_mod_info_is_stale(self) -> None:
+        """Condition 1: the in-flight name is not free-form.
+
+        A typo in the prep commit -- roadmap says v0.3.0 while mod.info says
+        0.2.1 -- must not be readable as a release in flight.
+        """
+        verdict, _ = classify_tag_claim(
+            "v0.3.0", "v0.2.0", self.TAGS_BEFORE, "0.2.1"
+        )
+        self.assertEqual(verdict, CLAIM_STALE)
+
+    def test_an_unorderable_version_is_refused_rather_than_waved_through(self) -> None:
+        """"Forward-only" needs a computable 'forward'; when there is none the
+        answer is refusal, not a default pass."""
+        verdict, _ = classify_tag_claim(
+            "vnightly", "v0.2.0", self.TAGS_BEFORE, "nightly"
+        )
+        self.assertEqual(verdict, CLAIM_STALE)
+
+    def test_forward_only_holds_across_the_whole_version_lattice(self) -> None:
+        """Sweep the ordering rather than trusting two hand-picked points.
+
+        Every component of the version is moved in both directions from a
+        fixed baseline, and the verdict must follow the DIRECTION of the move
+        rather than the fact that the tag is missing -- which is the property
+        that stops "no such tag yet" from being the only thing the exemption
+        actually tests.
+        """
+        baseline = (0, 2, 0)
+        newest = "v0.2.0"
+        checked = 0
+        for index in range(3):
+            for delta in (-1, +1, +2):
+                parts = list(baseline)
+                parts[index] += delta
+                if any(part < 0 for part in parts):
+                    continue
+                candidate = "v" + ".".join(str(part) for part in parts)
+                if candidate in self.TAGS_BEFORE or candidate == newest:
+                    continue
+                checked += 1
+                verdict, detail = classify_tag_claim(
+                    candidate, newest, self.TAGS_BEFORE, candidate[1:]
+                )
+                expected = (
+                    CLAIM_IN_FLIGHT
+                    if tuple(parts) > baseline
+                    else CLAIM_STALE
+                )
+                self.assertEqual(
+                    verdict,
+                    expected,
+                    f"{candidate} versus newest {newest}: {detail}",
+                )
+        # Zero-case hard failure: a sweep that skipped everything proves
+        # nothing, and this loop skips candidates by construction.
+        self.assertGreaterEqual(
+            checked,
+            6,
+            "the forward/backward sweep exercised too few candidates to be "
+            "meaningful; the skip conditions above have eaten the corpus.",
+        )
+
+    def test_known_gap_an_abandoned_prep_stays_in_flight_forever(self) -> None:
+        """CHARACTERISATION, not an endorsement: the exemption has no clock.
+
+        A tree left prepped for a version whose tag is never pushed reads as
+        "release in flight" indefinitely, and this guard cannot tell that from
+        a cut that is genuinely five minutes from happening.  Closing it needs
+        a second signal the repository does not carry today (nothing here
+        records WHEN the prep commit landed in a way a test can read without
+        re-implementing git log).
+
+        The residual is pinned here rather than only described in the backlog,
+        so that whoever closes it has to delete this test deliberately instead
+        of discovering the gap again.  It is bounded in practice: the prep
+        commit and the tag push are the same increment by policy, so the window
+        is minutes, and any LATER cut moves ``newest`` forward and turns the
+        stale claim red through the ordinary path.
+        """
+        verdict, _ = classify_tag_claim(
+            "v0.2.1", "v0.2.0", self.TAGS_BEFORE, "0.2.1"
+        )
+        self.assertEqual(
+            verdict,
+            CLAIM_IN_FLIGHT,
+            "if this now fails, the exemption grew a staleness bound -- delete "
+            "this characterisation test in the same commit.",
+        )
 
 
 if __name__ == "__main__":
