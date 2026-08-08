@@ -25,7 +25,7 @@ All notable changes to AutoPilot are documented here.
   an adjustment can never move a value backwards past where it started. If you are inside the bounds
   — which is everyone on defaults — nothing changes at all.
 
-  New suite `tests/test_adaptive_bounds.lua` (96 assertions) registers the real options page against
+  New suite `tests/test_adaptive_bounds.lua` (100 assertions) registers the real options page against
   a recording mock, reads each slider's own range back out of it, and drives every death-learning
   rule across that range, so a new rule or a widened slider is covered without anyone remembering to
   add a case. It is also the first coverage the death-log aggregator has had for its 25-death window

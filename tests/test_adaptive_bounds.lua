@@ -399,6 +399,37 @@ do
     assert_eq("...and the valid row still counts", skipped.bleed_out, 1)
 end
 
+print("\n-- Test 7 (known_gap_options_save_discards_the_death_learning_delta):")
+print("           a mid-session options SAVE silently reverts every adaptive")
+print("           adjustment, and nothing re-applies them.  Filed, NOT fixed.")
+do
+    -- CHARACTERISATION, not a requirement: these assertions PIN THE WRONG
+    -- BEHAVIOUR so the bug entry in the AutoPilot backlog cannot rot into
+    -- prose, and so whoever fixes it sees this suite go red on purpose.
+    --
+    -- AutoPilot_Options.applyToConstants() overwrites EVERY DEFS key from the
+    -- saved widget value, and AutoPilot_Adaptive.init() is one-shot (_inited).
+    -- So the options screen is a full reset of the death-learning layer for
+    -- the rest of the session, with no notice and no re-application, while
+    -- the F11 panel keeps listing the adjustments as still in force.
+    local saved = snapshotConstants()
+
+    page:apply()                                    -- start from the slider values
+    local sliderValue = AutoPilot_Constants.SUPPLY_DRINK_MIN
+    local applied = AutoPilot_Adaptive.applyRules({ dehydration = 1 })
+    assert_eq("the adaptive delta lands first",
+        AutoPilot_Constants.SUPPLY_DRINK_MIN, sliderValue + 1)
+    assert_true("...and is recorded for the F11 panel", #applied > 0)
+
+    page:apply()                                    -- the player saves the options screen
+    assert_eq("KNOWN GAP: an options save reverts it with no notice",
+        AutoPilot_Constants.SUPPLY_DRINK_MIN, sliderValue)
+    assert_true("KNOWN GAP: ...while the panel still lists it as applied",
+        #applied > 0)
+
+    restoreConstants(saved)
+end
+
 -- ── Summary ───────────────────────────────────────────────────────────────────
 print(("\n=== Results: %d passed, %d failed ==="):format(PASS, FAIL))
 if FAIL > 0 then
