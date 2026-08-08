@@ -1,11 +1,25 @@
 """The release pipeline's version gate, exercised on every PR.
 
-``.github/workflows/release.yml`` runs only on a tag push, and tag pushes are
-USER-ONLY in this project, so its ``Verify version tag matches mod.info`` step
-had never been executed by anything: not by CI, not by a release (the last
-pushed tag is ``v1.2.1``, from before the workflow's current shape).  An
-unexercised gate is an inert surface by default, and this one had in fact gone
-dead:
+``.github/workflows/release.yml`` runs only on a tag push.  When this module was
+written its ``Verify version tag matches mod.info`` step had never been executed
+by anything: not by CI, not by a release (the last pushed tag was ``v1.2.1``,
+from before the workflow's current shape).  An unexercised gate is an inert
+surface by default, and this one had in fact gone dead:
+
+.. note::
+
+   Superseded premise, corrected 2026-08-08 by a product truth audit and quoted
+   verbatim where it stood: *"and tag pushes are USER-ONLY in this project"*.
+   That was false twice over by the time it was read.  Tag pushes were delegated
+   to the agent on 2026-07-26, and ``v0.2.0`` was in fact tagged and released on
+   2026-08-05, which is the first time ``release.yml``'s tag-push path ran end to
+   end.  The REASON this module exists is unaffected — the gate was dead when the
+   module was written, and this suite is what proves it is not dead now — but a
+   live test file asserting a retracted permission is exactly the stale prose the
+   guard next door (``tests/test_roadmap_truth.py``) was built to catch, so it is
+   corrected here rather than left to be inherited.  Publishing is now delegated
+   in full (2026-08-08), Steam Workshop uploads included; see ``ROADMAP.md``
+   "User-only (standing)".
 
     modversion=0.1.0            (since the 2026-07-25 version reset)
     tag v0.1.0

@@ -179,8 +179,11 @@ HUD call, so the two surfaces cannot drift the way they did before V5.8 unified 
 4. **Mock additions.** `tests/lua_mock_pz.lua` and any suite-local `food()` factory that the new
    tests use gain `getPoisonPower` and `isTainted` defaults. Existing factories stay as they are.
 5. **Every code slice ships flagged "Needs in-game smoke test before Workshop update."** No
-   increment here is verifiable in-game headlessly. Workshop uploads, `sync_workshop.sh`, version
-   bumps, and tags stay USER-ONLY.
+   increment here is verifiable in-game headlessly, and that half has never changed. (Superseded
+   wording, quoted where it stood: *"Workshop uploads, `sync_workshop.sh`, version bumps, and tags
+   stay USER-ONLY."* Version bumps and tags were delegated 2026-07-26, already reconciled in
+   section 6; Workshop uploads and `sync_workshop.sh` were delegated 2026-08-08. See `ROADMAP.md`
+   "User-only (standing)".)
 6. **No new option slider unless a default below says so.** Constants stay in
    `AutoPilot_Constants.lua` with the documented-comment style the file already uses.
 
@@ -210,8 +213,11 @@ deferred, so silence ships the right-hand column.
 - No version bump, tag, or Workshop update inside the three slices themselves.
   (RECONCILED 2026-07-26: this bullet originally read "all USER-ONLY", written hours before
   the same-day user decision recorded in the autodev SKILL.md that DELEGATED version bumps,
-  tag pushes and GitHub release cuts to the agent. Only the Steam Workshop upload that may
-  follow a release is still USER-ONLY. The v0.2.0 release decision itself is in section 8.)
+  tag pushes and GitHub release cuts to the agent. The v0.2.0 release decision itself is in
+  section 8. RECONCILED AGAIN 2026-08-08; superseded wording, quoted where it stood: *"Only the
+  Steam Workshop upload that may follow a release is still USER-ONLY."* That last fence was
+  lifted by the 2026-08-08 publishing decision — see `ROADMAP.md` "User-only (standing)" for the
+  capability limit that outlived it.)
 
 ## 7. What only the user can settle
 
@@ -255,6 +261,16 @@ and releases are delegated):
    whose headline behavior has zero in-game evidence invites an immediate v0.2.1.
 3. The channel users actually install from (Steam Workshop) is USER-ONLY and gated on the
    same smoke test, so a tag today reaches nobody that `main` does not.
+   > **⤷ ANNOTATED 2026-08-08 by a product truth audit, not rewritten — this is a dated
+   > historical decision record and ground 3 was true when written.** The USER-ONLY half is
+   > superseded (the 2026-08-08 publishing decision covers Workshop uploads and
+   > `sync_workshop.sh`). The OBSERVATION in this ground, however, is still live and is now the
+   > sharpest thing in this document: **a tag still reaches nobody that `main` does not**, because
+   > the upload has never happened. `v0.2.0` was cut 2026-08-05 and the Workshop item has not been
+   > updated since, so every fix from PR #67 onward — including the two HIGH user-reported bugs
+   > this milestone's own smoke test found — is on `main`, tagged, released on GitHub, and
+   > reaching no player. That gap is now tracked as the named `v0.2.1` release in the AutoPilot
+   > backlog rather than left implicit in a superseded hold.
 
 **Observable clearing condition:** the user reports the V6.0 smoke-test outcome. On a pass,
 the release-prep slice in the backlog (CHANGELOG backfill for #84-#93, version bump
