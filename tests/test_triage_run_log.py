@@ -902,6 +902,37 @@ class TestFleeStallDetector(unittest.TestCase):
         session = _one_session(_ticks("combat", "flee_blocked", 20))
         self.assertEqual(tr.detect_flee_stalls([session]), [])
 
+    def test_post_fix_stall_shape_still_fires(self) -> None:
+        """The detector must survive the fix it helped find.
+
+        Since the stall fix (AutoPilot_Threat: an escape walk that moved the
+        character less than FLEE_PROGRESS_MIN tiles pays no cooldown), a
+        STILL-stalling episode reads flee_default / evade_stalled on a stride
+        of 2 with ZERO evade_cooldown ticks.  The pre-fix detector required an
+        evade_cooldown tick, so it would have gone silent on exactly the
+        condition it exists to report -- the character still not escaping,
+        just failing twice as fast.
+        """
+        episode: list[dict[str, object]] = []
+        for _ in range(6):
+            episode.extend(_ticks("combat", "flee_default", 1))
+            episode.extend(_ticks("combat", tr.EVADE_STALLED_REASON, 1))
+        findings = tr.detect_flee_stalls([_one_session(episode)])
+        self.assertEqual(len(findings), 1)
+        self.assertIn("re-issued 6 flee decision(s)", findings[0].detail)
+        self.assertIn("6 'evade_stalled' tick(s)", findings[0].detail)
+        self.assertIn("0 'evade_cooldown' tick(s)", findings[0].detail)
+
+    def test_pre_fix_detail_does_not_mention_the_stalled_label(self) -> None:
+        """A log with no evade_stalled ticks reads exactly as it always did.
+
+        The stalled count is additive, not a reformat: an old log triaged
+        after the fix must not grow a '0 evade_stalled tick(s)' clause that a
+        reader would take as evidence the fix was running.
+        """
+        findings = tr.detect_flee_stalls([_one_session(_flee_cycles(6))])
+        self.assertNotIn(tr.EVADE_STALLED_REASON, findings[0].detail)
+
     def test_varying_speed_is_reported_as_a_range(self) -> None:
         """The speed range is the datum that tells the two readings apart."""
         session = _one_session(_flee_cycles(6))
@@ -926,15 +957,15 @@ class TestFleeStallDetector(unittest.TestCase):
 
 
 class TestEvadeReasonDriftGuard(unittest.TestCase):
-    """The two evade lifecycle labels must stay in lockstep with the Lua (L-003).
+    """The three evade lifecycle labels must stay in lockstep with the Lua (L-003).
 
-    detect_flee_stalls is built entirely on EVADE_RUNNING_REASON and
-    EVADE_COOLDOWN_REASON.  If either is renamed in the Lua the way
-    engage_* -> evade_* was renamed in V6.1-2 (PR #95), the detector would
-    silently stop discriminating: every episode would read as having zero
-    evade_running ticks, and it would fire on healthy pursuits forever.
-    Files are glob-discovered and the token is searched across ALL of them,
-    so a future module split cannot quietly move the emitter out of range.
+    detect_flee_stalls is built entirely on EVADE_RUNNING_REASON,
+    EVADE_COOLDOWN_REASON and EVADE_STALLED_REASON.  If any of them is renamed
+    in the Lua the way engage_* -> evade_* was renamed in V6.1-2 (PR #95), the
+    detector would silently stop discriminating: every episode would read as
+    having zero evade_running ticks, and it would fire on healthy pursuits
+    forever.  Files are glob-discovered and the token is searched across ALL of
+    them, so a future module split cannot quietly move the emitter out of range.
     """
 
     LUA_CLIENT_DIR = (Path(__file__).parent.parent
@@ -969,9 +1000,16 @@ class TestEvadeReasonDriftGuard(unittest.TestCase):
             tr.EVADE_COOLDOWN_REASON, found,
             "the production Lua no longer emits this label — the flee-stall "
             "detector would never fire again")
+        self.assertIn(
+            tr.EVADE_STALLED_REASON, found,
+            "the production Lua no longer emits this label — a still-stalling "
+            "episode under the stall fix pays no cooldown, so the detector "
+            "would read it as 'trapped' and stay silent")
 
     def test_lifecycle_labels_are_distinct(self) -> None:
-        self.assertNotEqual(tr.EVADE_RUNNING_REASON, tr.EVADE_COOLDOWN_REASON)
+        self.assertEqual(
+            len({tr.EVADE_RUNNING_REASON, tr.EVADE_COOLDOWN_REASON,
+                 tr.EVADE_STALLED_REASON}), 3)
 
 
 # ── attributed activity tests ─────────────────────────────────────────────────

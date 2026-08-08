@@ -141,6 +141,30 @@ AutoPilot_Constants.FLEE_ESCAPE_ARC_MIN = 90
 -- 4 cycles * 0.75 s = 3 s post-arrival buffer.
 AutoPilot_Constants.FLEE_COOLDOWN_CYCLES = 4
 
+-- Minimum distance (in tiles) the character must ACTUALLY have covered between
+-- an escape walk being queued and that walk leaving the action queue, for the
+-- escape to count as real.
+--
+-- Why this exists.  `_fleeCooldown` above is a POST-ARRIVAL buffer: it assumes
+-- the walk it follows moved the character.  Nothing checked that assumption, so
+-- an escape walk that never ran bought a 4-cycle silence anyway, and the mod
+-- spent four fifths of a live encounter standing still beside a zombie.  Live
+-- evidence, `auto_pilot_run.log` session 4, run_tick 3523-3555: 33 unbroken
+-- combat ticks at game speed x1, 7 flee decisions each followed by exactly 4
+-- `evade_cooldown` ticks, `zombies=1` throughout and ZERO `evade_running`
+-- ticks -- a period-5 livelock that ended only when the zombie wandered off.
+--
+-- 2 tiles is deliberately small: it is below any real escape (the shortest rung
+-- of FLEE_DISTANCE_FRACTIONS is 0.3 * 20 = 6 tiles) and above the sub-tile
+-- drift a character accumulates while standing, so it separates "the walk did
+-- nothing" from "the walk worked" without needing to know WHY it did nothing.
+-- The engine offers several ways for a queued walk to end without moving anyone
+-- (an unreachable destination fails pathfinding on the first update and
+-- force-stops; a destination square that resolves adjacent completes instantly),
+-- and the mod cannot see which one happened -- but it can always see that it did
+-- not move, which is the only fact the response depends on.
+AutoPilot_Constants.FLEE_PROGRESS_MIN = 2
+
 -- Minimum weapon condition (0.0-1.0) for a weapon to count as usable in fight
 -- decisions.  Below this the weapon is treated as absent (too degraded to rely on).
 -- Distinct from WEAPON_CONDITION_MIN (0.25) which triggers a swap mid-fight.
