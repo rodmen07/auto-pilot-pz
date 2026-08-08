@@ -8,7 +8,11 @@
 --   bounded      (hard floor/cap per rule — the mod can never tune itself
 --                 into absurd behavior),
 --   transparent  (recorded in AutoPilot_Adaptive.applied and shown in the
---                 F11 panel).
+--                 F11 panel),
+--   accounted for(every cause AutoPilot_DeathLog can classify a death into is
+--                 either consumed by a rule below or named in
+--                 UNRULED_CAUSES with the reason it is not — an inert cause
+--                 is a decision here, never an oversight).
 --
 -- Only the most recent MAX_DEATHS_CONSIDERED deaths count, so one bad early
 -- game does not dominate forever.
@@ -62,6 +66,25 @@ local RULES = {
     -- away-from-home driver now that frontier exploration is out of scope).
     { cause = "away", min_deaths = 1, key = "LOOT_RADIUS_SUPPLY",
       per_death = -20, floor = 80 },
+
+    -- Died bitten (infection), or killed by a group too small to count as a
+    -- horde (zombies) -> in BOTH cases a zombie reached melee range, which
+    -- since the flee-only rewrite means the mod saw it too late.  So see them
+    -- sooner.
+    --
+    -- DETECTION_RADIUS is the lever with real behavioural reach here: it is
+    -- what AutoPilot_Threat.getNearbyZombies filters on, so a zombie outside
+    -- it is one the mod never flees from at all.  FLEE_HORDE_SIZE is
+    -- deliberately NOT a second target for these two rules, for two separate
+    -- reasons: every branch of AutoPilot_Threat._decideEngagement resolves to
+    -- a flee now, so lowering it moves the telemetry label rather than the
+    -- behaviour; and it is also the constant AutoPilot_DeathLog's cause
+    -- classifier reads, so a second writer would drift the classification
+    -- itself.
+    { cause = "infection", min_deaths = 1, key = "DETECTION_RADIUS",
+      per_death = 2,   cap = 30 },
+    { cause = "zombies",   min_deaths = 1, key = "DETECTION_RADIUS",
+      per_death = 2,   cap = 30 },
 }
 
 -- Exposed for tests.  tests/test_adaptive_bounds.lua drives EVERY rule across
@@ -69,6 +92,32 @@ local RULES = {
 -- it has to read the real table: a hand-copied list would go stale the first
 -- time a rule is added, and staleness there reads as coverage.
 AutoPilot_Adaptive.RULES = RULES
+
+-- ── Causes deliberately left un-ruled ────────────────────────────────────────
+-- A cause with no RULES entry is INERT: a death classified into it teaches the
+-- mod nothing at all.  Until 2026-08-08 three of the classifier's eight causes
+-- were inert and the file said nothing about it, so a reader could not tell an
+-- omission from a decision.  `infection` and `zombies` were the omissions and
+-- got rules above; this table is the other half of the answer, and it is a
+-- TABLE rather than a comment so a guard can read it.
+--
+-- tests/test_death_cause_coverage.lua fails if a cause the classifier can emit
+-- appears in neither RULES nor here, so the next cause added cannot go inert
+-- quietly the way these did.
+AutoPilot_Adaptive.UNRULED_CAUSES = {
+    unknown = "nothing observable at the moment of death identified a cause, "
+           .. "so no bounded nudge is well-founded: any rule keyed here would "
+           .. "tune the mod on noise. Deliberate, 2026-08-08.",
+}
+
+-- Causes SYNTHESISED by aggregate() from the death record rather than emitted
+-- by AutoPilot_DeathLog's classifier.  Declared so the same guard can check the
+-- OTHER direction: a rule keyed on a cause nothing ever produces is dead code
+-- that reads as coverage.
+AutoPilot_Adaptive.SYNTHETIC_CAUSES = {
+    away = "derived below from dist_home and home_set, not from the death "
+        .. "record's own cause field.",
+}
 
 -- ── Aggregation ──────────────────────────────────────────────────────────────
 

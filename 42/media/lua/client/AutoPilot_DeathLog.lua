@@ -67,6 +67,13 @@ local function _classifyCause(ctx)
     return "unknown"
 end
 
+--- Best-guess cause for a death context.  Exposed for tests: the cause
+--- vocabulary can only be checked by RUNNING the classifier, and
+--- tests/test_death_cause_coverage.lua binds every cause it can emit to either
+--- an AutoPilot_Adaptive rule or an explicit un-ruled decision, so a cause
+--- added here cannot silently become inert.
+AutoPilot_DeathLog.classifyCause = _classifyCause
+
 --- Collect the death context table (also unit-testable without file I/O).
 function AutoPilot_DeathLog.collectContext(player)
     local pnum = _pnum(player)
