@@ -129,23 +129,36 @@ LOOT_SPIRAL_NEED_RISE = 15       # hunger or thirst rise across the session
 FLEE_STALL_MIN_DECISIONS = 6     # flee decisions re-issued in one combat episode
 
 # ── Evade lifecycle reasons ───────────────────────────────────────────────────
-# AutoPilot_Threat.check() writes exactly one of these two labels on a tick
+# AutoPilot_Threat.check() writes exactly one of these three labels on a tick
 # where it did NOT make a fresh decision (AutoPilot_Threat.lua, the
 # _engageReason assignments):
 #
 #   evade_running   the escape walk queued on an earlier cycle is STILL
 #                   executing, so the queue is left alone.
-#   evade_cooldown  the walk finished; _fleeCooldown (FLEE_COOLDOWN_CYCLES,
-#                   4) is counting down before the next flee decision.
+#   evade_cooldown  the walk finished AND moved the character; _fleeCooldown
+#                   (FLEE_COOLDOWN_CYCLES, 4) is counting down before the next
+#                   flee decision.
+#   evade_stalled   the walk left the queue having moved the character less
+#                   than FLEE_PROGRESS_MIN tiles.  No cooldown is paid and the
+#                   next cycle retries on a rotated bearing.
+#
+# evade_stalled was added with the stall fix, and adding it here is not
+# bookkeeping: it is what keeps this detector from going blind on the exact
+# condition it exists to find.  A stalled episode used to read
+# flee / evade_cooldown x4; post-fix it reads flee / evade_stalled, with ZERO
+# evade_cooldown ticks.  A detector that requires an evade_cooldown tick would
+# therefore fall silent the moment the fix half-works -- reporting nothing while
+# the character is still failing to escape, only faster.
 #
 # Every other reason on a combat tick is a fresh decision (flee_default,
 # flee_wounded, flee_horde, flee_unarmed, flee_encircled, flee_moodles,
 # flee_blocked, flee_forced, and the historical undifferentiated "threat").
-# Naming only these two, rather than enumerating the flee vocabulary, keeps
-# the drift surface at two tokens; tests/test_triage_run_log.py pins both
-# against the production Lua.
+# Naming only these three, rather than enumerating the flee vocabulary, keeps
+# the drift surface at three tokens; tests/test_triage_run_log.py pins all
+# three against the production Lua.
 EVADE_RUNNING_REASON = "evade_running"
 EVADE_COOLDOWN_REASON = "evade_cooldown"
+EVADE_STALLED_REASON = "evade_stalled"
 
 # ── Expected persistent states ────────────────────────────────────────────────
 # (action, reason) pairs that legitimately hold for hundreds of consecutive
@@ -587,10 +600,14 @@ def detect_flee_stalls(
     ``evade_running`` ticks, one stalled with 0 — a session-scoped test
     would have reported nothing.)
 
-    ``evade_cooldown`` must be present before firing: it is set only inside
-    doFlee's success branch, so its absence means no walk was ever queued
-    at all, which is the separate, self-labelled ``flee_blocked`` (trapped)
-    condition rather than a stall.
+    A ``evade_cooldown`` OR ``evade_stalled`` tick must be present before
+    firing: both are written only after a walk was actually queued, so their
+    joint absence means no walk was ever queued at all, which is the separate,
+    self-labelled ``flee_blocked`` (trapped) condition rather than a stall.
+    Accepting either is what keeps this detector alive across the stall fix:
+    post-fix a stalled episode pays no cooldown at all and reads
+    flee / ``evade_stalled`` on a stride of 2, so a cooldown-only gate would
+    report nothing exactly when the character is still not escaping.
 
     The detail reports the game-speed range because that is the datum that
     tells the two readings apart, and deliberately does not pick between
@@ -605,7 +622,12 @@ def detect_flee_stalls(
             "walk itself (no reachable destination, or the walk being "
             "cleared); under fast-forward the walk simply finishes inside "
             "one cycle, which makes the real-time FLEE_COOLDOWN_CYCLES span "
-            "far more game time than it was tuned for.")
+            "far more game time than it was tuned for. "
+            f"'{EVADE_STALLED_REASON}' ticks mean the mod SAW the stall and "
+            "dropped the unearned cooldown, so the character is retrying on a "
+            "rotated bearing every other cycle rather than standing still "
+            "through four -- still not escaping, just failing faster, which "
+            "points at the destination rather than at the cooldown.")
     for index, session in enumerate(sessions, start=1):
         start = 0
         total = len(session)
@@ -623,9 +645,10 @@ def detect_flee_stalls(
             if reasons[EVADE_RUNNING_REASON]:
                 continue        # at least one walk did survive a cycle
             cooldown = reasons[EVADE_COOLDOWN_REASON]
-            if not cooldown:
+            stalled = reasons[EVADE_STALLED_REASON]
+            if not cooldown and not stalled:
                 continue        # no walk was ever queued (trapped, not stalled)
-            decisions = len(episode) - cooldown
+            decisions = len(episode) - cooldown - stalled
             if decisions < FLEE_STALL_MIN_DECISIONS:
                 continue
 
@@ -638,6 +661,11 @@ def detect_flee_stalls(
             else:
                 speed_note = f"game speed x{min(speeds)}-x{max(speeds)}"
 
+            # The stalled count is reported only when the mod itself detected
+            # the stall, so a pre-fix log reads exactly as it always did and a
+            # post-fix one names the label that explains its shorter stride.
+            stalled_note = (f" and {stalled} '{EVADE_STALLED_REASON}' tick(s)"
+                            if stalled else "")
             findings.append(SuspiciousFinding(
                 pattern="flee stall",
                 detail=(f"session {index}: {len(episode)} consecutive combat "
@@ -646,7 +674,8 @@ def detect_flee_stalls(
                         f"{episode[-1].get('run_tick')} re-issued "
                         f"{decisions} flee decision(s) with 0 "
                         f"'{EVADE_RUNNING_REASON}' tick(s) and {cooldown} "
-                        f"'{EVADE_COOLDOWN_REASON}' tick(s); {speed_note} "
+                        f"'{EVADE_COOLDOWN_REASON}' tick(s)"
+                        f"{stalled_note}; {speed_note} "
                         f"(threshold {FLEE_STALL_MIN_DECISIONS} decisions)"),
                 hint=hint,
             ))

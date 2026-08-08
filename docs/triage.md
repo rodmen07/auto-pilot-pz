@@ -235,7 +235,7 @@ named constants at the top of `triage_run_log.py`.
 | `[action streak]` | One action label held 40+ consecutive ticks within a session, counting only lines whose `(action, reason)` pair is not an expected persistent state (`sleep/asleep`, `busy/foreign_action`, `idle/no_action` — see `EXPECTED_PERSISTENT_STATES`). | `STREAK_MIN_TICKS = 40` |
 | `[flee/combat cycle]` | Combat re-entered 4+ times, each within 3 non-combat ticks of the previous fight ending (combat = `combat`/`fight`/`flee`). | `COMBAT_CYCLE_MIN_CYCLES = 4`, `COMBAT_CYCLE_MAX_GAP = 3` |
 | `[empty-loot spiral]` | 15+ scavenge ticks in a session while hunger or thirst still rose by 15+ points. | `LOOT_SPIRAL_MIN_SCAVENGE = 15`, `LOOT_SPIRAL_NEED_RISE = 15` |
-| `[flee stall]` | One combat **episode** (unbroken run of combat ticks) with 6+ flee decisions, at least one `evade_cooldown` tick, and **zero** `evade_running` ticks. Episode-scoped, not session-scoped. | `FLEE_STALL_MIN_DECISIONS = 6` |
+| `[flee stall]` | One combat **episode** (unbroken run of combat ticks) with 6+ flee decisions, at least one `evade_cooldown` **or** `evade_stalled` tick, and **zero** `evade_running` ticks. Episode-scoped, not session-scoped. | `FLEE_STALL_MIN_DECISIONS = 6` |
 
 What each one usually means:
 
@@ -278,15 +278,28 @@ What each one usually means:
     streaks, two healthy (25 and 24 `evade_running` ticks, x1) and one
     stalled (0, x11-x21). A session-scoped test would have reported
     nothing.
-  - **`evade_cooldown` must be present.** That cooldown is set only inside
-    `doFlee`'s success branch, so its absence means no walk was ever
-    queued — the separate, self-labelled `flee_blocked` (trapped)
-    condition, not a stall.
+  - **An `evade_cooldown` OR `evade_stalled` tick must be present.** Both
+    are written only after a walk was actually queued, so their joint
+    absence means no walk was ever queued — the separate, self-labelled
+    `flee_blocked` (trapped) condition, not a stall.
 
   It also sees what the streak detector cannot: the same log held a
   33-tick stalled episode at `run_tick` 3523-3555 (7 flee decisions, 0
   `evade_running`, x1) that never reached `STREAK_MIN_TICKS` and so was
   never reported at all.
+
+  **Reading a post-fix log.** That x1 episode is the one the stall fix
+  addresses: the mod now measures whether the escape walk actually moved
+  the character (`FLEE_PROGRESS_MIN`, 2 tiles) and, when it did not, pays
+  no cooldown, counts the stall, labels the tick `evade_stalled`, and
+  retries on a rotated bearing. So a **still-stalling** episode logged on
+  a build that carries the fix looks different: `flee_*` / `evade_stalled`
+  on a stride of 2, with **zero** `evade_cooldown` ticks. The detector
+  accepts that shape on purpose — a cooldown-only gate would have gone
+  silent on exactly the condition it exists to report, and a reader would
+  have seen a clean triage of a character that is still not escaping,
+  merely failing faster. When you see `evade_stalled` in a finding, the
+  cooldown is no longer the suspect: the destination is.
 
 Retired detector, recorded so it is not re-invented: `[zero-XP training]`
 (retired 2026-07-26) flagged 30+ training ticks with no STR/FIT level

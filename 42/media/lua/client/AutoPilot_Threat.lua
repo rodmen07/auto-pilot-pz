@@ -74,6 +74,7 @@ local FLEE_MOODLE_LIMIT     = AutoPilot_Constants.FLEE_MOODLE_LIMIT
 local FLEE_DISTANCE         = AutoPilot_Constants.FLEE_DISTANCE
 local FLEE_ESCAPE_ARC_MIN   = AutoPilot_Constants.FLEE_ESCAPE_ARC_MIN
 local FLEE_COOLDOWN_CYCLES  = AutoPilot_Constants.FLEE_COOLDOWN_CYCLES
+local FLEE_PROGRESS_MIN     = AutoPilot_Constants.FLEE_PROGRESS_MIN
 local WEAPON_FIGHT_COND_MIN = AutoPilot_Constants.WEAPON_FIGHT_CONDITION_MIN
 
 local WALK_SNAP_RADIUS      = AutoPilot_Constants.WALK_SNAP_RADIUS
@@ -83,6 +84,40 @@ local WALK_SNAP_RADIUS      = AutoPilot_Constants.WALK_SNAP_RADIUS
 -- _fleeCooldown: counts down (in eval cycles) after the walk completes.
 AutoPilot_Threat._fleeActive   = false
 AutoPilot_Threat._fleeCooldown = 0
+
+-- Escape-progress state (the flee-stall fix).
+-- _fleeOriginX/_fleeOriginY: the tile the character stood on when the current
+--   escape walk was queued, or nil when no flee is in flight.  Compared against
+--   the live position the moment that walk leaves the queue, which is the only
+--   way the mod can tell an escape that happened from one that did not.
+-- _fleeStalls: consecutive escapes that ended without covering
+--   FLEE_PROGRESS_MIN tiles.  Selects the rotation applied to the next escape
+--   vector, and is reset the moment one escape does move the character.
+AutoPilot_Threat._fleeOriginX  = nil
+AutoPilot_Threat._fleeOriginY  = nil
+AutoPilot_Threat._fleeStalls   = 0
+
+--- Drop every scrap of flee state in one place.  Three production call sites
+--- (no zombies, not engaged, forceFlee) used to repeat the same three
+--- assignments verbatim, which is exactly how a newly added field gets reset at
+--- two of them and quietly survives at the third.
+---
+--- PUBLIC on purpose, and that is the point rather than an afterthought: every
+--- Lua suite that drives this module resets the same fields by hand between
+--- cases, so before this seam existed the field list was written out in FIVE
+--- places (three here, plus tests/test_threat_logic.lua's `reset` and
+--- tests/test_walk_speed_gate.lua's `resetThreat`).  A test reset that misses a
+--- new field does not fail — it leaks state into the NEXT case and makes the
+--- suite order-dependent, which is the quietest way a green run can stop
+--- meaning anything.  One seam, one list.
+function AutoPilot_Threat.resetFleeState()
+    AutoPilot_Threat._engageActive = false
+    AutoPilot_Threat._fleeActive   = false
+    AutoPilot_Threat._fleeCooldown = 0
+    AutoPilot_Threat._fleeStalls   = 0
+    AutoPilot_Threat._fleeOriginX  = nil
+    AutoPilot_Threat._fleeOriginY  = nil
+end
 
 -- Engage state.  _engageActive is set by doFlee whenever it actually queues a
 -- walk, so an in-progress flee survives the next cycle instead of being cleared
@@ -98,6 +133,29 @@ AutoPilot_Threat._engageReason = "threat"
 -- sprint is preferred, but a blocked or unloaded destination must fall back to
 -- a shorter hop instead of abandoning the escape entirely.
 local FLEE_DISTANCE_FRACTIONS = { 1.0, 0.6, 0.3 }
+
+-- Escape-DIRECTION retry ladder, indexed by the consecutive-stall count.  The
+-- distance ladder above only ever shortens the SAME bearing, so when the
+-- straight-away direction is the thing that does not work -- a destination the
+-- pathfinder cannot reach, a wall, a fenced corner -- every rung of it fails
+-- the same way and the mod re-picks that bearing forever.  Rotating the escape
+-- vector gives the next attempt somewhere genuinely different to aim at.
+--
+-- Degrees, applied to the escape vector (which points AWAY from the threat).
+-- The ladder stops at +/-90 on purpose: a rotation beyond a right angle starts
+-- closing the distance to the zombie the vector was computed to open, and this
+-- mod must never walk a character toward a zombie (there is no B42 AI-attack
+-- API; see the module header).  Past the last rung the mod keeps retrying at
+-- +/-90 rather than escalating into the threat.
+local FLEE_STALL_ROTATIONS = { 0, 45, -45, 90, -90 }
+
+-- Rotate a 2-D vector by `deg` degrees.  Pure; magnitude preserved.
+local function _rotateVector(dx, dy, deg)
+    if deg == 0 then return dx, dy end
+    local rad = deg * math.pi / 180
+    local c, s = math.cos(rad), math.sin(rad)
+    return dx * c - dy * s, dx * s + dy * c
+end
 
 -- Stat thresholds that count as "negative" for the flee decision.
 -- Every threshold below is expressed on the 0.0-1.0 scale; `isNormalized=false`
@@ -314,10 +372,62 @@ local function _fleeDestination(player, zombies, escDx, escDy)
     return nil
 end
 
+-- Record where the character stands as an escape walk is queued, so the cycle
+-- that finds the walk gone can tell whether it actually moved anybody.
+-- Fail-open: if the position cannot be read the origin is cleared, and a
+-- missing origin counts as "progressed" (i.e. exactly the pre-fix behaviour).
+--
+-- Stored UNFLOORED, deliberately.  getX()/getY() are continuous world
+-- coordinates, so flooring only one side of the later subtraction compares a
+-- tile index against a position and smears the threshold by up to a whole tile
+-- in either direction -- on a 2-tile threshold that is a 50 percent error, and
+-- it would drift the boundary depending on where inside its tile the character
+-- happened to be standing.  Both sides raw, one subtraction, no unit mismatch.
+local function _markFleeOrigin(player)
+    local ok, x, y = pcall(function()
+        return player:getX(), player:getY()
+    end)
+    if ok and type(x) == "number" and type(y) == "number" then
+        AutoPilot_Threat._fleeOriginX = x
+        AutoPilot_Threat._fleeOriginY = y
+    else
+        AutoPilot_Threat._fleeOriginX = nil
+        AutoPilot_Threat._fleeOriginY = nil
+    end
+end
+
+-- True when the character has covered at least FLEE_PROGRESS_MIN tiles since
+-- the escape walk was queued.  Fail-open in both unreadable directions (no
+-- recorded origin, or a position that will not read), because reporting a stall
+-- that did not happen would skip a cooldown that is doing its job.
+local function _fleeProgressed(player)
+    local ox, oy = AutoPilot_Threat._fleeOriginX, AutoPilot_Threat._fleeOriginY
+    if not ox or not oy then return true end
+    local ok, dist2 = pcall(function()
+        local dx = player:getX() - ox
+        local dy = player:getY() - oy
+        return dx * dx + dy * dy
+    end)
+    if not ok or type(dist2) ~= "number" then return true end
+    return dist2 >= FLEE_PROGRESS_MIN * FLEE_PROGRESS_MIN
+end
+
 -- Flee along the escape arc, away from the zombie cluster.
 -- escDx/escDy: optional pre-computed unit escape vector; computed internally if nil.
 -- Returns true when a walk was actually queued.
 local function doFlee(player, zombies, escDx, escDy)
+    if not escDx then
+        escDx, escDy = analyzeSpread(player, zombies)
+    end
+
+    -- After a stalled escape, aim somewhere else.  Retrying the identical
+    -- bearing is what turned one unreachable destination into an unbounded
+    -- loop; the ladder is clamped at its last rung so a persistent stall keeps
+    -- trying sideways rather than escalating toward the threat.
+    local stalls   = AutoPilot_Threat._fleeStalls or 0
+    local rotation = FLEE_STALL_ROTATIONS[math.min(stalls, #FLEE_STALL_ROTATIONS - 1) + 1]
+    escDx, escDy   = _rotateVector(escDx, escDy, rotation)
+
     local destSq = _fleeDestination(player, zombies, escDx, escDy)
 
     if destSq then
@@ -333,6 +443,7 @@ local function doFlee(player, zombies, escDx, escDy)
         -- than queueing an action the engine has already decided to throw away.
         AutoPilot_Utils.prepareWalk("escape")
         AutoPilot_Utils.queueModAction(ISWalkToTimedAction:new(player, destSq))
+        _markFleeOrigin(player)
         AutoPilot_Threat._engageActive = true
         AutoPilot_Threat._fleeActive   = true
         AutoPilot_Threat._fleeCooldown = FLEE_COOLDOWN_CYCLES
@@ -391,9 +502,7 @@ end
 function AutoPilot_Threat.forceFlee(player)
     local zombies = AutoPilot_Threat.getNearbyZombies(player)
     if #zombies == 0 then return end
-    AutoPilot_Threat._engageActive = false
-    AutoPilot_Threat._fleeActive   = false
-    AutoPilot_Threat._fleeCooldown = 0
+    AutoPilot_Threat.resetFleeState()
     _clearOwnQueue(player)
     AutoPilot_Threat._engageReason = "flee_forced"
     doFlee(player, zombies)
@@ -456,9 +565,7 @@ function AutoPilot_Threat.check(player)
     local zombies = AutoPilot_Threat.getNearbyZombies(player)
 
     if #zombies == 0 then
-        AutoPilot_Threat._engageActive = false
-        AutoPilot_Threat._fleeActive   = false
-        AutoPilot_Threat._fleeCooldown = 0
+        AutoPilot_Threat.resetFleeState()
         return false
     end
 
@@ -488,9 +595,7 @@ function AutoPilot_Threat.check(player)
         end
     end
     if not engaged then
-        AutoPilot_Threat._engageActive = false
-        AutoPilot_Threat._fleeActive   = false
-        AutoPilot_Threat._fleeCooldown = 0
+        AutoPilot_Threat.resetFleeState()
         return false
     end
 
@@ -510,6 +615,35 @@ function AutoPilot_Threat.check(player)
         end
         AutoPilot_Threat._engageActive = false
         AutoPilot_Threat._fleeActive   = false
+
+        -- The escape walk is gone.  Did it move anybody?
+        --
+        -- FLEE_COOLDOWN_CYCLES is a POST-ARRIVAL buffer and was being paid
+        -- unconditionally, including after a walk that ended without the
+        -- character taking a step, so the mod stood still beside a zombie for
+        -- four cycles out of every five and re-aimed at the same destination
+        -- that had just failed (live: 33 ticks at x1, 7 flee decisions, 4
+        -- evade_cooldown ticks each, zero evade_running -- the loop ended only
+        -- because the zombie wandered off).  A stalled escape therefore pays no
+        -- cooldown, is counted so the next attempt rotates its bearing, and is
+        -- LABELLED so it is visible in the run log instead of hiding inside a
+        -- healthy-looking flee/cooldown rhythm.
+        if not _fleeProgressed(player) then
+            AutoPilot_Threat._fleeStalls  = (AutoPilot_Threat._fleeStalls or 0) + 1
+            AutoPilot_Threat._fleeCooldown = 0
+            AutoPilot_Threat._fleeOriginX  = nil
+            AutoPilot_Threat._fleeOriginY  = nil
+            AutoPilot_Threat._engageReason = "evade_stalled"
+            print("[Threat] Escape walk moved the character less than " ..
+                FLEE_PROGRESS_MIN .. " tiles (" ..
+                AutoPilot_Threat._fleeStalls ..
+                " in a row); retrying next cycle on a rotated bearing.")
+            return true
+        end
+
+        AutoPilot_Threat._fleeStalls  = 0
+        AutoPilot_Threat._fleeOriginX = nil
+        AutoPilot_Threat._fleeOriginY = nil
     end
 
     if AutoPilot_Threat._fleeCooldown > 0 then

@@ -92,10 +92,14 @@ local function reset()
     AutoPilot_Inventory._weaponCont = nil
     AutoPilot_Home._homeSet     = false
     -- V5.6 engage state is module-level; a leftover guard would make the next
-    -- case return early before it ever reaches a decision.
-    AutoPilot_Threat._engageActive = false
-    AutoPilot_Threat._fleeActive   = false
-    AutoPilot_Threat._fleeCooldown = 0
+    -- case return early before it ever reaches a decision.  The field list is
+    -- the production seam's, not a copy: this reset used to spell out three of
+    -- them by hand, and the flee-stall fix added three more (_fleeStalls,
+    -- _fleeOriginX, _fleeOriginY) that a hand-written list would have silently
+    -- leaked into the next case -- a stall counter surviving a reset rotates
+    -- the NEXT case's escape bearing, which makes the suite order-dependent
+    -- without failing anything.
+    AutoPilot_Threat.resetFleeState()
     AutoPilot_Threat._engageReason = "threat"
 end
 
@@ -815,8 +819,18 @@ do
     assert_eq("tick 2: a still-executing flee reports evade_running",
         engageReason(), "evade_running")
 
-    -- The walk completes: the queue drains, so isPlayerDoingAction goes false.
+    -- The walk completes: the queue drains, so isPlayerDoingAction goes false,
+    -- and the character is somewhere else, because it walked.  Moving the mock
+    -- is not decoration: since the flee-stall fix, an escape walk that ends
+    -- with the character still on its starting tile is a STALL and reports
+    -- evade_stalled instead (tests/test_flee_stall.lua owns that path).  This
+    -- test is about the label vocabulary on a HEALTHY lifecycle, so it now says
+    -- so with the position it already implied in prose.
     ISTimedActionQueue_calls = {}
+    -- 3 tiles: clear of FLEE_PROGRESS_MIN (2) and still inside the ring's
+    -- CLOSE_DANGER_RADIUS, so the engagement gate is unchanged by the move.
+    player.getX = function(_self) return 3 end
+    player.getY = function(_self) return 0 end
 
     -- Tick 3: the guard clears and the post-walk cooldown claims the cycle.
     assert_true("tick 3: check() returns true", AutoPilot_Threat.check(player))

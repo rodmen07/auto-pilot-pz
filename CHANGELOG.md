@@ -6,6 +6,30 @@ All notable changes to AutoPilot are documented here.
 
 ### Fixed
 
+- **AutoPilot no longer stands still next to a zombie at normal speed.** The post-escape pause was
+  being paid even when the escape had not happened. AutoPilot waits four evaluation cycles after a
+  flee walk finishes so it does not instantly re-flee on arrival — but nothing checked that the walk
+  had *moved* you. When a queued escape ended without your character taking a step (an unreachable
+  destination, a destination that resolved right next to you), those four cycles of silence were paid
+  anyway, and then the mod aimed at the same failed destination again. Measured live at normal speed:
+  33 unbroken combat ticks, seven escape attempts on a stride of exactly five, one zombie, and the
+  character never went anywhere — the loop ended only because the zombie wandered off. Endurance
+  moved 4 points; a real escape in the same session moved it 24.
+
+  AutoPilot now records where you stood when it queued the escape and compares it against where you
+  are when that walk leaves the queue. An escape that covered less than `FLEE_PROGRESS_MIN` (2 tiles)
+  pays no cooldown at all, so the retry comes on the next cycle instead of the fifth, and the retry
+  **aims somewhere else**: the escape bearing is rotated (0°, then ±45°, then ±90°) instead of merely
+  shortened, because the old distance ladder only ever re-tried the same direction, which is how one
+  unreachable destination became an unbounded loop. The rotation stops at a right angle on purpose —
+  past that it would start closing on the zombie, and this mod must never walk you toward one.
+
+  Stalls are labelled `evade_stalled` in the run log rather than hidden inside a healthy-looking
+  flee/cooldown rhythm, and `triage_run_log.py` reads that label, so a build that still cannot escape
+  reports itself instead of triaging clean. This is a different defect from the fast-forward one
+  below: that one is the engine discarding walks above speed index 2, and it cannot explain an
+  episode logged at x1.
+
 - **Every other thing AutoPilot walks to now works under fast-forward too, not just fleeing.** The
   flee fix below covered one of nine walk sites. At x20 and x40 the engine was still discarding the
   walk for **looting a container, drinking from a water source, refilling a water container, storing

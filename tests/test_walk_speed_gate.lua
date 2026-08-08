@@ -126,10 +126,11 @@ end
 
 -- Reset the flee state machine so each case starts from a fresh decision tick
 -- (otherwise _fleeCooldown from a previous case short-circuits check()).
+-- Routed through the production seam rather than assigning the fields here, so
+-- a field added to the state machine cannot be missed by this reset and leak
+-- into the next case (see AutoPilot_Threat.resetFleeState).
 local function resetThreat()
-    AutoPilot_Threat._engageActive = false
-    AutoPilot_Threat._fleeActive   = false
-    AutoPilot_Threat._fleeCooldown = 0
+    AutoPilot_Threat.resetFleeState()
     ISTimedActionQueue_calls = {}
 end
 
