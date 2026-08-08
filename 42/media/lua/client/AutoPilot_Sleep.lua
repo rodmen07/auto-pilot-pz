@@ -15,11 +15,19 @@ local print = _apNoop
 
 AutoPilot_Sleep = {}
 
+-- Re-queue debounce, a deadline on the GAME CALENDAR clock (see doSleep's read
+-- below).  2026-08-08: the two dispatch sites wrote a raw `ms + 15000`, i.e.
+-- 15 GAME seconds, shorter than one evaluation cycle (~18 game seconds at the
+-- default day length), so that guard had already expired every time doSleep
+-- next ran.  Both are sized from constants now and the floor is enforced by
+-- tests/test_game_clock_debounce.lua.
 local sleepCooldownMs = 0
 
 local BED_SEARCH_DIST   = AutoPilot_Constants.BED_SEARCH_DIST
 local BED_SEARCH_FLOORS = AutoPilot_Constants.BED_SEARCH_FLOORS
 local PAIN_SLEEP_THRESHOLD = AutoPilot_Constants.PAIN_SLEEP_THRESHOLD
+local SLEEP_RETRY_COOLDOWN_MS = AutoPilot_Constants.SLEEP_RETRY_COOLDOWN_MS
+local SLEEP_PAIN_COOLDOWN_MS  = AutoPilot_Constants.SLEEP_PAIN_COOLDOWN_MS
 
 local function getBedObjectOnSquare(sq)
     for i = 0, sq:getObjects():size() - 1 do
@@ -252,8 +260,15 @@ function AutoPilot_Sleep.doSleep(player)
         print("[Needs] Sleep blocked by pain (" .. tostring(painVal) .. "). Attempting medical/pain relief.")
         if AutoPilot_Sleep.relievePain(player) then return true end
         -- No treatment available; delay sleep attempts to avoid a busy loop.
-        sleepCooldownMs = ms + 60000
-        print("[Needs] No medical/painkiller available; delaying sleep for 60s.")
+        -- This branch queues NOTHING and returns false, so it never earns
+        -- _tickForPlayer's ACTION_COOLDOWN_CYCLES post_action window: this
+        -- deadline is the only thing between it and one pass per evaluation
+        -- cycle.  The old message said "60s", which reads as sixty REAL
+        -- seconds; the clock is the game calendar, so it is game seconds.
+        sleepCooldownMs = ms + SLEEP_PAIN_COOLDOWN_MS
+        print(("[Needs] No medical/painkiller available; delaying sleep for "
+            .. "%d game seconds."):format(
+            math.floor(SLEEP_PAIN_COOLDOWN_MS / 1000)))
         return false
     end
 
@@ -271,7 +286,7 @@ function AutoPilot_Sleep.doSleep(player)
             player:setVariable("ExerciseEnded", true)
             ISWorldObjectContextMenu.onSleepWalkToComplete(player:getPlayerNum(), nil)
             print("[Needs] Sleeping in vehicle (no bed found).")
-            sleepCooldownMs = ms + 15000
+            sleepCooldownMs = ms + SLEEP_RETRY_COOLDOWN_MS
             return true
         end
         -- Forcing sleep via setAsleep is client-only; the server never learns of
@@ -313,6 +328,6 @@ function AutoPilot_Sleep.doSleep(player)
         end
     end
 
-    sleepCooldownMs = ms + 15000
+    sleepCooldownMs = ms + SLEEP_RETRY_COOLDOWN_MS
     return true
 end

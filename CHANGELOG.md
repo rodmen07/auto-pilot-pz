@@ -6,6 +6,23 @@ All notable changes to AutoPilot are documented here.
 
 ### Fixed
 
+- **Four "don't do that again so soon" timers were too short to ever do anything.** AutoPilot spaces
+  out repeated actions by parking a deadline on the *in-game* calendar — the same clock that runs
+  about twenty-four times faster than real time at the default one-hour day length. Four of those
+  deadlines were written as if that clock were a wall clock: 8 and 5 seconds between drinks, 15
+  seconds between sleep attempts. AutoPilot only looks at your character about every 18 in-game
+  seconds, so each of those had already expired by the time the code holding it next ran. They were
+  not short, they were unreachable — no test that exercised those modules could tell the difference,
+  which is why they survived a dedicated clock audit that filed two of them and missed the third.
+
+  Every such deadline is now a named value sized to outlast a full decision cycle, and the fifth one
+  is honest about its units: the pain-blocked sleep back-off printed "delaying sleep for 60s", which
+  reads as a minute of real time and was about two and a half real seconds.
+
+  A new test (`tests/test_game_clock_debounce.lua`) enforces the floor and bans raw numbers in that
+  arithmetic, so a sixth one cannot land quietly. Nothing here changes what AutoPilot decides, only
+  how long it waits before reconsidering the same decision.
+
 - **AutoPilot now thinks as often as it was designed to at in-between game speeds.** The mod decides
   on a counter that advances by the game-speed multiplier, and it reset that counter to zero every
   time it fired — throwing away whatever had accumulated past the threshold. At the speeds where the

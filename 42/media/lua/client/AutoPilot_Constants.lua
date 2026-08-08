@@ -298,6 +298,64 @@ AutoPilot_Constants.ACTION_COOLDOWN_CYCLES = 4
 -- 14 cycles * 15 ticks * (1 s / 20 ticks) = 10.5 s between state snapshots.
 AutoPilot_Constants.STATE_WRITE_INTERVAL = 14
 
+-- Game-clock debounce floor (2026-08-08) ------------------------------------
+-- ONE evaluation cycle expressed in GAME-CALENDAR milliseconds, i.e. on the
+-- getGameTime():getCalender():getTimeInMillis() clock that every re-queue
+-- guard in this mod compares against.  Derivation, and the two things it is
+-- and is not invariant under:
+--
+--   TICK_INTERVAL 15 ticks / ~20 ticks per REAL second   = 0.75 s REAL,
+--   and the calendar advances ~24x real at the DEFAULT 1-hour day length,
+--   so 0.75 * 24 = 18 GAME seconds per evaluation.
+--
+--   INVARIANT under fast-forward: the cadence counter advances by the game
+--   speed multiplier (FF-1), so a cycle is the same amount of GAME time at
+--   every speed up to the once-per-frame saturation ceiling.
+--   NOT INVARIANT under the Day Length sandbox option: it scales this number
+--   directly (a 15-minute day is ~96x real, so a cycle is ~72 game seconds).
+--
+-- WHY THIS EXISTS: a deadline shorter than one cycle has already expired by
+-- the time the code that reads it next runs, so it is unreachable rather than
+-- short.  This mod shipped four such deadlines (V5.4's rest hold, fixed then;
+-- the two drink guards and the two sleep-retry guards, fixed 2026-08-08).
+-- tests/test_game_clock_debounce.lua enforces the floor and forbids raw
+-- literals in game-clock deadline arithmetic so a fifth cannot land quietly.
+AutoPilot_Constants.EVAL_CYCLE_GAME_MS = 18000
+
+-- The value every re-queue debounce below is sized at: the same window
+-- _tickForPlayer already enforces after ANY successful decision
+-- (ACTION_COOLDOWN_CYCLES cycles of "post_action" suppression), expressed on
+-- the game calendar.  Sizing a per-module debounce SHORTER than this makes it
+-- unreachable at the default day length, because the global window outlives
+-- it; sizing it here makes each module keep that same protection at day
+-- lengths where the global window shrinks in game time.
+AutoPilot_Constants.GAME_DEBOUNCE_MIN_MS =
+    AutoPilot_Constants.ACTION_COOLDOWN_CYCLES
+    * AutoPilot_Constants.EVAL_CYCLE_GAME_MS
+
+-- Re-drink debounce (game ms).  Was a raw `ms + 8000` (water source) and
+-- `ms + 5000` (inventory): 8 and 5 GAME seconds, both under one cycle, so
+-- neither guard could ever be true when doDrink next ran.
+AutoPilot_Constants.DRINK_COOLDOWN_MS = AutoPilot_Constants.GAME_DEBOUNCE_MIN_MS
+
+-- Re-queue debounce after a bed/vehicle sleep is dispatched (game ms).  Was a
+-- raw `ms + 15000`, i.e. 15 GAME seconds, under one cycle.
+AutoPilot_Constants.SLEEP_RETRY_COOLDOWN_MS =
+    AutoPilot_Constants.GAME_DEBOUNCE_MIN_MS
+
+-- Back-off after sleep is refused by pain with no medical relief available
+-- (game ms).  Was a raw `ms + 60000` printed to console as "60s", which reads
+-- as sixty REAL seconds and is ~2.5 real seconds at the default day length.
+-- This branch queues NO action, so it never earns the post_action window and
+-- this deadline is the only thing between it and a per-cycle print loop.
+AutoPilot_Constants.SLEEP_PAIN_COOLDOWN_MS =
+    AutoPilot_Constants.GAME_DEBOUNCE_MIN_MS
+
+-- Throttle for the "endurance under the gate" console line (game ms).  Was a
+-- raw `ms + 30000`; already above the floor, named here so the debounce guard
+-- has no raw-literal exception to carve out.
+AutoPilot_Constants.EXERCISE_WAIT_LOG_MS = 30000
+
 -- Exercise set duration sent to ISFitnessAction (game minutes).
 AutoPilot_Constants.EXERCISE_MINUTES = 20
 
