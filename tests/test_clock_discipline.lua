@@ -10,16 +10,24 @@
 --                                                   in-game calendar epoch ms
 --                                                   (July 1993, advances ~24x
 --                                                   real at the default 1-hour
---                                                   day length, 5/20/40x more
---                                                   under fast-forward, and
---                                                   JUMPS ~8 hours on sleep)
+--                                                   day length, up to ~100x
+--                                                   more under fast-forward
+--                                                   (an arbitrary integer
+--                                                   multiplier, not 5/20/40 --
+--                                                   corrected 2026-08-08 from
+--                                                   the run log's speed field),
+--                                                   and JUMPS ~8 hours on sleep)
 --
 -- A duration constant written against the wrong clock is not slightly wrong,
 -- it is ~24x wrong at 1x speed and ~1000x wrong at 40x fast-forward.  This
 -- repo's shipped instances of the class:
 --
---   * FF-1 (fixed PR #70): the decision cadence counted real frames, so the
---     mod made 5-40x fewer decisions per unit of GAME time under fast-forward.
+--   * FF-1 (fixed PR #70, completed 2026-08-08): the decision cadence counted
+--     real frames, so the mod made multiplier-times fewer decisions per unit of
+--     GAME time under fast-forward.  PR #70 scaled the counter by the
+--     multiplier but ZEROED it on each fire, discarding the remainder, so the
+--     fix only ever held at multipliers dividing TICK_INTERVAL (1x and 5x --
+--     exactly the two the FF-1 test covered).  The remainder is now carried.
 --   * FF-4 (fixed PR #109): the XP/hr window measured real ms, so the F11
 --     rate and ETA inflated with game speed.
 --   * V5.4 (fixed in AutoPilot_Rest): the rest hold was `ms + 60000` against
@@ -166,7 +174,11 @@ local CLASSIFICATION = {
             .. "here and the FF investigation REFUTED the false-skip "
             .. "hypothesis (2026-07-24 record)",
         MULTIPLIER = "FF-1 fix: tickCounter advances by game speed so the "
-            .. "decision cadence tracks game time",
+            .. "decision cadence tracks game time -- EXACTLY at or below "
+            .. "TICK_INTERVAL (the 2026-08-08 carry fix removed the discarded "
+            .. "remainder that broke every non-divisor multiplier), and "
+            .. "SATURATED above it, where OnTick's once-per-frame ceiling makes "
+            .. "the shortfall an engine limit rather than a clock bug",
     },
     ["AutoPilot_Media.lua"] = {
         GAME_CAL_MS = "queue cooldown + stall backoff, documented as game "

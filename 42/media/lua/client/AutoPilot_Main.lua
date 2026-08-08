@@ -447,19 +447,41 @@ local function onTick()
     end
 
     -- FF-1 (2026-07-24): advance the cadence by the game-speed MULTIPLIER, not a
-    -- flat 1, so evaluations stay roughly constant per unit of GAME time at any
-    -- speed.  Fast-forward is getGameTime():setMultiplier(5/20/40); OnTick still
-    -- fires at ~20/s REAL, so a flat "+1 per frame, decide every 15 frames" made
-    -- decisions every ~0.75 s REAL = up to ~30 s of GAME time at 40x, leaving the
-    -- character unmonitored across long game windows.  Mirrors the engine idiom
-    -- (ISAnimalTracksFinder decrements its counter by getMultiplier() per tick).
-    -- mult defaults to 1, so normal (1x) speed is byte-for-byte unchanged.
+    -- flat 1, so evaluations track GAME time instead of real frames.  OnTick
+    -- fires at ~20/s REAL whatever the speed, so a flat "+1 per frame, decide
+    -- every 15 frames" made decisions every ~0.75 s REAL = many times that in
+    -- GAME time under fast-forward, leaving the character unmonitored across
+    -- long game windows.  Mirrors the engine idiom (ISAnimalTracksFinder
+    -- decrements its counter by getMultiplier() per tick).  mult defaults to 1,
+    -- so normal (1x) speed is byte-for-byte unchanged.
+    --
+    -- The multiplier is an ARBITRARY POSITIVE INTEGER, not one of 5/20/40 (this
+    -- comment claimed 5/20/40 until 2026-08-08; auto_pilot_run.log's own `speed`
+    -- field falsifies it -- 1, 4, 9..20, 23, 30..33, 80 and 100 all appear in
+    -- one 11.7k-tick capture).  Both lines below exist because of that.
     local mult = 1
     pcall(function() mult = getGameTime():getMultiplier() end)
     if type(mult) ~= "number" or mult < 1 then mult = 1 end
+    local interval = tonumber(TICK_INTERVAL) or 15
     st.tickCounter = (tonumber(st.tickCounter) or 0) + mult
-    if st.tickCounter < (tonumber(TICK_INTERVAL) or 15) then return end
-    st.tickCounter = 0
+    if st.tickCounter < interval then return end
+
+    -- CARRY the remainder (2026-08-08).  This was `= 0`, which discarded up to
+    -- mult-1 units of already-counted game time on EVERY evaluation, so any
+    -- multiplier that does not divide `interval` sampled slower than designed:
+    -- at the x11 the run log records, the counter had to reach 22 before firing,
+    -- i.e. one evaluation per 22 units of game time instead of per 15 -- a 47%
+    -- under-sample that x1 and x5 (both exact divisors) could never expose.
+    st.tickCounter = st.tickCounter - interval
+
+    -- ...and BOUND that carry at one interval.  OnTick fires at most once per
+    -- frame, so a multiplier above `interval` CANNOT be kept up with: the
+    -- cadence saturates at one evaluation per frame and the surplus is a debt
+    -- that can never be paid (at the observed x100 the mod samples every 100
+    -- units of game time against the 15 it is designed for).  Without this cap
+    -- that debt would grow for as long as fast-forward lasts and then burst
+    -- into an evaluation every frame once the player drops back to 1x.
+    if st.tickCounter > interval then st.tickCounter = interval end
 
     -- Stale-closure guard: dead upvalues mean this copy must retire quietly.
     if not (_getLocalPlayer and _initPlayer and _tickForPlayer

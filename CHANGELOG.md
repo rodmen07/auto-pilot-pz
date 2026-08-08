@@ -6,6 +6,23 @@ All notable changes to AutoPilot are documented here.
 
 ### Fixed
 
+- **AutoPilot now thinks as often as it was designed to at in-between game speeds.** The mod decides
+  on a counter that advances by the game-speed multiplier, and it reset that counter to zero every
+  time it fired — throwing away whatever had accumulated past the threshold. At the speeds where the
+  multiplier divides the threshold evenly (1x, and 5x) nothing was ever thrown away, which is why
+  this went unnoticed; at every other speed the mod waited longer than it should have. At the x11 in
+  a real session log it needed 22 counts to reach a 15-count gate, so it looked at your character
+  once per 22 units of game time instead of once per 15 — it made **a third fewer decisions than
+  intended** while a zombie was chasing you. The remainder is now carried into the next cycle, so the
+  decision rate matches the design at every multiplier.
+
+  The carry is capped at one interval on purpose. Above the threshold the mod is already deciding on
+  every single frame, which is as fast as the game lets it think — real sessions record speeds of
+  x80 and x100, where it necessarily looks at your character far less often per unit of game time
+  than it does at 1x. That shortfall is a ceiling, not a backlog, so the mod no longer banks it:
+  without the cap, dropping back to 1x after a long fast-forward would have made AutoPilot re-decide
+  on every frame for several seconds to "catch up".
+
 - **AutoPilot no longer stands still next to a zombie at normal speed.** The post-escape pause was
   being paid even when the escape had not happened. AutoPilot waits four evaluation cycles after a
   flee walk finishes so it does not instantly re-flee on arrival — but nothing checked that the walk
