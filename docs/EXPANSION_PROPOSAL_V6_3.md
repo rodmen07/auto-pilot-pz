@@ -276,8 +276,10 @@ in-game session's shopping list reads in one place:
 ## 7. What this proposal deliberately does not contain
 
 No new modules; no revival of the V3.1-deleted modules or barricading (standing non-goals);
-no combat (B42 exposes no attack API — flee-only stands); no Workshop action (USER-ONLY,
-permanently); no tuning changes that a session measurement should drive (that is V6.2-C3's
+no combat (B42 exposes no attack API — flee-only stands); no Workshop action (superseded wording,
+quoted where it stood: *"no Workshop action (USER-ONLY, permanently)"* — the permission was widened
+2026-08-08; a proposal ships no release regardless, so this non-goal stands on scope); no tuning
+changes that a session measurement should drive (that is V6.2-C3's
 lane). The identity question the revival left open ("what makes this mod different") is not
 re-litigated here: V6.3 hardens the leveler-plus-survival identity the V6.x line has been
 shipping, and a bigger identity swing stays the user's call to initiate.

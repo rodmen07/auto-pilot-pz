@@ -79,7 +79,7 @@ All of V2.1 through V3.3 shipped on 2026-07-18; `CHANGELOG.md` is the authoritat
 
 ### Shipped 2026-07-24 to 2026-07-25 (revival: in-game bug hardening)
 
-The project was revived on 2026-07-24 and the user ran an in-game smoke test that surfaced five issues plus a fast-forward spot check. These landed as targeted fixes on `main`, UNVERSIONED (the Workshop update is USER-ONLY; the version bump stopped being so on 2026-07-26, corrected here 2026-08-01); every non-test change carries "Needs in-game smoke test before Workshop update." Full per-change detail is in `CHANGELOG.md`'s `[Unreleased]` section and the AutoPilot backlog `## Bugs`:
+The project was revived on 2026-07-24 and the user ran an in-game smoke test that surfaced five issues plus a fast-forward spot check. These landed as targeted fixes on `main`, UNVERSIONED at the time (superseded wording, quoted where it stood: *"the Workshop update is USER-ONLY; the version bump stopped being so on 2026-07-26, corrected here 2026-08-01"* — the Workshop half stopped being USER-ONLY on 2026-08-08, see "User-only (standing)"; the range itself was subsequently versioned as `v0.2.0`); every non-test change carries "Needs in-game smoke test before Workshop update." Full per-change detail is in `CHANGELOG.md`'s `[Unreleased]` section and the AutoPilot backlog `## Bugs`:
 
 - **#67 (`0b45024`) — sleep pain gate (HIGH, user-reported):** the fatigue→sleep branch in `AutoPilot_Needs.check()` was terminal, so a sore or in-pain character queued a sleep the engine refuses ("too much pain to sleep") and addressed no other need. `AutoPilot_Sleep.canSleepNow` now mirrors the engine gate (pain MOODLE ≥2 with fatigue ≤0.85, panic, nearby zombies, sleeping-tablet bypass); the branch is taken only when sleep will proceed, else it records a `fail_reason`, tries one pain remedy, and falls through to lower needs (also fixes the LOW telemetry-blindness bug 4).
 - **#68 (`6003365`) — dead Unhappy relief clause (MED):** a 0-4 moodle was compared against a 0-100 threshold, so unhappiness relief never fired; revived with a non-vacuous regression test (the prior test asserted against the constant's own impossible value).
@@ -108,7 +108,11 @@ Added 2026-08-07 by a Product roadmap truth audit: this file previously ended it
   on 2026-08-01 when the user's in-game smoke test came back; release prep (CHANGELOG backfill plus
   the version bump across the four sync-guarded points) shipped as a normal PR, then the tag push and
   the GitHub release followed under the 2026-07-26 delegation. The Workshop upload that may follow
-  remains USER-ONLY and is a separate act.
+  is still a separate act, and it has **not** happened: players installing from the Workshop are
+  running whatever was uploaded by hand last, not `v0.2.0`. (Superseded wording, quoted where it
+  stood and true when written: *"The Workshop upload that may follow remains USER-ONLY and is a
+  separate act."* The USER-ONLY half was lifted 2026-08-08; see "User-only (standing)" below for
+  what replaced it and why the outcome for the upload half is nevertheless the same.)
 - **V6.2 COMPLETE (`docs/EXPANSION_PROPOSAL_V6_2.md`):** **C1** moodle-aligned hunger/thirst triggers
   (PR #108) and **C2** multiplier-honest XP/hr, closing FF-4 (PR #109). **C3** stays session-gated on
   the outstanding V6.1-1 exercise-share measurement, default WAIT.
@@ -176,7 +180,7 @@ V3.4 through V3.7, V4.0 through V4.9, and V5.0 through V5.8 are all complete —
 Build 42.20 was announced as the stable candidate on 2026-07-09, and 42.19 saves will not carry over, so the migration moment is a real event that deserves a script. **Preparation is done:** [docs/b42_20_checklist.md](docs/b42_20_checklist.md) exists, built from `tests/lua_mock_pz.lua`'s continuously-maintained verified-API-surface header rather than a fresh enumeration (a second list of the same surfaces would itself drift), and names the five surfaces with a prior history of breaking (`ISFitnessAction:new`, `ISTimedActionQueue.addGetUpAndThen`, `ISRestAction:new`, `PZAPI.ModOptions` load-time availability, `addComboBox`) as the priority re-verification order.
 
 - BLOCKED (execution): do not run the checklist until Build 42.20 is the Steam default AND the user explicitly decides to migrate.
-- USER-ONLY: the migration decision, all in-game verification, and the Workshop "Update Item" upload.
+- USER-ONLY: the migration decision and all in-game verification. (Superseded wording, quoted where it stood: *"USER-ONLY: the migration decision, all in-game verification, and the Workshop "Update Item" upload."* The upload's USER-ONLY marker was lifted 2026-08-08; it stays the user's act here only because it has no CLI path, which is a capability limit rather than a permission — see "User-only (standing)".)
 - **Done when (preparation):** DONE — the checklist file exists and covers every API surface `tests/lua_mock_pz.lua` enumerates; execution has its own gate above.
 
 ## Next milestones
@@ -190,6 +194,9 @@ Build 42.20 was announced as the stable candidate on 2026-07-09, and 42.19 saves
 - **V6.2 DECIDED 2026-08-01 (approved with defaults, decision walkthrough): `docs/EXPANSION_PROPOSAL_V6_2.md`.** Disposition: **C1** moodle-aligned hunger/thirst triggers **SHIPPED 2026-08-04 as PR #108** (the stashed WIP it revived, `stash@{0}` on `73f3a32`, is superseded and its drop-or-keep question is an open USER item in the backlog per default D4); **C2** the FF-4 fix (honest XP/hr under fast-forward, display-only, sole consumer `AutoPilot_UI.lua:218` re-verified) **SHIPPED 2026-08-04** (multiplier-scaled rate window in `AutoPilot_XP`, behaviour-difference suite `tests/test_xp_rate_multiplier.lua`); **C3** V6.1 option (b) rest-hold decoupling stays SESSION-GATED on the open exercise-share measurement with default WAIT. The v0.2.0 release question is deliberately not part of it.
 - **V6.3 PROPOSED 2026-08-07, AWAITING USER DECISION: `docs/EXPANSION_PROPOSAL_V6_3.md`.** Three session-independent candidates, every choice carrying an overridable default so "approve with defaults" is a complete answer: **C1** generic exercise discovery (the surviving form of withdrawn V6-C3, recorded by PR #79's audit — derive the auto pool from `FitnessExercises.exercisesType` by xpMod with the both-stats burpees promotion preserving today's exact vanilla ordering; unknown/modded exercises join auto only); **C2** the Stress/Discomfort product answer, **REWRITTEN by the 2026-08-07 resume audit before the PR was opened**: the draft's "both are non-goals, neither has a Lua-visible relief action" was FALSE for Stress and is preserved verbatim in the doc's section 3.1 as a tombstone. A second-layer search (`media/scripts`, which the draft never looked at) found 301 vanilla item entries carrying a negative `StressChange` — 259 literature, 28 food, 12 beverage fluids, 2 tobacco drainables — every one delivered by an action the mod already queues (`ISReadABook` at `AutoPilot_Mood.lua:157`, `ISEatFoodAction` at four sites), while the mod already reads the stat at `AutoPilot_Threat.lua:132` and never acts on it. Corrected shape: **D4** ship the stress trigger on the existing read arm, **D5** defer magnitude ranking because `getStressChange` has zero Lua call sites in 42.19 and is therefore not a verified surface, **D6** document Discomfort as the genuine limitation (still exactly one Lua hit, a debug slider) with its indirect lever named (`DiscomfortModifier` on clothing, `VehicleDiscomfortWhenOverEncumbered`, and `StressFromDiscomfort` feeding stress) plus a both-layers 42.20 re-check line in `docs/b42_20_checklist.md`, **D7** no tobacco by default; **C3** the Q2 poison-knowledge fork asked explicitly (**D8**, renumbered from D5 by that audit; default: keep the direct `getPoisonPower` read, which vanilla itself uses at `ISInventoryPane.lua:2094,2097`; "respect knowledge" flips it at the recorded cost). Session-gated work (V6.2-C3 rest-hold decouple, the V6.1-1 share measurement, the smoke-test shopping list, and the new one-line `getStressChange` print) is deliberately NOT in it.
 - **`docs/EXPANSION_PROPOSAL_V6.md` drafted 2026-07-20, AUDITED 2026-07-25, DECIDED 2026-07-26 (C2 approved, C1 replaced, C3 withdrawn)**: it offered three; a Product-role truth audit on 2026-07-25 re-verified every premise against the live install and the current code, and **C3 (exercise equipment variety) is WITHDRAWN**. C3 was gated on a "user-only" lookup of `FitnessExercises.exercisesType` that turned out to be one shell read of the install: `shared/Definitions/FitnessExercises.lua` defines exactly seven exercises (`squats`, `pushups`, `situp`, `burpees`, `barbellcurl`, `dumbbellpress`, `bicepscurl`) and the mod's auto pool already uses all seven, including all three equipment ones, so there is no variety to add. **C2 (decision-reason visibility) re-verified unchanged and still implementable**; **C1 (sickness-aware gating) still recommended but must not be implemented as drafted**: its "sickness < ~40" default assumed a 0-100 stat while two independent engine signals say `CharacterStat.SICKNESS` is 0.0-1.0, so it would have shipped a gate that can never fire, and food poisoning lives in the separate `CharacterStat.FOOD_SICKNESS` the mod never reads. The audit also found two of the proposal's own evidence bullets false (one false when written) and left every open question with an overridable default. **The Decision section is now marked (2026-07-26): C2 approved and carried into V6.0-3; C1 replaced rather than implemented, so its "sickness < 40" body describes work that will never ship, and the sickness-scale question it opened stays open and harmless. Implementation follows `docs/MILESTONE_V6_0.md`, not this proposal.**
+- **RELEASE v0.2.1 — NAMED 2026-08-08 by the publishing-fence product audit, not yet prepped or cut.** Naming it is what this audit unblocked: the merge policy will not cut a release the roadmap or backlog does not name, and the reason nobody had named one was a fence that had already been lifted. The measurement, taken live at `f250867`: **19 commits have merged since `v0.2.0` was cut on 2026-08-05**, and 12 shipped client Lua modules changed among them (`git diff --stat v0.2.0..origin/main -- 42/media/lua/` = 12 files, +353/-23). Four of those are user-visible behaviour fixes, all in the evade/flee path the user's own in-game report opened: PR #120 (flee walks discarded above game-speed index 2), #122 (every walk site clamps game speed, not just the flee path), #123 (an escape that moved nobody no longer buys a cooldown), #129 (the decision cadence no longer discards its remainder). `CHANGELOG.md`'s `[Unreleased]` already describes them, so release prep is a version bump across the four sync-guarded points plus the section rename.
+  **Done when** (each checkable by command, not by opinion): `mod.info` and `42/mod.info` both read `0.2.1` and `tests/test_version_sync.py` is green; `CHANGELOG.md` carries a dated `[0.2.1]` section and `ci.yml`'s Changelog guard passes; the tag exists and `release.yml`'s tag-push path completed green; `tests/test_roadmap_truth.py` passes with this file's tag claim updated in the same commit.
+  **What it deliberately does NOT include:** the Workshop upload. That is a separate act with no CLI path (see "User-only (standing)"), so cutting v0.2.1 still reaches nobody who installs from the Workshop — the honest statement this audit exists to make, rather than leaving it implied by a retired fence.
 - V3.8 execution, once unblocked (see above).
 
 ---
@@ -236,14 +243,34 @@ The 2026-06-04 GCP/Fly infra decommission blocks nothing here: this mod has no c
 
 These are never agent work:
 
-- Steam Workshop "Update Item" uploads and `sync_workshop.sh` runs.
 - In-game smoke and soak tests (all playtesting).
 - Reading and answering Workshop comments; deciding which reports become GitHub issues.
 - The B42.20 migration decision.
 
 (Removed from this list 2026-07-26: "Version bumps, releases, and tag pushes" — delegated by
-the same-day user decision recorded in the autodev SKILL.md's Merges-and-releases section.
-Only the Workshop upload that may follow a release remains user-only.)
+the same-day user decision recorded in the autodev SKILL.md's Merges-and-releases section.)
+
+**Removed from this list 2026-08-08 by a product truth audit.** Superseded wording, quoted verbatim where it stood: *"- Steam Workshop "Update Item" uploads and `sync_workshop.sh` runs."*
+The user widened publishing across every project on
+2026-08-08 and the decision names this project's Workshop uploads explicitly, `sync_workshop.sh`
+included; the autodev SKILL.md now reads *"ALL PUBLISHING IS DELEGATED ... Tags, GitHub releases,
+crates.io publishes, npm publishes, and Steam Workshop uploads including `sync_workshop.sh` are all
+in scope without asking. This SUPERSEDES the prior list, which held Workshop uploads user-only
+permanently."* Nine documents in this repo still asserted the old fence, several of them in
+sections that GATE work; they were corrected in the same edit.
+
+**The permission fence is gone. A different boundary is not, and conflating the two is what this
+audit actually found.** Publishing to the Workshop is two acts, and this list had fused them:
+
+| Act | Permission | Can the agent perform it? |
+|---|---|---|
+| `./sync_workshop.sh` — refresh the local staging folder | Delegated 2026-08-08 | **Yes.** Verified by reading the script: it is a pure local file copy into `~/Zomboid/Workshop/AutoPilotLeveler` plus an in-place version-line rewrite of `workshop.txt`. It performs no upload and touches no network — `grep -nE 'curl\|wget\|nc \|ssh\|http' sync_workshop.sh` returns only a comment and the `description=` URL string. |
+| The "Update Item" upload itself | Delegated 2026-08-08 | **No — for a mechanical reason, not a policy one.** There is no CLI path. The upload is a Project Zomboid main-menu flow (*Workshop → Create/Update Item*), and this repo contains no upload mechanism of any kind: `grep -rniIE 'steamcmd\|workshop_build_item\|workshop_upload\|publishedfileid\|ISteamUGC\|steam_api'` over the whole tree, `.git` excluded, returns **zero hits**. `sync_workshop.sh` ends by printing `Remember to re-upload: PZ Main Menu -> Workshop -> Create/Update Item.` |
+
+So the practical answer for the upload half is unchanged, but the REASON is now recorded correctly,
+and it decays differently: a rule that is lifted stays lifted, whereas a missing capability is
+falsified the day someone adds `steamcmd`. `tests/test_workshop_boundary.py` binds the capability
+claim to the tree so that day cannot pass silently.
 
 ---
 

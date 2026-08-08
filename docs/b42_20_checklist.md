@@ -102,8 +102,13 @@ runs (agent or human) read first, per its own stated purpose.
    file's own title still reads "V3.3" (last retitled in the V3.5 docs pass);
    retitling it to the current version is a separate small hygiene item, not
    part of this checklist, filed in the AutoPilot backlog.
-4. USER-ONLY: Workshop tag/description update and "Update Item" upload via
-   `sync_workshop.sh`.
+4. Workshop tag/description update and "Update Item" upload. `./sync_workshop.sh`
+   is agent-doable (it only refreshes the local staging folder); the "Update
+   Item" upload itself is the user's, because it is an in-game main-menu flow
+   with no CLI path — see `ROADMAP.md` "User-only (standing)". (Superseded
+   wording, quoted where it stood: *"USER-ONLY: Workshop tag/description update
+   and "Update Item" upload via `sync_workshop.sh`."* The USER-ONLY marker was
+   lifted 2026-08-08.)
 
 ## Done when
 
@@ -111,5 +116,9 @@ runs (agent or human) read first, per its own stated purpose.
 `[MA]`/`[M]`/`[S]` API surface `tests/lua_mock_pz.lua` currently enumerates,
 by procedure rather than by duplicating the list.
 
-**Execution** (USER-ONLY, blocked): Build 42.20 is the Steam default branch
+**Execution** (USER-GATED, blocked): Build 42.20 is the Steam default branch
 AND the user has explicitly decided to migrate. See `ROADMAP.md` "Blocked".
+The gate is the migration DECISION and the in-game verification it needs, both
+of which are genuinely the user's; it is no longer the Workshop upload, whose
+USER-ONLY marker was lifted 2026-08-08 (superseded wording, quoted where it
+stood: *"**Execution** (USER-ONLY, blocked)"*).

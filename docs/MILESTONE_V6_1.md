@@ -107,7 +107,11 @@ reason recorded, luacheck 0/0, suites green.
 - No Stress or Discomfort relief action: 42.19 exposes no Lua-visible path for either
   (established by PR #83's follow-up). That gap needs a product answer, not a code slice.
 - No change to the V6.0 malus ranking, the carry-capacity gate, or the ownership registry.
-- No Workshop action of any kind (USER-ONLY, permanently).
+- No Workshop action of any kind. (Superseded wording, quoted where it stood: *"No Workshop action
+  of any kind (USER-ONLY, permanently)."* The "USER-ONLY, permanently" clause was falsified on
+  2026-08-08 when the user widened publishing across every project, `sync_workshop.sh` named
+  explicitly. This stays a V6.1 non-goal on SCOPE grounds — a milestone about endurance tuning does
+  not ship a release — not on permission grounds. See `ROADMAP.md` "User-only (standing)".)
 
 ## 4. What only the user can settle
 
