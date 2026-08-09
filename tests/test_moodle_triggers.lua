@@ -236,6 +236,59 @@ do
         last and last.type, "exercise")
 end
 
+-- ── 5. Precedence: the thirst trigger LOSES to a sleepable fatigue ───────────
+-- Behavioral pin for the sleep-above-thirst precedence (backlog follow-up
+-- opened 2026-08-08 by PR #141).  test_priority_logic.lua Test 4 stages thirst
+-- at 0.05, so it proves the sleep path is ENTERED, never that sleep WINS a
+-- live contest; test_priority_chain_truth.py binds the PROSE to the source
+-- order, so a reorder that also updates the prose ships as "documented".
+-- This case stages BOTH needs above their thresholds with canSleepNow true
+-- (PAIN and PANIC moodles default to 0), so the sleep branch is TERMINAL —
+-- doSleep's result is returned even though the mock cell has no bed — and a
+-- regression that moves the fatigue gate below the thirst trigger fails HERE
+-- on the CODE, whatever the prose says.  It lives in this suite rather than
+-- growing test_priority_logic.lua back over the 1000-line C10 threshold six
+-- code-health slices just got it under; the thirst trigger under contest is
+-- this suite's subject.
+print("\n-- Test 6: fatigue and thirst both live -> sleep wins the contest")
+do
+    reset()
+    -- A drink IS available, so if the thirst branch were reached it would act.
+    AutoPilot_Inventory.getBestDrink = function(_player)
+        return { getName = function() return "WaterBottle" end }
+    end
+    local p = MockPlayer.new({
+        stats = {
+            HUNGER    = 0.02,
+            THIRST    = 0.30,   -- above THIRST_THRESHOLD (0.15): a real contest
+            FATIGUE   = 0.80,   -- above FATIGUE_THRESHOLD (0.70)
+            BOREDOM   = 0,
+            SANITY    = 0,
+            ENDURANCE = 0.95,
+        },
+        moodles = { ENDURANCE = 0, UNHAPPY = 0, HUNGRY = 0, THIRST = 0 },
+    })
+    AutoPilot_Needs.check(p)
+
+    assert_eq("the contested cycle decides sleep for the fatigue reason",
+        reasonFor("sleep"), "fatigue_thresh")
+    -- Discriminate the WIN from the pain-blocked fall-through, which records
+    -- the same action+reason plus a fail_reason and then reaches thirst.
+    local sleepFail
+    for _, d in ipairs(captured) do
+        if d.action == "sleep" then sleepFail = d.fail_reason end
+    end
+    assert_eq("the sleep decision carries no engine-block fail_reason",
+        sleepFail, nil)
+    assert_eq("the thirst branch is never reached: no drink decision",
+        reasonFor("drink"), nil)
+    assert_eq("no action was queued for the drinkable thirst",
+        #ISTimedActionQueue_calls, 0)
+
+    -- Restore the stock stub for any case added after this one.
+    AutoPilot_Inventory.getBestDrink = function(_player) return nil end
+end
+
 -- ── Summary ──────────────────────────────────────────────────────────────────
 print(("\n=== MoodleTriggers: %d passed, %d failed ==="):format(PASS, FAIL))
 if FAIL > 0 then os.exit(1) end
