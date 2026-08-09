@@ -160,19 +160,28 @@ Learning and infrastructure:
 
 ## Priority Model (High to Low)
 
-The chain `AutoPilot_Needs.check()` walks, highest first (its own header comment is the
-authoritative copy):
+The chain `AutoPilot_Needs.check()` walks, highest first.  This list is bound to
+the code's real branch order by `tests/test_priority_chain_truth.py`, which
+derives the chain from `check()`'s own decision calls with comments stripped —
+so a comment cannot satisfy it, and a step the code does not walk fails it:
 
 1. Bleeding — bandage immediately
-2. Thirst — drink from a tap or sink, then inventory, then loot
-3. Hunger — eat
-4. Wounds — treat non-bleeding wounds (scratches, bites)
-5. Tired — sleep (recovers both fatigue and endurance)
-6. Exhausted — rest in place (endurance critically low, but not sleepy)
-7. Scavenge — proactive supply top-up before stats drop
-8. Explore — frontier scouting and supply runs
-9. Bored or sad — read literature, then a tv/radio, then go outside
-10. Idle — exercise (strength/fitness alternating by level)
+2. Tired — sleep; sits above every need but bleeding so a long rest can hand
+   off to sleep, and when the engine refuses sleep (pain, panic) the chain
+   falls through to the needs below instead of idling
+3. Thirst — drink from a tap or sink, then inventory, then loot
+4. Shelter — get indoors when outside in rain or dangerous cold
+5. Hunger — eat
+6. Wounds — treat non-bleeding wounds (scratches, bites)
+7. Clothing — adjust layers for temperature
+8. Exhausted — rest when endurance is critically low, and hold an in-progress
+   rest (seated reading or snacking allowed) until endurance recovers
+9. Wet — dry off with a towel
+10. Bored or sad — tasty food, then reading, then a tv/radio, then going outside
+11. Winded — sit to recover endurance rather than stand idle
+12. Idle — exercise, the mod's primary purpose (strength/fitness alternating by level)
+13. Scavenge — proactive supply top-up, the background chore that runs when
+    nothing else claimed the cycle
 
 ## Technical Constraints (Important)
 

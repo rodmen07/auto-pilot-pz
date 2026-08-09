@@ -21,15 +21,26 @@
 --
 -- Priority order (highest -> lowest):
 --   1. Bleeding      -> bandage immediately (fatal if untreated)
---   2. Thirst        -> drink from tap/sink, then inventory, then loot
---   3. Hunger        -> eat
---   4. Wounds        -> treat non-bleeding wounds (scratches, bites, etc.)
---   5. Tired         -> sleep (recovers both fatigue AND endurance)
---   6. Exhausted     -> rest in place (endurance critically low, but not sleepy)
---   7. Scavenge      -> proactive supply top-up before stats drop
---   8. Explore       -> frontier scouting and supply runs
---   9. Bored/Sad     -> read literature, then a tv/radio, then go outside
---  10. Idle          -> exercise (strength/fitness alternating by level)
+--   2. Tired         -> sleep; above every need but bleeding, and a sleep the
+--                       engine refuses (pain/panic) falls through to the rest
+--   3. Thirst        -> drink from tap/sink, then inventory, then loot
+--   4. Shelter       -> get indoors when outside in rain or dangerous cold
+--   5. Hunger        -> eat
+--   6. Wounds        -> treat non-bleeding wounds (scratches, bites, etc.)
+--   7. Clothing      -> adjust layers for temperature
+--   8. Exhausted     -> rest when endurance is critical; hold an in-progress
+--                       rest (seated relief allowed) until it recovers
+--   9. Wet           -> dry off with a towel
+--  10. Bored or sad  -> tasty food, then reading, then a tv/radio, then outside
+--  11. Winded        -> sit to recover endurance rather than stand idle
+--  12. Idle          -> exercise (strength/fitness alternating by level)
+--  13. Scavenge      -> proactive supply top-up when nothing else claimed the
+--                       cycle
+--
+-- This list is BOUND to check()'s executable branch order by
+-- tests/test_priority_chain_truth.py (comments stripped, decision call sites
+-- read in order).  Reorder or extend check() and this header, the README's
+-- Priority Model, and that guard's anchor map move in the same commit.
 
 AutoPilot_Needs = {}
 
