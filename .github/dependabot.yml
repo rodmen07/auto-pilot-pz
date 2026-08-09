@@ -8,7 +8,9 @@ updates:
       interval: "weekly"
 
   # Python dev/test tooling (requirements.txt, requirements-dev.txt) used by
-  # the pytest suite and the log-triage/benchmark scripts under tools/.
+  # the pytest suite and the log-triage/benchmark scripts at the repo root
+  # (triage_run_log.py, benchmark.py — no tools/ directory has ever existed
+  # here; corrected 2026-08-08, same stale path SKILL.md fixed 2026-08-07).
   - package-ecosystem: "pip"
     directory: "/"
     schedule:
