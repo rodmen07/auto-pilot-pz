@@ -6,6 +6,16 @@ All notable changes to AutoPilot are documented here.
 
 ### Fixed
 
+- **The documented priority chain now matches the one the code walks, in both of its homes.**
+  `README.md`'s "Priority Model" and the `AutoPilot_Needs.lua` header both listed a 10-step chain
+  that was false three ways: an "Explore — frontier scouting and supply runs" step whose module
+  was deleted in V3.1 (and which directly contradicted `WORKSHOP.md`'s correct "will not explore"
+  promise); Tired below Thirst/Hunger/Wounds, when `check()` has walked the fatigue gate second
+  since the blocked-sleep work; and Scavenge above mood relief and exercise, unrevised since the
+  V3.2 reorder moved it to the very bottom. Both homes now list the real 13-step chain, including
+  the previously unlisted Shelter, Clothing, Wet, and Winded steps. The Lua change is
+  comment-only; no runtime behaviour changes.
+
 - **The mod no longer tells players it fights zombies.** `mod.info`, `42/mod.info` and the
   `workshop.txt` template in `sync_workshop.sh` all advertised that AutoPilot *"fights or flees
   when zombies actually threaten"*. It has been flee-only since 2026-07-25, on a hard engine
@@ -19,6 +29,14 @@ All notable changes to AutoPilot are documented here.
   fights, and why.
 
 ### Added
+
+- **A guard that binds the priority-chain prose to `check()` itself**
+  (`tests/test_priority_chain_truth.py`). The chain is derived from the ordered decision call
+  sites in `check()`'s executable body, comments stripped first — so a comment cannot satisfy it,
+  a listed step the code never walks fails by name (the Explore specimen), and an unmapped new
+  call site or a reworded heading raises loudly instead of letting the guard go blind. This
+  exists because the previous correction (PR #138) copied one comment into another believing it
+  authoritative: two comments agreeing proves nothing about the code.
 
 - **A guard that binds the player-facing descriptions to the engagement policy**
   (`tests/test_combat_claim_truth.py`). The expectation is read out of
@@ -45,7 +63,9 @@ All notable changes to AutoPilot are documented here.
   (the mod is on `0.2.1`); two places named a version the panel title has not shown since the
   version scheme was reset, and now derive it instead of restating it; the project layout
   pointed at a `media/lua/client/` legacy mirror that no longer exists in the tree; the priority
-  chain listed 8 steps where the code has 10 (scavenge and explore were missing); and the module
+  chain listed 8 steps where the header comment has 10 (scavenge and explore were missing — but
+  see the priority-chain entry under Fixed above: the 10-step header this correction trusted was
+  itself false, and the chain the code walks has 13 steps and no explore); and the module
   roster claimed 17 modules while listing 16, against 24 actually shipped.
 
   The roster is now a checked claim rather than prose: `tests/test_readme_truth.py` reads the
