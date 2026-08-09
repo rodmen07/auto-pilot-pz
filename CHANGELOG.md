@@ -4,6 +4,33 @@ All notable changes to AutoPilot are documented here.
 
 ## [Unreleased]
 
+### Fixed
+
+- **The mod no longer tells players it fights zombies.** `mod.info`, `42/mod.info` and the
+  `workshop.txt` template in `sync_workshop.sh` all advertised that AutoPilot *"fights or flees
+  when zombies actually threaten"*. It has been flee-only since 2026-07-25, on a hard engine
+  finding — Build 42 exposes no attack API for an AI-driven character, so every "fight" was a walk
+  toward a zombie the character could never swing at, and the V5.6 smoke test ended in
+  `action=dead`. `README.md` stated that correctly; the three files that describe the mod to
+  *players* did not, for two weeks and across two releases. `mod.info`'s `description=` is the
+  blurb the game's own Mods list renders and the template is what the Steam Workshop listing is
+  written from, so this was the install decision, and the expectation gap had already been
+  reported once as a user bug. All three now say the mod flees and state plainly that it never
+  fights, and why.
+
+### Added
+
+- **A guard that binds the player-facing descriptions to the engagement policy**
+  (`tests/test_combat_claim_truth.py`). The expectation is read out of
+  `AutoPilot_Threat._decideEngagement` rather than hardcoded, so if an attack API ever arrives the
+  guard fails and says the copy is now a product decision instead of silently demanding a
+  disclaimer forever. The corpus is discovered from `git ls-files`, so a third `mod.info` cannot
+  appear unwatched. Because `sync_workshop.sh` writes its template only when `workshop.txt` is
+  absent, the guard *runs* the real script under a sandboxed `HOME` and reads the bytes it
+  produced, in both reachable staging states: a fresh folder must get an honest description, and a
+  pre-existing stale one must be left alone *and warned about* — that second path is the trap that
+  let V5.0 ship a release still advertising "maintains window barricades".
+
 ### Changed
 
 - **The README no longer says this project is dead.** Its first screen opened with a banner
