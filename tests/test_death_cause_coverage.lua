@@ -31,6 +31,11 @@
 --      aggregate() derives).  A rule keyed on a cause nothing produces is dead
 --      code that reads as coverage.
 --
+-- Test 8 (2026-08-08) binds a third direction: no rule may WRITE a constant
+-- the classifier READS (the horde rule used to lower FLEE_HORDE_SIZE, drifting
+-- its own input buckets while changing no behaviour), and every zombie-contact
+-- cause pulls the same real lever, DETECTION_RADIUS.
+--
 -- HOW THE VOCABULARY IS OBTAINED, and why it is BOTH ways
 -- ------------------------------------------------------
 -- Test 1 RUNS the classifier over a crafted context per cause, so each cause
@@ -340,6 +345,56 @@ restoreConstants(saved)
 
 assert_eq("the suite left every constant as it found it",
     table.concat(movedKeys(saved), ", "), "")
+
+-- ── Test 8: the classifier's inputs and the rules' outputs are DISJOINT ───────
+-- Until 2026-08-08 the horde rule LOWERED FLEE_HORDE_SIZE -- the very constant
+-- _classifyCause reads to split `horde` from `zombies` -- so the layer drifted
+-- the boundary of its own input bucket, and because every branch of
+-- AutoPilot_Threat._decideEngagement has resolved to a flee since the
+-- flee-only rewrite, the "adjustment" moved a telemetry label while the F11
+-- panel advertised it as a behavioural improvement (the MED bug PR #137
+-- filed).  Two properties keep both halves of the fix honest, each its own
+-- case so one perturbation yields one named red.
+print("\n== Test 8: rules never write what the classifier reads, and every")
+print("           zombie-contact cause pulls the same real lever ==")
+
+-- 8a. Derive the set of constants the classifier READS from the same body
+--     Test 2 anchored (so a moved or renamed classifier is already a hard
+--     failure above, never a silent pass here), and require it disjoint from
+--     the set of constants the rules WRITE.
+local CLASSIFIER_READS = {}
+for key in body:gmatch("AutoPilot_Constants%.([%w_]+)") do
+    CLASSIFIER_READS[key] = true
+end
+-- An empty read set would make the disjointness below vacuously green, and a
+-- rotted extraction pattern is indistinguishable from a classifier that reads
+-- nothing.  Today it reads exactly FLEE_HORDE_SIZE; a classifier change that
+-- moves this is a deliberate edit here in the same commit.
+assert_eq("the classifier reads exactly the expected constant set",
+    joined(CLASSIFIER_READS), "FLEE_HORDE_SIZE")
+
+for _, rule in ipairs(AutoPilot_Adaptive.RULES) do
+    assert_true(("rule %s/%s does not write a constant the classifier reads")
+        :format(rule.cause, rule.key), CLASSIFIER_READS[rule.key] ~= true)
+end
+
+-- 8b. Every zombie-contact cause adjusts the SAME detection lever, which is
+--     what makes migration between those buckets harmless (a death counted as
+--     `horde` instead of `zombies` still widens detection identically).  The
+--     three names are the property's subject; each is re-checked against the
+--     classifier vocabulary so a renamed cause fails here rather than letting
+--     this case rot.
+local ZOMBIE_CONTACT = { "horde", "infection", "zombies" }
+for _, cause in ipairs(ZOMBIE_CONTACT) do
+    assert_true(("%-9s is still a cause the classifier emits"):format(cause),
+        REACHABLE[cause] == true)
+    local levers = {}
+    for _, rule in ipairs(AutoPilot_Adaptive.RULES) do
+        if rule.cause == cause then levers[rule.key] = true end
+    end
+    assert_eq(("%-9s adjusts the shared detection lever and nothing else")
+        :format(cause), joined(levers), "DETECTION_RADIUS")
+end
 
 -- ── Summary ───────────────────────────────────────────────────────────────────
 print(("\n=== Results: %d passed, %d failed ==="):format(PASS, FAIL))

@@ -38,9 +38,24 @@ local AWAY_DIST_THRESHOLD   = 60
 -- per_death:  delta applied per counted death.
 -- floor/cap:  hard bound the value can never pass.
 local RULES = {
-    -- Died to hordes -> flee sooner, see further.
-    { cause = "horde", min_deaths = 2, key = "FLEE_HORDE_SIZE",
-      per_death = -1,  floor = 3 },
+    -- Died to hordes -> see further.
+    --
+    -- This rule's "flee sooner" half was RETIRED 2026-08-08.  Superseded rule,
+    -- quoted verbatim where it stood:
+    --   { cause = "horde", min_deaths = 2, key = "FLEE_HORDE_SIZE",
+    --     per_death = -1,  floor = 3 },
+    -- Two reasons, the same two that kept FLEE_HORDE_SIZE off the infection/
+    -- zombies rules below: since the flee-only rewrite every branch of
+    -- AutoPilot_Threat._decideEngagement resolves to a flee with the same
+    -- escape vector, so lowering FLEE_HORDE_SIZE moved the telemetry label
+    -- (flee_horde vs flee_default) and the F11 panel then advertised that
+    -- label move as a behavioural improvement; and FLEE_HORDE_SIZE is the
+    -- constant AutoPilot_DeathLog's classifier reads to split `horde` from
+    -- `zombies`, so the rule was drifting the boundary of its own input
+    -- bucket.  With no adaptive writer the classification is stable, and a
+    -- death that would have migrated into `horde` lands in `zombies` instead,
+    -- whose rule widens DETECTION_RADIUS by the same +2 -- nothing is learned
+    -- less.  tests/test_death_cause_coverage.lua Test 8 pins both properties.
     { cause = "horde", min_deaths = 2, key = "DETECTION_RADIUS",
       per_death = 2,   cap = 30 },
 
@@ -74,13 +89,13 @@ local RULES = {
     --
     -- DETECTION_RADIUS is the lever with real behavioural reach here: it is
     -- what AutoPilot_Threat.getNearbyZombies filters on, so a zombie outside
-    -- it is one the mod never flees from at all.  FLEE_HORDE_SIZE is
-    -- deliberately NOT a second target for these two rules, for two separate
-    -- reasons: every branch of AutoPilot_Threat._decideEngagement resolves to
-    -- a flee now, so lowering it moves the telemetry label rather than the
-    -- behaviour; and it is also the constant AutoPilot_DeathLog's cause
-    -- classifier reads, so a second writer would drift the classification
-    -- itself.
+    -- it is one the mod never flees from at all.  FLEE_HORDE_SIZE is not a
+    -- target for ANY rule -- see the retired horde half above for why, and
+    -- note the general form: a constant the death classifier READS may never
+    -- be a constant a rule WRITES, or the layer feeds back into its own
+    -- input.  Every zombie-contact cause (horde, infection, zombies) points
+    -- at this one lever, which also makes bucket migration between them
+    -- harmless.
     { cause = "infection", min_deaths = 1, key = "DETECTION_RADIUS",
       per_death = 2,   cap = 30 },
     { cause = "zombies",   min_deaths = 1, key = "DETECTION_RADIUS",

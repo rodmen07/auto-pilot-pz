@@ -6,6 +6,20 @@ All notable changes to AutoPilot are documented here.
 
 ### Fixed
 
+- **The death-learning layer no longer "adjusts" a constant that stopped changing behaviour, and
+  the F11 panel therefore stops advertising that non-improvement.** The horde rule lowered
+  `FLEE_HORDE_SIZE` by 1 per horde death ("flee sooner"), but since the flee-only rewrite
+  (0.1.0) every branch of the engagement decision resolves to a flee with the same escape
+  vector, so the only thing that constant still selects is the telemetry label (`flee_horde` vs
+  `flee_default`) — and it is also the threshold the death classifier reads to split `horde`
+  deaths from `zombies` deaths, so the rule was silently drifting the boundary of its own input
+  bucket every time it fired. The `FLEE_HORDE_SIZE` half of the rule is retired; the
+  `DETECTION_RADIUS` half ("see further") stays, which is the lever with real behavioural reach
+  and the same one the `infection` and `zombies` rules already use, so a death near the frozen
+  boundary teaches the mod exactly the same lesson whichever bucket it lands in. A new guard
+  (`tests/test_death_cause_coverage.lua` Test 8) pins both properties: no rule may write a
+  constant the classifier reads, and every zombie-contact cause pulls the same detection lever.
+
 - **The documented priority chain now matches the one the code walks, in both of its homes.**
   `README.md`'s "Priority Model" and the `AutoPilot_Needs.lua` header both listed a 10-step chain
   that was false three ways: an "Explore — frontier scouting and supply runs" step whose module
