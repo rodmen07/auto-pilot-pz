@@ -300,9 +300,13 @@ do
     local baseHorde  = AutoPilot_Constants.FLEE_HORDE_SIZE
     local baseHunger = AutoPilot_Constants.HUNGER_THRESHOLD
 
-    -- 10 horde deaths would push FLEE_HORDE_SIZE to -4 without the floor.
     local applied = AutoPilot_Adaptive.applyRules({ horde = 10, starvation = 10 })
-    assert_eq("FLEE_HORDE_SIZE floored at 3", AutoPilot_Constants.FLEE_HORDE_SIZE, 3)
+    -- The horde rule's FLEE_HORDE_SIZE half was retired 2026-08-08: it moved
+    -- the telemetry label (every engagement branch flees identically) and it
+    -- drifted the classifier's own horde/zombies boundary.  Horde deaths must
+    -- therefore leave the constant alone, however many there are.
+    assert_eq("FLEE_HORDE_SIZE does not move under horde deaths",
+        AutoPilot_Constants.FLEE_HORDE_SIZE, baseHorde)
     assert_eq("DETECTION_RADIUS capped at 30", AutoPilot_Constants.DETECTION_RADIUS, 30)
     assert_eq("HUNGER_THRESHOLD floored at 0.10",
         AutoPilot_Constants.HUNGER_THRESHOLD, 0.10)
@@ -317,10 +321,10 @@ end
 
 print("\n=== Adaptive Test 3: min_deaths gate holds ===")
 do
-    local base = AutoPilot_Constants.FLEE_HORDE_SIZE
+    local base = AutoPilot_Constants.DETECTION_RADIUS
     local applied = AutoPilot_Adaptive.applyRules({ horde = 1 })  -- needs 2
-    assert_eq("single horde death does not adjust FLEE_HORDE_SIZE",
-        AutoPilot_Constants.FLEE_HORDE_SIZE, base)
+    assert_eq("single horde death does not adjust DETECTION_RADIUS",
+        AutoPilot_Constants.DETECTION_RADIUS, base)
     assert_eq("no adjustments applied", #applied, 0)
 end
 

@@ -316,10 +316,16 @@ do
     assert_eq("detection radius 40 + 2 horde deaths stays 40 (was shrunk to 30)",
         AutoPilot_Constants.DETECTION_RADIUS, 40)
 
-    -- 4f. ...and the horde rule's OTHER key still adjusts on the same call,
-    -- so 4e is a directional clamp and not a dead rule.
-    assert_eq("the same horde call still lowers FLEE_HORDE_SIZE 6 -> 4",
-        AutoPilot_Constants.FLEE_HORDE_SIZE, 4)
+    -- 4f. ...and the same rule still adjusts from a start INSIDE the bound,
+    -- so 4e is a directional clamp and not a dead rule.  (Until 2026-08-08
+    -- this case read the horde rule's FLEE_HORDE_SIZE half instead; that half
+    -- is retired -- it moved a telemetry label, not behaviour -- and
+    -- tests/test_death_cause_coverage.lua Test 8 keeps it from returning.)
+    restoreConstants(saved)
+    AutoPilot_Constants.DETECTION_RADIUS = 20     -- shipped default
+    AutoPilot_Adaptive.applyRules({ horde = 2 })
+    assert_eq("the same horde rule still widens 20 -> 24 from the default",
+        AutoPilot_Constants.DETECTION_RADIUS, 24)
 
     restoreConstants(saved)
 end
@@ -331,12 +337,13 @@ do
 
     restoreConstants(saved)
     local applied = AutoPilot_Adaptive.applyRules({ horde = 10, starvation = 10 })
-    assert_eq("FLEE_HORDE_SIZE still floors at 3", AutoPilot_Constants.FLEE_HORDE_SIZE, 3)
+    assert_eq("FLEE_HORDE_SIZE does not move under horde deaths (rule retired 2026-08-08)",
+        AutoPilot_Constants.FLEE_HORDE_SIZE, saved.FLEE_HORDE_SIZE)
     assert_eq("DETECTION_RADIUS still caps at 30", AutoPilot_Constants.DETECTION_RADIUS, 30)
     assert_near("HUNGER_THRESHOLD still floors at 0.10",
         AutoPilot_Constants.HUNGER_THRESHOLD, 0.10, 1e-9)
     assert_eq("SUPPLY_FOOD_MIN still caps at 6", AutoPilot_Constants.SUPPLY_FOOD_MIN, 6)
-    assert_true("all four are still recorded as applied", #applied >= 4)
+    assert_eq("exactly the three real moves are recorded as applied", #applied, 3)
 
     restoreConstants(saved)
     local one = AutoPilot_Adaptive.applyRules({ dehydration = 1 })
@@ -349,8 +356,8 @@ do
     restoreConstants(saved)
     local none = AutoPilot_Adaptive.applyRules({ horde = 1 })  -- min_deaths is 2
     assert_eq("the min_deaths gate still holds", #none, 0)
-    assert_eq("...and FLEE_HORDE_SIZE did not move",
-        AutoPilot_Constants.FLEE_HORDE_SIZE, saved.FLEE_HORDE_SIZE)
+    assert_eq("...and DETECTION_RADIUS did not move",
+        AutoPilot_Constants.DETECTION_RADIUS, saved.DETECTION_RADIUS)
 
     restoreConstants(saved)
 end
