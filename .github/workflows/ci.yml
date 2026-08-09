@@ -155,11 +155,31 @@ jobs:
           echo "Checkout credential guard PASSED: no auth header, no credentials include, no core.sshCommand."
 
       # Runs before the ~25s toolchain install so a supply-chain regression
-      # fails fast.
+      # fails fast.  Two phases over ONE discovery pass (a second grep would be
+      # a second corpus that could drift):
+      #
+      #   1. SHAPE — every external `uses:` ref is a full 40-hex commit SHA.
+      #   2. TRUTH — the `# vX.Y.Z` comment beside each SHA is resolved against
+      #      the action repository itself (`git ls-remote`, peeled `^{}` SHA for
+      #      annotated tags: action-gh-release's tags are annotated, the
+      #      actions/* tags are lightweight), so the comment is a claim CI
+      #      enforces rather than decoration.  Before this phase the audit
+      #      trail could lie silently: a bump editing the SHA but not the
+      #      comment (or the reverse) passed everything, and an upstream tag
+      #      re-pointed or deleted after pinning was invisible.  The
+      #      2026-08-08 DevSecOps sweep verified all three pins BY HAND
+      #      (3/3 true); this phase is that same check, run every time.
+      #      A tag that cannot be queried FAILS the job — fail closed, and
+      #      re-run if github.com was briefly unreachable.
+      #
+      # tests/test_action_pin_truth.py extracts THIS script and executes it
+      # against fake `git` binaries in both directions, so neither phase can
+      # rot into an inert surface.
       - name: Action pin guard
         run: |
-          echo "=== Action pin guard: external actions must be pinned to a full commit SHA ==="
+          echo "=== Action pin guard: external actions pinned to a full commit SHA, version comments TRUE upstream ==="
           UNPINNED=0
+          UNTRUE=0
           TOTAL=0
           MATCHED=0
           while IFS= read -r line; do
@@ -173,19 +193,46 @@ jobs:
             esac
             TOTAL=$((TOTAL + 1))
             ref="${spec##*@}"
-            if printf '%s' "$ref" | grep -Eq '^[0-9a-f]{40}$'; then
-              echo "  OK       $spec"
-            else
+            if ! printf '%s' "$ref" | grep -Eq '^[0-9a-f]{40}$'; then
               echo "  UNPINNED $spec"
               UNPINNED=$((UNPINNED + 1))
+              continue
             fi
+            echo "  OK       $spec"
+            claim="$(printf '%s' "$line" | tr -d '\r' | sed -n 's/.*#[[:space:]]*//p' | awk '{print $1}')"
+            if [ -z "$claim" ]; then
+              echo "  UNTRUE   $spec carries no version comment: a bare SHA cannot be audited or bumped safely."
+              UNTRUE=$((UNTRUE + 1))
+              continue
+            fi
+            repo_url="https://github.com/$(printf '%s' "${spec%%@*}" | cut -d/ -f1,2)"
+            if ! refs="$(git ls-remote "$repo_url" "refs/tags/$claim" "refs/tags/$claim^{}")"; then
+              echo "  UNTRUE   $spec: git ls-remote could not query $repo_url."
+              echo "           A claim that cannot be checked must fail, not pass; re-run if github.com hiccuped."
+              UNTRUE=$((UNTRUE + 1))
+              continue
+            fi
+            peeled="$(printf '%s\n' "$refs" | awk -v r="refs/tags/$claim^{}" '$2 == r {print $1; exit}')"
+            direct="$(printf '%s\n' "$refs" | awk -v r="refs/tags/$claim" '$2 == r {print $1; exit}')"
+            upstream="${peeled:-$direct}"
+            if [ -z "$upstream" ]; then
+              echo "  UNTRUE   $spec: claimed tag $claim does not exist in $repo_url."
+              UNTRUE=$((UNTRUE + 1))
+              continue
+            fi
+            if [ "$upstream" != "$ref" ]; then
+              echo "  UNTRUE   $spec: the comment claims $claim, but upstream $claim resolves to $upstream."
+              UNTRUE=$((UNTRUE + 1))
+              continue
+            fi
+            echo "  TRUE     $spec really is $claim"
           done <<< "$(grep -rhE '^[[:space:]]*(-[[:space:]]+)?uses:[[:space:]]' .github/workflows/)"
           if [ "$MATCHED" -eq 0 ]; then
             echo "ERROR: no 'uses:' lines found under .github/workflows/."
             echo "The guard has gone blind (moved/renamed workflows?) — it must never pass on zero input."
             exit 1
           fi
-          echo "Checked $TOTAL external action reference(s); $UNPINNED unpinned."
+          echo "Checked $TOTAL external action reference(s); $UNPINNED unpinned; $UNTRUE untrue or uncheckable version comment(s)."
           if [ "$UNPINNED" -gt 0 ]; then
             echo "Action pin guard FAILED: pin every external action to a full 40-hex commit SHA,"
             echo "e.g. actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1"
@@ -193,7 +240,14 @@ jobs:
             echo "compromise of their repo, silently changing what runs in CI and in the release job."
             exit 1
           fi
-          echo "Action pin guard PASSED: every external action is pinned to a commit SHA."
+          if [ "$UNTRUE" -gt 0 ]; then
+            echo "Action pin guard FAILED: every pinned SHA must carry a version comment that is TRUE"
+            echo "upstream (the peeled ^{} SHA for annotated tags, the tag itself otherwise)."
+            echo "An untrue comment makes the pin unauditable: a reviewer reading '# v7.0.1' would"
+            echo "approve a bump to code that is not v7.0.1.  Fix the comment or the SHA."
+            exit 1
+          fi
+          echo "Action pin guard PASSED: every external action is pinned to a commit SHA and every version comment matches upstream."
 
       # Also fails fast, before the toolchain install.  PULL REQUESTS ONLY: on a
       # push to main there is no base branch to diff against, and the squash
