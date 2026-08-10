@@ -1,12 +1,33 @@
 # AutoPilot: Steam Workshop Relist Decision
 
-> **STATUS: PROPOSED 2026-08-09, AWAITING USER DECISION.** Every choice below carries an
-> overridable default, so **"approve with defaults" is a complete answer** (as is a
-> per-decision answer like "D1 option B" or "approve, but skip the gate"). This brief decides
+> **STATUS: DECIDED 2026-08-10 by the owner — D1 = OPTION B, "stay delisted". The default (C)
+> was OVERRIDDEN.** Workshop item 3767254910 is now **deliberately retired**, not parked pending
+> a relist: GitHub Releases is the only distribution channel, by decision rather than by neglect.
+>
+> **D2 and D3 are MOOT and are answered by D1 rather than separately.** Both govern an upload —
+> D2 whether the first upload is gated on a passing in-game smoke test, D3 which build it carries
+> — and under option B there is no upload, ever. They are left below unedited as the record of
+> what was weighed; they are not open questions and no future run should treat them as pending.
+>
+> **What option B changes, per its own text:** the two backlog items that named this brief as
+> their clearing condition become dated decision records ("listing deliberately retired") rather
+> than blocked work; the standing "needs in-game smoke test before Workshop update" flag loses
+> its DISTRIBUTION half; and future release cuts are complete in themselves, with no owed
+> Workshop step trailing them. The item's existing subscribers and comment history stay
+> permanently parked — that was named as the cost of B when it was offered, and it is accepted.
+>
+> **What it does NOT change:** the in-game verification gap is untouched. Nothing in this project
+> is verifiable in-game headlessly (CI runs luacheck plus pytest only), so dev PRs still carry the
+> smoke-test flag as a QUALITY statement. What ended is only the obligation for that flag to clear
+> before players receive something — because players no longer receive anything through Steam.
+>
+> Original status line, preserved: *"PROPOSED 2026-08-09, AWAITING USER DECISION. Every choice
+> below carries an overridable default, so 'approve with defaults' is a complete answer (as is a
+> per-decision answer like 'D1 option B' or 'approve, but skip the gate'). This brief decides
 > nothing by itself: relisting is a product call the backlog has recorded as the user's since
 > 2026-08-08, and this document exists to bring that call as a concrete question instead of
 > leaving it parked. It is the distribution companion to `docs/EXPANSION_PROPOSAL_V6_3.md`
-> (features, separately pending), whose section 7 deliberately scopes Workshop action out.
+> (features, separately pending), whose section 7 deliberately scopes Workshop action out."*
 
 ## 1. Why this decision is due
 
@@ -111,7 +132,13 @@ one's final step is physically the user's, so "silence means defaults" cannot ex
   commit by then, the choice is the smoke-tested tag (safe, slightly stale) — cutting a fresh
   release of unsmoked newer code and uploading that would reopen D2.
 
-## 4. Sequencing under the defaults (who does what)
+## 4. Sequencing under the defaults (who does what) — SUPERSEDED 2026-08-10, NOT EXECUTED
+
+> **None of the four steps below will happen.** They sequence D1's default (option C, relist and
+> upload as one act); the owner chose option B, so there is no smoke session owed for
+> distribution, no `sync_workshop.sh` run, no Create/Update Item act, and no aftercare probe of a
+> public page. Kept verbatim as the record of what option C would have cost, which is part of why
+> B was chosen. Do not execute it.
 
 1. **User:** the owed in-game session (shopping list: V6.3 section 6, plus the evade/flee
    smoke items above). Pass/fail comes back as a user report, as on 2026-08-01.

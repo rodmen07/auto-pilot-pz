@@ -1,9 +1,28 @@
 # AutoPilot: V6.3 Expansion Proposal
 
-> **STATUS: PROPOSED 2026-08-07, AWAITING USER DECISION.** Every open choice below carries an
-> overridable default, so "approve with defaults" (or a per-candidate answer like "approve C1
-> only", "flip C3") is a complete answer. Nothing here is implemented yet; net-new dev on this
-> project is proposal-gated (backlog rule, 2026-07-26).
+> **STATUS: APPROVED WITH DEFAULTS 2026-08-10 by the owner (direct answer: "approve defaults for
+> D1-D8"). No longer awaiting a decision.** All eight decisions stand exactly as drafted below:
+> **C1** D1 preserve today's vanilla ordering via the both-stats burpees promotion, D2 unknown and
+> modded exercises join the auto pool only, D3 no new tunables; **C2** D4 SHIP the stress trigger
+> on the existing read arm, D5 DEFER stress-magnitude ranking, D6 DOCUMENT Discomfort as the
+> genuine limitation with its indirect lever named, D7 NO tobacco; **C3** D8 KEEP the direct
+> `getPoisonPower` read. Nothing was overridden.
+>
+> **This unblocks net-new dev**, which had been proposal-gated since 2026-07-26. Sequencing is
+> dependency order only, no calendar: C1, C2 and C3 are mutually independent, one PR each, except
+> C2 which is naturally two (D4 the stress arm, a code slice; D6 the Discomfort documentation,
+> docs-only). C1, C2-D4 and C3 each carry the in-game smoke-test flag; C2-D6 does not.
+>
+> **D5 stays deferred on a genuine unknown, not on the decision:** ranking stress relief by
+> magnitude needs `print(item:getStressChange())` for a held `ComicBook` from any in-game session.
+> `getStressChange` has ZERO call sites in the whole 42.19 Lua tree, so whether the property is
+> reachable FROM Lua is unknown and this project's verified-surface discipline forbids mocking it
+> on a guess. D4 needs no such getter and is not blocked by it.
+>
+> Original status line, preserved: *"PROPOSED 2026-08-07, AWAITING USER DECISION. Every open choice
+> below carries an overridable default, so 'approve with defaults' (or a per-candidate answer like
+> 'approve C1 only', 'flip C3') is a complete answer. Nothing here is implemented yet; net-new dev
+> on this project is proposal-gated (backlog rule, 2026-07-26)."*
 
 > **AUDITED 2026-08-07 before this PR was opened (resume audit of an interrupted increment,
 > L-007 + L-026). ONE PREMISE CAME BACK FALSE and C2 was rewritten around it.** The draft's C2
