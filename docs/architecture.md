@@ -480,8 +480,13 @@ the old session and starts the next id.
 
 `check.sh` (mirrored by `.github/workflows/ci.yml`) enforces:
 
-1. **luacheck**: zero errors and zero warnings across the 23 modules in
-   `42/media/lua/client/`.
+1. **luacheck**: zero errors and zero warnings across every module in
+   `42/media/lua/client/`. The count is deliberately not restated here --
+   it lives once in the "runtime is N modules" claim near the top of this
+   file, bound to the live glob by `tests/test_architecture_truth.py`.
+   Superseded wording, stale since `AutoPilot_Mood` became the 24th module
+   (2026-08-01, PR #103), caught by that guard's first, red, run 2026-08-09:
+   *"across the 23 modules in `42/media/lua/client/`"*.
 2. **Static API guard**: no deprecated direct stat getters
    (`:getHunger()`, `:getThirst()`, `:getFatigue()`, `:getEndurance()`,
    `CharacterStats.`); B42 code must use
