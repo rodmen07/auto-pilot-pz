@@ -455,10 +455,16 @@ local function onTick()
     -- decrements its counter by getMultiplier() per tick).  mult defaults to 1,
     -- so normal (1x) speed is byte-for-byte unchanged.
     --
-    -- The multiplier is an ARBITRARY POSITIVE INTEGER, not one of 5/20/40 (this
+    -- The multiplier is an ARBITRARY POSITIVE NUMBER, not one of 5/20/40 (this
     -- comment claimed 5/20/40 until 2026-08-08; auto_pilot_run.log's own `speed`
     -- field falsifies it -- 1, 4, 9..20, 23, 30..33, 80 and 100 all appear in
     -- one 11.7k-tick capture).  Both lines below exist because of that.
+    -- It is not an INTEGER either, which this line asserted until 2026-08-10:
+    -- the engine's debug panel binds a 0..1000 slider with step 0.1 straight to
+    -- setMultiplier (client/DebugUIs/DebugMenu/General/ISGameDebugPanel.lua:42).
+    -- The cadence below is float arithmetic and needs nothing for that, but
+    -- AutoPilot_Telemetry's `speed=%d` did -- it lost the whole run-log line at
+    -- any fractional speed until the same day.
     local mult = 1
     pcall(function() mult = getGameTime():getMultiplier() end)
     if type(mult) ~= "number" or mult < 1 then mult = 1 end

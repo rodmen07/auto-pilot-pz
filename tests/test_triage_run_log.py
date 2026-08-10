@@ -67,9 +67,12 @@ class TestParseRunLog(unittest.TestCase):
         self.assertEqual(skipped, 0)
 
     def test_v5_speed_field_parses_as_int(self) -> None:
-        # schema v5 (2026-07-24) adds `speed` = the real game multiplier (1
-        # normal, 5/20/40 fast-forward). It coerces to int; `ff` stays a
-        # separate zombie-presence string, and later fields still parse.
+        # schema v5 (2026-07-24) adds `speed` = the real game multiplier, an
+        # arbitrary positive integer in the log (this comment said *"1 normal,
+        # 5/20/40 fast-forward"* until 2026-08-10; the mod floors the engine's
+        # float before writing it -- AutoPilot_Telemetry.lua). It coerces to
+        # int; `ff` stays a separate zombie-presence string, and later fields
+        # still parse.
         line = (
             "schema_version=5,player=0,mode=autopilot,ff=normal,speed=20,"
             "run_tick=7,action=idle,reason=no_action,class=idle,stage=,"

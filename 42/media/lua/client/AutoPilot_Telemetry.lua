@@ -291,12 +291,29 @@ function AutoPilot_Telemetry.logTick(player, action, reason)
     -- NOTE: `ff` is a ZOMBIE-PRESENCE flag (active = a zombie was in this cycle's
     -- cached scan), NOT fast-forward -- a historical misnomer that has misled
     -- fast-forward investigations.  The real game speed is the separate `speed`
-    -- field (schema v5, 2026-07-24): 1 = normal, 5/20/40 = fast-forward x1/x2/x3
-    -- (getGameTime():getMultiplier()), so speed-related reports now carry evidence.
+    -- field (schema v5, 2026-07-24): getGameTime():getMultiplier(), so
+    -- speed-related reports now carry evidence.
+    --
+    -- That multiplier is an ARBITRARY POSITIVE NUMBER, not one of 5/20/40 (this
+    -- comment claimed *"1 = normal, 5/20/40 = fast-forward x1/x2/x3"* until
+    -- 2026-08-10).  5/20/40 are only SpeedControlsHandler's three keyboard
+    -- buttons (client/ISUI/SpeedControlsHandler.lua:28-40); the engine's debug
+    -- panel binds a 0..1000 slider with step 0.1 straight to setMultiplier
+    -- (client/DebugUIs/DebugMenu/General/ISGameDebugPanel.lua:42), and this
+    -- log's own `speed` field records 1, 4, 9..20, 23, 30..33, 80 and 100 in a
+    -- single 11.7k-tick capture.
     local ff  = (s.zombies > 0) and "active" or "normal"
     local speed = 1
     pcall(function() speed = getGameTime():getMultiplier() end)
     if type(speed) ~= "number" or speed < 1 then speed = 1 end
+    -- FLOOR before %d.  This is the only %d argument in the line below that is
+    -- not already integral -- the stats are floored in _collectStats and the
+    -- rest are counts -- and a fractional multiplier makes string.format raise
+    -- "number has no integer representation", which loses the whole line
+    -- SILENTLY: _tickForPlayer is pcall-wrapped at AutoPilot_Main.lua:501 and
+    -- discards the error, so the run log just stops.  Identity on integers, so
+    -- every speed the buttons produce is byte-for-byte unchanged.
+    speed = math.floor(speed)
     local cls = _classifyAction(action)
 
     local line = string.format(

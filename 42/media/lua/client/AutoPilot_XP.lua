@@ -19,9 +19,12 @@
 -- "XP per hour" is the AFK player's actual wait, byte-identical to the
 -- pre-fix behaviour; under fast-forward each real millisecond counts
 -- getMultiplier() times, so the displayed rate and ETA no longer inflate
--- 5/20/40x with game speed.  The sample WINDOW still prunes on raw
--- wall-clock ms: sleep's game-time jump cannot flush it, and a long
--- fast-forward ages samples out at the same real pace as before.
+-- with game speed.  (This line said the inflation was *"5/20/40x"* until
+-- 2026-08-10; the multiplier is an arbitrary positive number, fractions
+-- included -- see AutoPilot_Telemetry's `speed` field.)  The sample WINDOW
+-- still prunes on raw wall-clock ms: sleep's game-time jump cannot flush
+-- it, and a long fast-forward ages samples out at the same real pace as
+-- before.
 
 AutoPilot_XP = {}
 

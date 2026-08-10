@@ -6,8 +6,10 @@
 -- ---------------------
 -- Before this change AutoPilot_XP.ratePerHour divided the XP delta by RAW
 -- wall-clock time, so the F11 rate and ETA swung with game speed: the same
--- character doing the same training read 5/20/40x the XP/hr the moment the
--- player fast-forwarded.  Display-only (sole consumer AutoPilot_UI:218, the
+-- character doing the same training read the multiplier's worth of extra
+-- XP/hr the moment the player fast-forwarded.  (This line read *"5/20/40x
+-- the XP/hr"* until 2026-08-10 -- the multiplier is an arbitrary positive
+-- number, see Test 6.)  Display-only (sole consumer AutoPilot_UI:218, the
 -- F11 perk line; re-verified by grep this run), but dishonest.
 --
 -- The fix accumulates elapsed real time SCALED by getGameTime():getMultiplier()
@@ -174,6 +176,32 @@ do
     assert_near("absent multiplier surface degrades to wall-clock rate",
         AutoPilot_XP.ratePerHour(q, "Strength"), WALL_CLOCK_RATE, 0.001)
     getGameTime = savedGetGameTime
+end
+
+print("\n=== FF-4 Test 6: a FRACTIONAL multiplier scales the rate like any other ===")
+do
+    -- Sibling sweep, 2026-08-10.  Every speed this suite sampled -- 1, 5, 40 --
+    -- is a member of the 5/20/40 set the comments enumerated, and 0/nil are the
+    -- guard's degenerate cases, so the whole suite sampled from a claim rather
+    -- than from the distribution (L-050).  The real multiplier is an arbitrary
+    -- positive NUMBER: the engine's debug panel binds a 0..1000 slider with
+    -- step 0.1 to setMultiplier (client/DebugUIs/DebugMenu/General/
+    -- ISGameDebugPanel.lua:42), so a non-integer speed is reachable in game.
+    --
+    -- This arm is CLEAN and is pinned as such: _speedMult only clamps < 1 and
+    -- the accumulator is float math, so 2.5 needs no coercion here.  The same
+    -- sweep found the third consumer broken -- AutoPilot_Telemetry formatted the
+    -- multiplier with %d and lost the entire run-log line at any fractional
+    -- speed (fixed the same run; tests/test_telemetry_schema.lua Test 8b).
+    local p = runScenario(2.5)
+    -- +10 XP over 6 real minutes at 2.5x = 900000 scaled ms -> 40 XP/hr.
+    assert_near("rate at 2.5x = 40 XP/hour (fractional, multiplier-honest)",
+        AutoPilot_XP.ratePerHour(p, "Strength"), 40, 0.001)
+    -- Its own assertion (L-072): the honest number must also differ from the
+    -- pre-fix wall-clock one, or a silently-truncated 2 would still read as 50.
+    assert_true("2.5x is not truncated to 2x (a floored multiplier gives 50)",
+        math.abs(AutoPilot_XP.ratePerHour(p, "Strength") - 50) > 1)
+    MockGameSpeed.set(1)
 end
 
 -- ── Summary ──────────────────────────────────────────────────────────────────

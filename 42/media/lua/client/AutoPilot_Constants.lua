@@ -52,7 +52,12 @@ AutoPilot_Constants.WALK_DEFAULT_DIST = 20
 -- line in WalkToTimedActionF.lua:7).  getGameSpeed() is the speed INDEX
 -- (0 paused, 1 normal, 2/3/4 the three fast-forward steps) and is a DIFFERENT
 -- number from getGameTime():getMultiplier(), the time multiplier the run log
--- records in its `speed` field (1 / 5 / 20 / 40).
+-- records in its `speed` field.  That multiplier is an arbitrary positive
+-- number (this line enumerated it as *"(1 / 5 / 20 / 40)"* until 2026-08-10):
+-- those four are only SpeedControlsHandler's keyboard buttons, the debug
+-- panel's slider steps setMultiplier by 0.1, and the log records 1, 4, 9..20,
+-- 23, 30..33, 80 and 100.  The INDEX below is the closed 0..4 set, and that
+-- difference is the whole point of this constant.
 --
 -- Consequence, which is why this constant exists: at index 3 (x20) and index 4
 -- (x40) the action queue throws away EVERY walk this mod queues on the very
