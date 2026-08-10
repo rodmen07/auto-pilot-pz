@@ -3,7 +3,12 @@
 Auto-exercise leveler with a survival fail-safe. Reach a stable spot, press
 F10, and your character grinds Strength/Fitness while you step away.
 
-Status: ACTIVE — Build 42.19.0 Unstable. Steam Workshop ID 3767254910.
+Status: ACTIVE — Build 42.19.0 Unstable. **Distributed through GitHub Releases only.**
+
+The Steam Workshop item (3767254910) was delisted on 2026-07-21 and, by owner decision on
+2026-08-10, **stays delisted permanently** — the listing is deliberately retired, not awaiting
+a relist. Do not wait for a Workshop update: releases here are the whole channel. The reasoning
+is recorded in `docs/WORKSHOP_RELIST_DECISION.md`.
 
 > **Note on this file's history:** between 2026-07-21 and 2026-08-08 this README opened with a
 > banner headed *"⚠️ DEPRECATED — NO LONGER MAINTAINED"*, stating that the project *"was
@@ -16,8 +21,9 @@ Status: ACTIVE — Build 42.19.0 Unstable. Steam Workshop ID 3767254910.
 > whether to install the mod, and a superseded warning left in place still warns. The full
 > original text is preserved in this file's git history and in the pull request that removed it.
 
-See WORKSHOP.md for the Workshop description, MULTIPLAYER.md for server
-setup, and TESTING.md for the pre-release checklist.
+See MULTIPLAYER.md for server setup and TESTING.md for the pre-release
+checklist. WORKSHOP.md holds the Workshop description and is kept as a
+record of the retired listing, not as a step anyone still performs.
 
 ## Who This README Is For
 
