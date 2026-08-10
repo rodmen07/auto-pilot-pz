@@ -17,7 +17,9 @@
 -- getGameSpeed() is the speed INDEX -- 0 paused, 1 normal, 2/3/4 the three
 -- fast-forward steps -- and is a DIFFERENT number from
 -- getGameTime():getMultiplier(), the time multiplier the run log's `speed`
--- field carries as 1 / 5 / 20 / 40.  Reading the multiplier tells you nothing
+-- field carries -- an arbitrary positive number, not the closed set this line
+-- spelled as *"1 / 5 / 20 / 40"* until 2026-08-10.  Reading the multiplier
+-- tells you nothing
 -- about this gate, which is why an FF investigation that only looked at the
 -- multiplier could not see it.
 --

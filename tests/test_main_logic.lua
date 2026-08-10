@@ -983,7 +983,8 @@ end
 
 -- ── FF-1: evaluation cadence scales with game speed (2026-07-24) ─────────────
 -- Fast-forward is a GAME-TIME multiplier (getGameTime():setMultiplier(m), where
--- m is an arbitrary positive integer -- up to 100 in the run log, NOT one of
+-- m is an arbitrary positive number -- fractions included (the debug panel's
+-- slider steps it by 0.1), up to 100 in the run log, NOT one of
 -- 5/20/40 as this comment claimed until 2026-08-08; see the cadence-fidelity
 -- tests at the end of this file for the measurement),
 -- NOT extra ticks; OnTick keeps firing at ~20/s real.  A flat +1 per frame made
@@ -1092,6 +1093,19 @@ do
         evalsOverFrames(1, 30), 2)
     assert_eq("x5 unchanged: 30 frames yield 10 evaluations",
         evalsOverFrames(5, 30), 10)
+
+    -- x2.5 -- a FRACTIONAL multiplier, the value class every suite in this repo
+    -- skipped until 2026-08-10.  Reachable: the engine's debug panel binds a
+    -- 0..1000 slider with step 0.1 to setMultiplier (client/DebugUIs/DebugMenu/
+    -- General/ISGameDebugPanel.lua:42).  This arm of the sibling sweep is the
+    -- CLEAN one: the cadence is float arithmetic throughout, so it needed no
+    -- fix -- unlike AutoPilot_Telemetry's `speed=%d`, which lost the whole run
+    -- log at any non-integer speed (Telemetry Test 8b).  Pinned so the next
+    -- edit to this counter cannot quietly make it integer-only.
+    -- 2.5 is exact in binary, so 6 frames land on 15.0 with no float slack:
+    -- 30 frames / (15 / 2.5) = 5 evaluations.
+    assert_eq("x2.5 (fractional): 30 frames yield 5 evaluations, no error",
+        evalsOverFrames(2.5, 30), 5)
 
     MockGameSpeed.set(1)
 end

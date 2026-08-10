@@ -180,6 +180,62 @@ do
     MockGameSpeed.set(1)  -- restore
 end
 
+-- ── Test 8b: a FRACTIONAL multiplier still writes a run-log line ──────────────
+-- The whole run log is lost, silently, at any non-integer game speed.
+--
+-- The `speed` field is the ONLY %d argument in the schema-v5 line that is not
+-- coerced to an integer first: every other numeric field is either
+-- math.floor()ed in _collectStats (hunger/thirst/fatigue/endurance) or integral
+-- by construction (perk levels, counts, run_tick).  `speed` went straight from
+-- getGameTime():getMultiplier() into %d because the comment beside it enumerated
+-- the multiplier as 5/20/40 -- three integers -- so coercion looked unnecessary.
+--
+-- Fractional multipliers are REACHABLE: the engine's own debug panel binds a
+-- 0..1000 slider with step 0.1 straight to setMultiplier
+-- (client/DebugUIs/DebugMenu/General/ISGameDebugPanel.lua:42 in the 42.19
+-- install), and setMultiplier is a public global any other mod may call.  The
+-- three values the comment listed are only SpeedControlsHandler's keyboard
+-- buttons (client/ISUI/SpeedControlsHandler.lua:28-40).
+--
+-- Behaviour difference (L-001), measured on this suite before the fix:
+--   FAIL  a fractional multiplier still writes a run-log line  (got=false...)
+-- because string.format raised "bad argument #5 to 'format' (number has no
+-- integer representation)" out of logTick.  _tickForPlayer is pcall-wrapped at
+-- AutoPilot_Main.lua:501 and the error is DISCARDED, so in game the failure has
+-- no console output at all: the run log simply stops, which is the one artifact
+-- a later fast-forward investigation would trust.
+--
+-- Each clause gets its own assertion (L-072): "a line was written" and "the
+-- value is floored" fail independently, and the first one standing in for the
+-- second is exactly how a truncation regression would hide.
+print("\n=== Telemetry Test 8b: a fractional game speed does not lose the line ===")
+do
+    MockFiles["auto_pilot_run.log"] = nil
+    MockGameSpeed.set(2.5)
+    local p = makePlayer(0)
+    local ok = pcall(function()
+        AutoPilot_Telemetry.logTick(p, "exercise", "training")
+    end)
+    assert_true("logTick survives a fractional multiplier (no format error)", ok)
+
+    local f3 = MockFiles["auto_pilot_run.log"]
+    local line3 = (f3 and f3.lines and f3.lines[#f3.lines]) or ""
+    assert_true("a fractional multiplier still writes a run-log line", line3 ~= "")
+    assert_true("the fractional speed is floored to an integer (2.5 -> speed=2)",
+        line3:find("speed=2,", 1, true) ~= nil)
+
+    -- The integer path must be byte-identical to before the coercion: floor is
+    -- the identity on the values every existing assertion above pins.
+    MockFiles["auto_pilot_run.log"] = nil
+    MockGameSpeed.set(23)
+    AutoPilot_Telemetry.logTick(p, "exercise", "training")
+    local f4 = MockFiles["auto_pilot_run.log"]
+    local line4 = (f4 and f4.lines and f4.lines[#f4.lines]) or ""
+    assert_true("an integer multiplier the buttons never produce is unchanged (23)",
+        line4:find("speed=23,", 1, true) ~= nil)
+    MockGameSpeed.set(1)  -- restore
+end
+
 -- ── Test 9 (V5.0): barricade is gone from REASON_CLASS ─────────────────
 -- Anti-resurrection guard for the scope removal AND for the Lua/Python sync
 -- guard: benchmark._ACTION_CLASS_MAP must not carry a key REASON_CLASS lacks

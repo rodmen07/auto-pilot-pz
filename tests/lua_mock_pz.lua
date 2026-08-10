@@ -927,8 +927,17 @@ local _mockCalender = {
     getTimeInMillis = function(self) return _mockTimeMs end,
 }
 
--- Game-speed multiplier (1 = normal, 5/20/40 = fast-forward x1/x2/x3).  Default 1
--- so existing tests are unaffected; a test calls MockGameSpeed.set(m) to simulate
+-- Game-speed multiplier: an ARBITRARY POSITIVE NUMBER, 1 at normal speed.  This
+-- comment claimed *"1 = normal, 5/20/40 = fast-forward x1/x2/x3"* until
+-- 2026-08-10; those three values are only SpeedControlsHandler's keyboard
+-- buttons (client/ISUI/SpeedControlsHandler.lua:28-40).  setMultiplier also
+-- takes FRACTIONS -- the engine's debug panel binds a 0..1000 slider with step
+-- 0.1 to it (client/DebugUIs/DebugMenu/General/ISGameDebugPanel.lua:42) -- and
+-- auto_pilot_run.log records 1, 4, 9..20, 23, 30..33, 80 and 100.  The setter
+-- deliberately passes the value through UNCHANGED (no rounding, no clamp) so a
+-- test can reach the values the buttons cannot; the 5/20/40 belief is exactly
+-- what left AutoPilot_Telemetry formatting it with %d.  Default 1 so existing
+-- tests are unaffected; a test calls MockGameSpeed.set(m) to simulate
 -- fast-forward and exercise the FF-aware evaluation cadence in AutoPilot_Main.
 local _mockGameSpeed = 1
 

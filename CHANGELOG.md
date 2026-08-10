@@ -6,6 +6,37 @@ All notable changes to AutoPilot are documented here.
 
 ### Fixed
 
+- **The run log is no longer lost, silently and completely, at any fractional game speed.**
+  `AutoPilot_Telemetry` wrote the schema-v5 `speed` field with `string.format("%d", ...)` straight
+  from `getGameTime():getMultiplier()`. That was the only `%d` argument in the line without an
+  integer coercion — every other numeric field is either `math.floor`ed in `_collectStats` or
+  integral by construction — and the reason is visible in the comment that sat beside it: it
+  enumerated the multiplier as "5/20/40", three integers, so coercion looked unnecessary.
+  Fractional multipliers are reachable in game: 5/20/40 are only `SpeedControlsHandler`'s three
+  keyboard buttons, while the engine's own debug panel binds a `0..1000` slider with **step 0.1**
+  straight to `setMultiplier` (`client/DebugUIs/DebugMenu/General/ISGameDebugPanel.lua:42` in the
+  42.19 install), and `setMultiplier` is a public global any other mod may call. At such a speed
+  `string.format` raised `bad argument #5 to 'format' (number has no integer representation)` out
+  of `logTick`; `_tickForPlayer` is `pcall`-wrapped at `AutoPilot_Main.lua:501` and **discards**
+  the error, so there was no console output at all — the run log simply stopped, taking with it
+  the one artifact any later fast-forward investigation would trust. The multiplier is now floored
+  before formatting, which is the identity on every integer speed, so existing logs are unchanged.
+  Guarded by `tests/test_telemetry_schema.lua` Test 8b, whose four assertions failed 3-of-4 on the
+  pre-fix tree.
+
+- **The "5/20/40" game-speed claim is retired from every live home, and the sibling consumers were
+  swept rather than assumed.** Seven live comment sites asserted the false enumeration (two more
+  than the bug entry recorded — `AutoPilot_Constants.lua` and `tests/test_walk_speed_gate.lua`
+  spell it `1 / 5 / 20 / 40`, which no previous grep pattern matched); each now states that the
+  multiplier is an arbitrary positive number and quotes its superseded wording where it stood.
+  `CHANGELOG.md`'s two historical mentions are deliberately untouched. All three consumers of
+  `getGameTime():getMultiplier()` were then exercised at a fractional speed: the evaluation cadence
+  (`AutoPilot_Main`) and the XP rate (`AutoPilot_XP`) are float arithmetic throughout and needed no
+  fix, and are now pinned as such (`tests/test_main_logic.lua`, `tests/test_xp_rate_multiplier.lua`
+  Test 6); telemetry was the one that was broken. No suite in the repository had ever exercised a
+  non-integer multiplier, and the two suites that touched a non-1 speed at all sampled only from
+  {5, 20, 40} — the values the false comment listed.
+
 - **The death-learning layer no longer "adjusts" a constant that stopped changing behaviour, and
   the F11 panel therefore stops advertising that non-improvement.** The horde rule lowered
   `FLEE_HORDE_SIZE` by 1 per horde death ("flee sooner"), but since the flee-only rewrite
