@@ -1015,6 +1015,130 @@ class TestEvadeReasonDriftGuard(unittest.TestCase):
                  tr.EVADE_STALLED_REASON}), 3)
 
 
+# ── build stamp (schema v6) ───────────────────────────────────────────────────
+
+# v5 (2026-07-24) added the real game-speed field; v6 (2026-08-10) appends the
+# mod_version build stamp after doc.  The pair below differ ONLY in those two
+# respects, so every assertion about the stamp is about the stamp.
+V5_LINE = (
+    "schema_version=5,player=0,mode=autopilot,ff=normal,speed=1,"
+    "run_tick={tick},action=exercise,reason=training,class=exercise,stage=,"
+    "fail_reason=,retry_count=0,hunger=5,thirst=5,fatigue=5,endurance=95,"
+    "zombies=0,bleeding=0,str=1,fit=1,doc=0"
+)
+
+V6_LINE = (
+    "schema_version=6,player=0,mode=autopilot,ff=normal,speed=1,"
+    "run_tick={tick},action=exercise,reason=training,class=exercise,stage=,"
+    "fail_reason=,retry_count=0,hunger=5,thirst=5,fatigue=5,endurance=95,"
+    "zombies=0,bleeding=0,str=1,fit=1,doc=0,mod_version={build}"
+)
+
+
+class TestBuildStampParsing(unittest.TestCase):
+    """v6 appends mod_version; v2-v5 lines keep parsing exactly as before."""
+
+    def test_a_v6_line_parses_and_keeps_the_stamp_as_a_string(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "run.log"
+            path.write_text(V6_LINE.format(tick=1, build="0.2.1") + "\n",
+                            encoding="utf-8")
+            entries, skipped = tr.parse_run_log(path)
+        self.assertEqual(skipped, 0)
+        self.assertEqual(entries[0]["schema_version"], 6)
+        # Not in _INT_FIELDS: "0.2.1" must survive as text.  Coercing it would
+        # turn every stamp into a truncated float and collapse 0.2.1 onto 0.2.9.
+        self.assertEqual(entries[0]["mod_version"], "0.2.1")
+
+    def test_a_pre_v6_line_is_unstamped_not_broken(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "run.log"
+            path.write_text(V5_LINE.format(tick=1) + "\n", encoding="utf-8")
+            entries, skipped = tr.parse_run_log(path)
+        self.assertEqual(skipped, 0)
+        self.assertNotIn("mod_version", entries[0])
+        self.assertEqual(tr.session_build(entries), tr.UNSTAMPED_BUILD)
+
+    def test_a_mixed_v5_v6_session_reports_the_stamp_it_has(self) -> None:
+        """The real upgrade shape: one file spanning the schema change."""
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "run.log"
+            path.write_text(
+                V5_LINE.format(tick=1) + "\n"
+                + V6_LINE.format(tick=2, build="0.2.1") + "\n",
+                encoding="utf-8")
+            entries, skipped = tr.parse_run_log(path)
+        self.assertEqual(skipped, 0)
+        sessions = tr.split_sessions(entries)
+        self.assertEqual(len(sessions), 1)
+        self.assertEqual(tr.session_build(sessions[0]), "0.2.1")
+        self.assertEqual(tr.summarize(entries).sessions[0].mod_version, "0.2.1")
+
+    def test_findings_for_build_selects_by_exact_equality(self) -> None:
+        findings = [
+            tr.SuspiciousFinding("flee stall", "d", "h", mod_version="0.2.1"),
+            tr.SuspiciousFinding("flee stall", "d", "h", mod_version="0.2.10"),
+            tr.SuspiciousFinding("flee stall", "d", "h"),
+        ]
+        self.assertEqual(
+            [f.mod_version for f in tr.findings_for_build(findings, "0.2.1")],
+            ["0.2.1"],
+            "0.2.10 must not match 0.2.1 by prefix, and an unstamped finding "
+            "must not match a stamped build")
+        self.assertEqual(
+            len(tr.findings_for_build(findings, tr.UNSTAMPED_BUILD)), 1,
+            "the unstamped sentinel selects exactly the unstamped findings")
+
+
+class TestBuildStampDriftGuard(unittest.TestCase):
+    """The stamp this parser reads must be the one the Lua writes (L-003).
+
+    Both sides are read here, not just this one: a key rename or a schema bump
+    on the Lua side would leave every session silently unstamped, which reads
+    as "pre-v6" — the exact state the field was added to end, arriving without
+    a single test going red.
+    """
+
+    TELEMETRY_LUA = (Path(__file__).parent.parent / "42" / "media" / "lua"
+                     / "client" / "AutoPilot_Telemetry.lua")
+
+    def _lua(self) -> str:
+        self.assertTrue(
+            self.TELEMETRY_LUA.exists(),
+            f"blind guard: {self.TELEMETRY_LUA} not found — fix the path "
+            "before trusting this guard's silence")
+        return self.TELEMETRY_LUA.read_text(encoding="utf-8")
+
+    def test_the_lua_writes_the_key_this_parser_reads(self) -> None:
+        # assertTrue, not assertIn: assertIn's default message renders the
+        # WHOLE haystack, and a 400-line Lua module dumped into a failure
+        # buries the one sentence that says what broke.
+        self.assertTrue(
+            "mod_version=%s" in self._lua(),
+            f"{self.TELEMETRY_LUA.name}'s run-log format string no longer "
+            "emits mod_version=%s — session_build would report every v6 "
+            "session as unstamped, silently undoing build attribution")
+
+    def test_the_declared_schema_version_matches_the_stamped_format(self) -> None:
+        lua = self._lua()
+        match = re.search(r"^local SCHEMA_VERSION = (\d+)", lua, re.MULTILINE)
+        self.assertIsNotNone(
+            match, "blind guard: no SCHEMA_VERSION assignment matched")
+        self.assertGreaterEqual(
+            int(match.group(1)), 6,
+            "mod_version arrived in schema v6; a lower declared version means "
+            "the writer and this parser disagree about what a stamped line is")
+
+    def test_the_stamp_comes_from_the_one_version_home(self) -> None:
+        """No second version constant: the stamp is Constants.VERSION."""
+        lua = self._lua()
+        self.assertIn(
+            "AutoPilot_Constants.VERSION", lua,
+            "the build stamp must read the version constant that "
+            "tests/test_version_constant.lua binds to both mod.info files, "
+            "not a literal minted here")
+
+
 # ── attributed activity tests ─────────────────────────────────────────────────
 # Regression tests for the MED measurement-integrity bug found 2026-08-05: the
 # Action mix and Time split count DECISION ticks only, while a queued action

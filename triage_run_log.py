@@ -1,7 +1,7 @@
 """triage_run_log.py - Telemetry triage summarizer for AutoPilot run logs.
 
 Reads the structured key=value telemetry log written by AutoPilot_Telemetry.lua
-(schema_version=4; one line per evaluation cycle, older v2/v3 lines parse the
+(schema_version=6; one line per evaluation cycle, older v2-v5 lines parse the
 same because the parser keys off whatever fields a line carries) and prints a
 human-readable triage report:
 
@@ -160,6 +160,23 @@ EVADE_RUNNING_REASON = "evade_running"
 EVADE_COOLDOWN_REASON = "evade_cooldown"
 EVADE_STALLED_REASON = "evade_stalled"
 
+# ── Build attribution ─────────────────────────────────────────────────────────
+# The run log lives at ONE fixed path and is APPENDED to across every session
+# and every mod update, so it accumulates evidence about many different builds
+# in one file.  Schema v6 (2026-08-10) stamps each line with the mod build that
+# wrote it (AutoPilot_Telemetry.lua, `mod_version=`); sessions written before
+# that carry no stamp and are reported as UNSTAMPED_BUILD.
+#
+# What that buys, concretely: a finding is evidence about a BUILD.  Re-reading
+# the log under a newer checkout does not make an old finding current, and
+# "confirmed pre-existing on origin/main" is not a control at all when the
+# procedure re-reads the same historical bytes whatever commit is checked out
+# (the 2026-08-10 HIGH flee-stall filing did exactly that: its five findings
+# were all written before the three merged fixes that target their two shapes).
+# Attribution is what makes the comparison possible; it never deletes or hides
+# a finding, and format_report prints the stamp beside every one of them.
+UNSTAMPED_BUILD = ""
+
 # ── Expected persistent states ────────────────────────────────────────────────
 # (action, reason) pairs that legitimately hold for hundreds of consecutive
 # ticks.  These are STATE lines, written by literal-label logTick() calls in
@@ -282,15 +299,25 @@ class SessionSummary:
     fit_start: int | None = None    # first FIT level seen
     fit_end:   int | None = None
     ended: str = "open"             # "dead" if the last line is a death marker
+    mod_version: str = UNSTAMPED_BUILD   # build stamp; "" on pre-v6 sessions
 
 
 @dataclass
 class SuspiciousFinding:
-    """One suspicious-pattern hit: what was seen, plus a plain-language hint."""
+    """One suspicious-pattern hit: what was seen, plus a plain-language hint.
+
+    ``mod_version`` is the BUILD the session was written by (schema v6+), or
+    ``UNSTAMPED_BUILD`` when the session predates the stamp.  A finding is
+    evidence about a build, never about whatever source tree happens to be
+    checked out when the log is re-read, so every finding carries the build
+    that produced it and ``findings_for_build`` is how a gate selects the
+    ones that are actually about the code under test.
+    """
 
     pattern: str    # short label, e.g. "action streak"
     detail: str     # what the detector saw (session, counts, thresholds)
     hint: str       # one plain-language pointer for the human doing triage
+    mod_version: str = UNSTAMPED_BUILD   # build that wrote the session
 
 
 @dataclass
@@ -363,7 +390,7 @@ def parse_run_log(log_path: str | os.PathLike[str]) -> tuple[list[dict[str, Any]
       schema_version, player, mode, ff, run_tick,
       action, reason, class, stage, fail_reason, retry_count,
       hunger, thirst, fatigue, endurance, zombies, bleeding, str, fit,
-      doc (plus wood on v3 lines)
+      doc (plus wood on v3 lines, plus mod_version on v6 lines)
 
     Integer fields are coerced; empty string values (stage=, fail_reason=)
     are kept as empty strings.  A non-empty line is counted as skipped when it
@@ -453,6 +480,47 @@ def _first_last_int(session: list[dict[str, Any]],
     return first, last
 
 
+def session_build(session: list[dict[str, Any]]) -> str:
+    """The mod build that wrote *session*, or ``UNSTAMPED_BUILD`` if unstamped.
+
+    A session cannot span a mod update — the game has to restart, which resets
+    run_tick and therefore starts a new session — so in practice every line of
+    a session carries the same stamp.  Several DISTINCT stamps in one session
+    means the log was hand-edited, concatenated, or interleaved, and that is
+    reported as a joined stamp ("0.2.1+0.2.2") rather than silently resolved:
+    picking one would hand a caller a build id the session does not actually
+    have, which is the exact failure attribution exists to prevent.
+    """
+    seen: list[str] = []
+    for entry in session:
+        value = entry.get("mod_version")
+        if isinstance(value, str) and value and value not in seen:
+            seen.append(value)
+    if not seen:
+        return UNSTAMPED_BUILD
+    if len(seen) == 1:
+        return seen[0]
+    return "+".join(sorted(seen))
+
+
+def findings_for_build(findings: list[SuspiciousFinding],
+                       build: str) -> list[SuspiciousFinding]:
+    """The subset of *findings* produced by *build*.
+
+    This is the selector a GATE uses: a run-log finding is only evidence about
+    the code under test when the build that produced it is the build under
+    test.  Everything else — older builds, unstamped pre-v6 sessions — stays in
+    the finding list and is still reported; it is simply evidence about some
+    other code, which no checkout can retroactively make current.
+
+    ``build`` is compared by exact string equality, deliberately.  There is no
+    ordering or "newer than" logic here: an inequality must never be resolvable
+    by guessing, and the only defensible reading of a stamp that does not match
+    is "this was not written by the build in front of me".
+    """
+    return [f for f in findings if f.mod_version == build]
+
+
 def detect_action_streaks(
         sessions: list[list[dict[str, Any]]]) -> list[SuspiciousFinding]:
     """Flag same-action runs not explained by an expected persistent state.
@@ -481,6 +549,7 @@ def detect_action_streaks(
             "Expected persistent states (asleep, foreign actions, armed "
             "idle) are already excluded from the count.")
     for index, session in enumerate(sessions, start=1):
+        build = session_build(session)
         start = 0
         total = len(session)
         while start < total:
@@ -506,6 +575,7 @@ def detect_action_streaks(
                             f"of them counted (top reasons: {top}; "
                             f"threshold {STREAK_MIN_TICKS})"),
                     hint=hint,
+                    mod_version=build,
                 ))
             start = end
     return findings
@@ -519,6 +589,7 @@ def detect_combat_cycles(
             "patching up; the area may be too hot for the current flee "
             "threshold, so consider relocating home.")
     for index, session in enumerate(sessions, start=1):
+        build = session_build(session)
         episodes = 0            # consecutive runs of combat/fight/flee ticks
         cycles = 0              # re-entries within COMBAT_CYCLE_MAX_GAP ticks
         gap: int | None = None  # ticks since the last combat episode ended
@@ -544,6 +615,7 @@ def detect_combat_cycles(
                         f"previous fight ({episodes} combat episode(s); "
                         f"threshold {COMBAT_CYCLE_MIN_CYCLES})"),
                 hint=hint,
+                mod_version=build,
             ))
     return findings
 
@@ -556,6 +628,7 @@ def detect_loot_spirals(
             "loot trips are coming back empty; nearby containers may be "
             "depleted, so a new home area may help.")
     for index, session in enumerate(sessions, start=1):
+        build = session_build(session)
         scavenge = sum(
             1 for entry in session if entry.get("action") == "scavenge")
         if scavenge < LOOT_SPIRAL_MIN_SCAVENGE:
@@ -576,6 +649,7 @@ def detect_loot_spirals(
                         f"{LOOT_SPIRAL_MIN_SCAVENGE} ticks, "
                         f"+{LOOT_SPIRAL_NEED_RISE} need rise)"),
                 hint=hint,
+                mod_version=build,
             ))
     return findings
 
@@ -629,6 +703,7 @@ def detect_flee_stalls(
             "through four -- still not escaping, just failing faster, which "
             "points at the destination rather than at the cooldown.")
     for index, session in enumerate(sessions, start=1):
+        build = session_build(session)
         start = 0
         total = len(session)
         while start < total:
@@ -678,6 +753,7 @@ def detect_flee_stalls(
                         f"{stalled_note}; {speed_note} "
                         f"(threshold {FLEE_STALL_MIN_DECISIONS} decisions)"),
                 hint=hint,
+                mod_version=build,
             ))
     return findings
 
@@ -700,6 +776,7 @@ def _session_summary(index: int, session: list[dict[str, Any]]) -> SessionSummar
     first = session[0]
     player = first.get("player", 0)
     s.player = player if isinstance(player, int) else 0
+    s.mod_version = session_build(session)
     for entry in session:
         str_val = entry.get("str")
         fit_val = entry.get("fit")
@@ -776,6 +853,16 @@ def _pct(count: int, total: int) -> str:
     if total <= 0:
         return "  0.0%"
     return f"{100.0 * count / total:5.1f}%"
+
+
+def _fmt_build(build: str) -> str:
+    """Render a build stamp, naming the unstamped case instead of blanking it.
+
+    An empty column would read as "no data"; the fact is sharper than that and
+    is what a reader needs: the session predates schema v6, so it was written
+    before 2026-08-10 and cannot be evidence about anything newer.
+    """
+    return build if build != UNSTAMPED_BUILD else "unstamped (pre-v6 session)"
 
 
 def _fmt_level(start: int | None, end: int | None) -> str:
@@ -870,7 +957,7 @@ def format_report(summary: TriageSummary,
                 f"  session {s.index}: player {s.player}, {s.ticks} tick(s), "
                 f"STR {_fmt_level(s.str_start, s.str_end)}, "
                 f"FIT {_fmt_level(s.fit_start, s.fit_end)}, "
-                f"ended: {s.ended}"
+                f"ended: {s.ended}, build {_fmt_build(s.mod_version)}"
             )
     else:
         lines.append("  (none)")
@@ -880,6 +967,9 @@ def format_report(summary: TriageSummary,
     if summary.suspicious:
         for finding in summary.suspicious:
             lines.append(f"  [{finding.pattern}] {finding.detail}")
+            lines.append(f"      build: {_fmt_build(finding.mod_version)} "
+                         f"(a finding is evidence about the build that wrote "
+                         f"it, not about the tree you are reading it from)")
             lines.append(f"      hint: {finding.hint}")
     else:
         lines.append("  none detected")

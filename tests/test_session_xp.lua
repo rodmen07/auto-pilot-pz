@@ -234,11 +234,15 @@ do
         hist[1].doc_xp_start, 7)
 
     -- The run log is a different file with its own schema and must NOT have
-    -- moved: this fix is confined to the session summary.
+    -- gained XP fields: this fix is confined to the session summary.  The
+    -- version pin tracks AutoPilot_Telemetry's SCHEMA_VERSION (v6 appended the
+    -- mod_version build stamp, 2026-08-10) so that a future schema change has
+    -- to come back through this assertion and re-state that the XP fields are
+    -- still absent, rather than the pin quietly ceasing to describe the line.
     local runLog = MockFiles["auto_pilot_run.log"]
     local runLine = runLog and runLog.lines and runLog.lines[#runLog.lines]
-    assert_true("run log still declares schema_version=5",
-        tostring(runLine):find("schema_version=5,", 1, true) ~= nil)
+    assert_true("run log still declares schema_version=6",
+        tostring(runLine):find("schema_version=6,", 1, true) ~= nil)
     assert_false("run log carries no XP fields",
         tostring(runLine):find("str_xp", 1, true) ~= nil)
 end
