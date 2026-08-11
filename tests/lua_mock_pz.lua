@@ -993,18 +993,29 @@ end
 -- ── FitnessExercises ──────────────────────────────────────────────────────────
 -- Mirrors shared/Definitions/FitnessExercises.lua: equipment exercises carry
 -- item (full type gated via inventory:contains) and prop (how it is held).
+--
+-- xpMod added 2026-08-11 (V6.3 C1): the auto pool is now DERIVED from this
+-- table rather than hardcoded, so the field the derivation orders by has to be
+-- mirrored or every exercise would look equally rewarding here.  Values read
+-- live out of the 42.19 install at
+-- media/lua/shared/Definitions/FitnessExercises.lua rather than invented --
+-- verified-surface discipline: the field is confirmed present in the install,
+-- and burpees' 0.8 carries vanilla's own explanation ("few less xp as it gives
+-- xp for 3 body parts"), which is exactly why the mod promotes it anyway.
+-- The remaining vanilla fields (name, tooltip, stiffness, metabolics) stay out
+-- because no mod code reads them.
 FitnessExercises = {
     exercisesType = {
-        pushups       = { type = "pushups" },
-        squats        = { type = "squats" },
-        situp         = { type = "situp" },
-        burpees       = { type = "burpees" },
+        pushups       = { type = "pushups", xpMod = 1 },
+        squats        = { type = "squats", xpMod = 1 },
+        situp         = { type = "situp", xpMod = 1 },
+        burpees       = { type = "burpees", xpMod = 0.8 },
         dumbbellpress = { type = "dumbbellpress", item = "Base.DumbBell",
-                          prop = "switch" },
+                          prop = "switch", xpMod = 1.8 },
         bicepscurl    = { type = "bicepscurl", item = "Base.DumbBell",
-                          prop = "switch" },
+                          prop = "switch", xpMod = 1.8 },
         barbellcurl   = { type = "barbellcurl", item = "Base.BarBell",
-                          prop = "twohands" },
+                          prop = "twohands", xpMod = 1.2 },
     },
 }
 

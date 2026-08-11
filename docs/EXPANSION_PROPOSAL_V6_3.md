@@ -8,6 +8,14 @@
 > genuine limitation with its indirect lever named, D7 NO tobacco; **C3** D8 KEEP the direct
 > `getPoisonPower` read. Nothing was overridden.
 >
+> **IMPLEMENTATION STATUS (updated as each slice lands, so this record never outlives its own
+> truth):** **C1 SHIPPED 2026-08-11** — the auto pool is derived from
+> `FitnessExercises.exercisesType`, the vanilla seven come out in the V5.2 order element for
+> element, and `tests/test_exercise_pool.lua` pins D1, D2 and the fallback. **C2-D4 (the stress
+> trigger on the existing read arm) and C2-D6 (Discomfort documented) are still OPEN.** C3 is
+> closed by the decision itself: D8 keeps the direct `getPoisonPower` read, so there is no code
+> change to make. D5 stays deferred on the unknown below.
+>
 > **This unblocks net-new dev**, which had been proposal-gated since 2026-07-26. Sequencing is
 > dependency order only, no calendar: C1, C2 and C3 are mutually independent, one PR each, except
 > C2 which is naturally two (D4 the stress arm, a code slice; D6 the Discomfort documentation,

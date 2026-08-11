@@ -173,6 +173,118 @@ local function _hasExerciseItem(player, exeData)
     return has
 end
 
+-- ── V6.3 C1: the AUTO pool is DISCOVERED, not hardcoded ─────────────────────
+-- Approved 2026-08-10 with defaults D1-D3 (docs/EXPANSION_PROPOSAL_V6_3.md
+-- section 2).  The auto pool used to be a literal list of the seven exercises
+-- vanilla B42.19 happens to ship, so an exercise added by another mod or by a
+-- future Build was invisible to the trainer no matter how much XP it paid.  It
+-- is now derived from FitnessExercises.exercisesType -- the same table
+-- doExercise already reads for each candidate's equipment fields.
+--
+-- The FOCUSED pools stay the mod-side V3.2 map on purpose (D2): the vanilla
+-- table carries no perk field (type, name, tooltip, stiffness, metabolics,
+-- item, prop, xpMod), so "which stat does this exercise train" cannot be
+-- derived for an exercise the mod has never seen, and a focused pool promises
+-- a specific stat.  An unknown exercise therefore joins AUTO and only auto.
+
+-- The V5.2 list, kept as the FALLBACK for a game whose exercise table cannot
+-- be read: a nil or empty FitnessExercises leaves the derivation nothing to
+-- iterate, and a trainer that returns no candidates simply stops training.
+-- tests/test_exercise_pool.lua drives this path by clearing the table and
+-- asserts the same order comes out, so the fallback cannot silently diverge
+-- from the derivation it stands in for.
+local AUTO_FALLBACK = { "dumbbellpress", "bicepscurl", "barbellcurl", "burpees",
+                        "squats", "pushups", "situp" }
+
+-- D1.  Which exercises level BOTH Strength and Fitness is mod-side knowledge
+-- (the V5.2 decision), expressed here as data rather than as a position in a
+-- literal list.  Only a name the mod knows can be promoted -- an unknown
+-- exercise's perk is unknowable from Lua, so it is never assumed to be both.
+local BOTH_STATS = { burpees = true }
+
+-- Tie-break seed for exercises whose xpMod is EQUAL: dumbbellpress and
+-- bicepscurl both pay 1.8, and squats/pushups/situp all pay 1.0, so xpMod
+-- alone does not order the vanilla seven.  pairs() iteration order is
+-- undefined in Lua and table.sort is not stable, so without a total order the
+-- pool would differ between runs of the same game.  An exercise the mod does
+-- not know sorts after every one it does, then by name, so an unknown pair is
+-- ordered too.
+local KNOWN_RANK = { dumbbellpress = 1, bicepscurl = 2, barbellcurl = 3,
+                     burpees = 4, squats = 5, pushups = 6, situp = 7 }
+
+--- The auto pool, derived from FitnessExercises.exercisesType.
+---
+--- Two steps, in this order, so that the vanilla seven come out EXACTLY as the
+--- V5.2 literal list did (D1: the generic path changes behaviour only when the
+--- exercise table itself changes):
+---
+---   1. Sort every discovered exercise by xpMod DESCENDING, ties broken by
+---      KNOWN_RANK and then by name.
+---   2. Promote the both-stats exercises: they move to sit immediately ahead
+---      of the first entry that needs no equipment.  Burpees pay 0.8 -- LESS
+---      than the 1.0 bodyweight trio -- precisely because they pay it on three
+---      body parts (vanilla's own comment on the field), and they are the one
+---      exercise that levels Strength and Fitness together, so the raw number
+---      understates them.  This is the V5.2 pool description verbatim:
+---      "equipment first, then burpees, then the bodyweight fallbacks".
+---
+--- Why the promotion is a post-pass instead of a rule inside the comparator:
+--- "a both-stats exercise outranks a bodyweight exercise, everything else by
+--- xpMod" is INTRANSITIVE, and table.sort with an inconsistent comparator is
+--- undefined behaviour in Lua.  Worked cycle, with a hypothetical modded
+--- equipment exercise E paying 0.5: burpees (0.8, both) beats squats (1.0,
+--- bodyweight) by the promotion, squats beats E on xpMod, and E beats burpees
+--- on xpMod.  Sorting first and splicing second has no such hole.
+local function _autoCandidates()
+    local types = FitnessExercises and FitnessExercises.exercisesType
+    if type(types) ~= "table" then return AUTO_FALLBACK end
+
+    local ranked = {}
+    for name, data in pairs(types) do
+        if type(name) == "string" and type(data) == "table" then
+            ranked[#ranked + 1] = {
+                name  = name,
+                -- A modded entry may omit xpMod; 0 sorts it last rather than
+                -- erroring, and it still reaches the pool.
+                xpMod = tonumber(data.xpMod) or 0,
+                gear  = data.item ~= nil,
+                both  = BOTH_STATS[name] == true,
+                rank  = KNOWN_RANK[name] or math.huge,
+            }
+        end
+    end
+    if #ranked == 0 then return AUTO_FALLBACK end
+
+    table.sort(ranked, function(a, b)
+        if a.xpMod ~= b.xpMod then return a.xpMod > b.xpMod end
+        if a.rank  ~= b.rank  then return a.rank  < b.rank  end
+        return a.name < b.name
+    end)
+
+    local promoted, rest = {}, {}
+    for i = 1, #ranked do
+        local e = ranked[i]
+        if e.both then
+            promoted[#promoted + 1] = e
+        else
+            rest[#rest + 1] = e
+        end
+    end
+
+    -- Splice point: ahead of the first bodyweight entry, or at the end when
+    -- every discovered exercise needs equipment.
+    local at = #rest + 1
+    for i = 1, #rest do
+        if not rest[i].gear then at = i; break end
+    end
+
+    local out = {}
+    for i = 1, at - 1 do out[#out + 1] = rest[i].name end
+    for i = 1, #promoted do out[#out + 1] = promoted[i].name end
+    for i = at, #rest do out[#out + 1] = rest[i].name end
+    return out
+end
+
 -- Ordered exercise candidates for the focus; the first one that has
 -- definition data, whose required item is carried, and that is not
 -- XP-fatigued is used.  Later entries are fallbacks for when the primary
@@ -185,6 +297,11 @@ end
 -- gate and falls through silently to the next candidate, so a barehanded
 -- character still trains normally.  No fitness equipment exists, so the
 -- fitness pool stays bodyweight-only.
+--
+-- On an auto day the XP-fatigue rotation still falls through equipment,
+-- then burpees, then the bodyweight pool as each option stops paying, so
+-- Fitness keeps progressing across the day; since V4.6 dropped the daily
+-- set cap, that rotation runs long enough for every tier to get used.
 local function _exerciseCandidates(player, focus)
     if focus == "strength" then
         return { "dumbbellpress", "bicepscurl", "barbellcurl", "pushups" }
@@ -195,17 +312,7 @@ local function _exerciseCandidates(player, focus)
         end
         return { "squats", "situp" }
     end
-    -- auto (V5.2): equipment first, then burpees (the one exercise that
-    -- trains BOTH stats), then the bodyweight fallbacks.  Burpees used to
-    -- lead here, so an auto day never touched the dumbbell the mod itself
-    -- walks out to fetch (fetchExerciseEquipment, below): the 1.8x/1.2x
-    -- equipment xpMod was fetched and then ignored.  With equipment
-    -- leading, the XP-fatigue rotation still falls through to burpees and
-    -- the bodyweight pool as each option stops paying, so Fitness keeps
-    -- progressing across the day; since V4.6 dropped the daily set cap,
-    -- that rotation runs long enough for every tier to get used.
-    return { "dumbbellpress", "bicepscurl", "barbellcurl", "burpees",
-             "squats", "pushups", "situp" }
+    return _autoCandidates()
 end
 
 -- ── Per-exercise XP-productivity tracking ───────────────────────────────────
@@ -675,6 +782,13 @@ end
 --- Return how many exercise sets have been performed today.
 function AutoPilot_Exercise.getExerciseSetsToday()
     return _exerciseSetsToday
+end
+
+--- The ordered candidate pool doExercise would walk for `focus` (tests only).
+--- It RUNS the real selection -- it is not a copy of it -- so a suite that
+--- asserts an order is asserting the order the trainer will actually use.
+function AutoPilot_Exercise.exerciseCandidatesForTest(player, focus)
+    return _exerciseCandidates(player, focus)
 end
 
 --- Return preferred exercise type based on STR vs FIT perk level.

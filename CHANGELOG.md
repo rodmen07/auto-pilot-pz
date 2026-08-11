@@ -6,6 +6,21 @@ All notable changes to AutoPilot are documented here.
 
 ### Added
 
+- **The Auto training pool is now DISCOVERED from the game's exercise table instead of being a
+  hardcoded list of seven names (V6.3 C1, approved 2026-08-10).** Until now the trainer walked a
+  literal list of the exercises vanilla Build 42.19 happens to ship, so an exercise added by
+  another mod — or by a future Build — was invisible to it no matter how much XP it paid. Auto
+  now iterates `FitnessExercises.exercisesType`, the same table the trainer already reads for each
+  candidate's equipment fields, sorts by `xpMod` descending, and keeps burpees ahead of the
+  bodyweight exercises because they are the one exercise that levels Strength and Fitness together
+  (they pay *less* per set, 0.8 against 1.0, precisely because they pay it on three body parts).
+  **Over vanilla's seven exercises the resulting pool is identical to the old list, element for
+  element**, so nothing changes in an unmodded game; the generic path only shows itself when the
+  exercise table itself changes. The two FOCUSED pools (Strength, Fitness) deliberately stay as
+  they were: the vanilla table carries no perk field, so which stat an unknown exercise trains
+  cannot be read from Lua, and a focused pool promises a specific stat — an unknown exercise
+  therefore joins Auto and only Auto. No new settings; the exercise table is the configuration.
+
 - **Every run-log line now names the mod BUILD that wrote it (`mod_version`, schema v6).** The
   telemetry log lives at one fixed path and is appended to across every session *and every mod
   update*, so one file accumulates evidence about many different builds — and until now nothing in
