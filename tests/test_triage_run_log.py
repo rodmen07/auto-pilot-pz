@@ -1110,11 +1110,14 @@ class TestBuildStampDriftGuard(unittest.TestCase):
         return self.TELEMETRY_LUA.read_text(encoding="utf-8")
 
     def test_the_lua_writes_the_key_this_parser_reads(self) -> None:
-        lua = self._lua()
-        self.assertIn(
-            "mod_version=%s", lua,
-            "the run-log format string no longer emits mod_version — "
-            "session_build would report every v6 session as unstamped")
+        # assertTrue, not assertIn: assertIn's default message renders the
+        # WHOLE haystack, and a 400-line Lua module dumped into a failure
+        # buries the one sentence that says what broke.
+        self.assertTrue(
+            "mod_version=%s" in self._lua(),
+            f"{self.TELEMETRY_LUA.name}'s run-log format string no longer "
+            "emits mod_version=%s — session_build would report every v6 "
+            "session as unstamped, silently undoing build attribution")
 
     def test_the_declared_schema_version_matches_the_stamped_format(self) -> None:
         lua = self._lua()
