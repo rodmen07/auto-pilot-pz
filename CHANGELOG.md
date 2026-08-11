@@ -4,7 +4,47 @@ All notable changes to AutoPilot are documented here.
 
 ## [Unreleased]
 
+### Added
+
+- **Every run-log line now names the mod BUILD that wrote it (`mod_version`, schema v6).** The
+  telemetry log lives at one fixed path and is appended to across every session *and every mod
+  update*, so one file accumulates evidence about many different builds — and until now nothing in
+  a line said which. The consequence was not theoretical. A defect that has since been **fixed**
+  keeps producing the same finding on every re-read, forever, and is indistinguishable from a live
+  regression: on 2026-08-10 a HIGH "the FLEE path stalls" bug was filed against current `main` from
+  five findings whose every byte was written at or before **2026-08-07 04:01** (the log's mtime) —
+  before *all three* merged fixes aimed at exactly its two shapes, #120 (2026-08-07T16:28Z, flee
+  walks discarded above game-speed index 2 — the x11-x21 episode), #122 (18:43Z, every walk site
+  clamps the speed) and #123 (2026-08-08T01:35Z, an escape walk that moved nobody no longer buys a
+  cooldown — the x1 stride-of-5 episode). The filing recorded "confirmed pre-existing on
+  `origin/main`", run in a throwaway worktree; that control **cannot fail**, because the procedure
+  re-reads the same historical bytes whatever commit is checked out, so it says nothing about the
+  code. The stamp reuses `AutoPilot_Constants.VERSION` — already bound to `modversion=` in both
+  `mod.info` files — rather than minting a second version home, is appended after `doc` so every
+  pre-v6 field keeps its position, and writes `unknown` rather than an empty field when the version
+  cannot be read (an absent field already means "pre-v6" to every reader, so blanking it would
+  mis-date a *current* session).
+
+- **`triage_run_log.py` attributes findings to builds.** `session_build()` reads the stamp,
+  `findings_for_build()` selects the findings a given build is answerable for, and the report prints
+  the build beside every session and every finding. A session carrying two distinct stamps (only a
+  hand-edited or concatenated log can do that) is reported as `0.2.1+0.2.2` rather than silently
+  resolved to one of them. Nothing is hidden: an unattributable finding is still detected and still
+  printed, it just cannot be pinned on code it never ran.
+
 ### Fixed
+
+- **The run-log suspicious-pattern guard no longer fails forever on evidence about code that no
+  longer exists.** `tests/test_game_logs.py` now gates on the findings written by the build under
+  test, which is a correction of a false positive rather than a relaxation — a permanently-red gate
+  is one a maintainer learns to ignore, which is how the *next* genuine telemetry finding gets
+  missed. The policy is covered in CI for the first time: the real-log test is
+  `skipUnless(RUN_LOG.exists())` and therefore never runs there, so `TestBuildAttribution` feeds the
+  same synthetic stalled-flee episode (seven flee decisions on a stride of 5, zero `evade_running`
+  ticks — the exact shape of the live x1 episode) through the real parse → detect → select pipeline
+  three times, varying **only** the stamp: stamped with the tree's build it reaches the gate,
+  stamped with another build it does not, unstamped it does not, and in all three cases the finding
+  is still detected and still reported.
 
 - **The run log is no longer lost, silently and completely, at any fractional game speed.**
   `AutoPilot_Telemetry` wrote the schema-v5 `speed` field with `string.format("%d", ...)` straight

@@ -55,14 +55,14 @@ The log rotates once per session past 20,000 lines, keeping the newest
 5,000 (see the Telemetry section of `docs/architecture.md` for the writer
 side).
 
-### Schema (v3, additive-only)
+### Schema (v6, additive-only)
 
-Current lines are `schema_version=3` (since V4.1) with this exact field
-order:
+Current lines are `schema_version=6` (since 2026-08-10) with this exact
+field order:
 
 | Field | Type | Meaning |
 |---|---|---|
-| `schema_version` | int | Line format version. 3 since V4.1; 2 before. Additive-only: parsers must ignore unknown keys, and old lines must keep parsing. |
+| `schema_version` | int | Line format version. 6 since 2026-08-10 (`mod_version`); 5 since 2026-07-24 (`speed`); 4 since V5.0; 3 since V4.1; 2 before. Additive-only apart from v4's `wood` removal: parsers must ignore unknown keys, and old lines must keep parsing. |
 | `player` | int | 0-based player number. Player 0 writes `auto_pilot_run.log`; the numbered files are splitscreen-era plumbing (only player 0 occurs since V3.2). |
 | `mode` | string | Always `autopilot` (lines are only written while the mod evaluates). |
 | `ff` | string | `active` when this cycle's cached zombie scan saw at least one zombie, else `normal`. |
@@ -79,6 +79,26 @@ order:
 | `str`, `fit` | int | Strength / Fitness perk levels. |
 | `doc` | int | v3+ (V4.1): Doctor perk level, appended after `fit`. Absent on v2 lines. |
 | `wood` | int | **v3 only.** Woodwork perk level. Added in V4.1, removed in V5.0 with barricading, so it appears on v3 lines and on no other version. Coerced when present, never consumed. |
+| `mod_version` | string | v6+ (2026-08-10): the mod BUILD that wrote the line, from `AutoPilot_Constants.VERSION`. `unknown` when the version constant could not be read — never blank, because an absent field already means "pre-v6". Kept as text, not coerced. |
+
+**Why the build stamp exists, and what it changes about reading a finding.**
+This log lives at one fixed path and is appended to across every session *and
+every mod update*, so a single file accumulates evidence about many different
+builds. Before v6 nothing in a line said which, and the consequence is
+concrete: a defect that has since been FIXED keeps producing the same finding
+on every re-read, forever, indistinguishable from a live regression. On
+2026-08-10 a HIGH "the FLEE path stalls" bug was filed against current `main`
+on five findings whose every byte was written at or before 2026-08-07 04:01 —
+before all three merged fixes aimed at exactly its two shapes (#120, #122,
+#123). The filing even recorded "confirmed pre-existing on `origin/main`",
+run in a throwaway worktree: a control that cannot fail, because the procedure
+re-reads the same historical bytes whatever commit is checked out.
+
+So: **a finding is evidence about the build that wrote it.** `session_build()`
+reads the stamp, `findings_for_build()` selects the findings a given build is
+answerable for, and the report prints the stamp beside every session and every
+finding. Nothing is hidden — an unattributable finding is still detected and
+still shown, it simply cannot be pinned on code it never ran.
 
 Real lines from the clean test fixture
 (`tests/fixtures/run_log_v2_sample.log`, schema v2 kept deliberately as
@@ -103,6 +123,13 @@ A v4 line (V5.0 onward), which drops `wood` and never emits `barricade`:
 
 ```
 schema_version=4,player=0,mode=autopilot,ff=normal,run_tick=1,action=exercise,reason=training,class=exercise,stage=,fail_reason=,retry_count=0,hunger=5,thirst=5,fatigue=5,endurance=90,zombies=0,bleeding=0,str=1,fit=2,doc=3
+```
+
+A v6 line (2026-08-10 onward), which adds `speed` after `ff` (v5) and the
+`mod_version` build stamp after `doc` (v6):
+
+```
+schema_version=6,player=0,mode=autopilot,ff=normal,speed=1,run_tick=1,action=exercise,reason=training,class=exercise,stage=,fail_reason=,retry_count=0,hunger=5,thirst=5,fatigue=5,endurance=90,zombies=0,bleeding=0,str=1,fit=2,doc=3,mod_version=0.2.1
 ```
 
 Schema versions parse interchangeably, including inside one file that spans

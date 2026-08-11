@@ -429,15 +429,24 @@ file API in PZ's sandbox); a JSON end marker distinguishing `dead` from
 `timeout` goes to `auto_pilot_run_end.json`, and death snapshots go to
 `auto_pilot_deaths.log`.
 
-Schema v4 fields (old parsers ignore unknown keys):
-`schema_version`, `player`, `mode`, `ff` (normal/active), `run_tick`,
-`action`, `reason`, `class`, `stage`, `fail_reason`, `retry_count`, and the
-stat fields `hunger`, `thirst`, `fatigue`, `endurance`, `zombies`,
-`bleeding`, `str`, `fit`, plus the V4.1 action-perk level `doc` (Doctor)
-appended after `fit`.
+Schema v6 fields (old parsers ignore unknown keys):
+`schema_version`, `player`, `mode`, `ff` (normal/active), `speed`,
+`run_tick`, `action`, `reason`, `class`, `stage`, `fail_reason`,
+`retry_count`, and the stat fields `hunger`, `thirst`, `fatigue`,
+`endurance`, `zombies`, `bleeding`, `str`, `fit`, plus the V4.1 action-perk
+level `doc` (Doctor) appended after `fit`, plus `mod_version` — the build
+that wrote the line, appended last.
+
+`mod_version` is what makes a run-log finding attributable. The log is
+append-only at one fixed path across every session and every mod update, so
+before v6 a finding from a build whose defect had since been fixed was
+indistinguishable from a live regression and failed the run-log guard forever
+(see `docs/triage.md`, "Why the build stamp exists").
 
 Schema history and compatibility: v2 lines end at `fit`; v3 (V4.1) appended
-`wood`,`doc`; v4 (V5.0) dropped `wood` again with the barricading feature.
+`wood`,`doc`; v4 (V5.0) dropped `wood` again with the barricading feature;
+v5 (2026-07-24) appended `speed`, the real game multiplier; v6 (2026-08-10)
+appended `mod_version`.
 v4 is therefore the first non-additive change, and it is safe because both
 offline parsers are key=value readers that require only `action` and
 `run_tick`. `triage_run_log.py` coerces `wood` when present and never

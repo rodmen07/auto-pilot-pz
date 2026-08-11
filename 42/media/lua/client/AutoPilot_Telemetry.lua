@@ -30,7 +30,24 @@ AutoPilot_Telemetry = {}
 -- action and run_tick: triage coerces wood when present and never consumes
 -- it, and benchmark never listed it at all.  Existing v3 logs therefore keep
 -- parsing verbatim, and mixed v3/v4 files parse line by line.
-local SCHEMA_VERSION = 5   -- v5 (2026-07-24): added the `speed` field (real game multiplier)
+-- v5 (2026-07-24): added the `speed` field (real game multiplier).
+-- v6 (2026-08-10): appended `mod_version`, the BUILD STAMP.  Additive, so v2-v5
+-- lines keep parsing untouched and both offline parsers ignore the new key.
+--
+-- Why a build stamp is worth a schema bump: this log is APPEND-ONLY at a FIXED
+-- PATH across every session AND every mod update, and nothing in a line said
+-- which build wrote it.  A telemetry finding is evidence about a BUILD, so
+-- without the stamp a defect that has since been FIXED keeps failing the
+-- run-log guard forever, indistinguishable from a live regression.  That is not
+-- hypothetical: on 2026-08-10 a HIGH "the FLEE path stalls" bug was filed
+-- against current main from five findings whose every byte was written
+-- 2026-08-07 04:01 or earlier -- BEFORE all three merged fixes that target
+-- exactly those two shapes (#120 16:28Z, #122 18:43Z, #123 2026-08-08T01:35Z).
+-- The entry's own "confirmed pre-existing on origin/main" control could not
+-- have failed: the guard re-reads the same historical bytes whatever commit is
+-- checked out, so it says nothing about the code under test.  With this field
+-- that question is one comparison instead of an archaeology session.
+local SCHEMA_VERSION = 6
 
 -- ── Per-player state ───────────────────────────────────────────────────────────
 -- Keys are playerNum (0-based integer from player:getPlayerNum()).
@@ -55,6 +72,24 @@ local _lastFail       = {}   -- [playerNum] -> fail_reason of the last logged cy
 local function _pn(player)
     local ok, n = pcall(function() return player:getPlayerNum() end)
     return (ok and type(n) == "number") and n or 0
+end
+
+-- The build stamp written into every schema-v6 line (see SCHEMA_VERSION above).
+-- AutoPilot_Constants.VERSION is already bound to `modversion=` in BOTH mod.info
+-- files by tests/test_version_constant.lua and tests/test_version_sync.py, so
+-- this reuses a checked value rather than minting a second version home.
+-- Returns "unknown" rather than nil when Constants has not loaded: a line that
+-- cannot name its build must still SAY so, because an absent field means
+-- "pre-v6" to every reader and would silently mis-date a current session.
+local function _modBuild()
+    local v = AutoPilot_Constants and AutoPilot_Constants.VERSION
+    if type(v) ~= "string" then return "unknown" end
+    -- The line is comma-delimited key=value, so a stamp carrying "," or "="
+    -- would split into phantom fields and corrupt every field after it.  This
+    -- clamps a value that is already guarded; it is not a parser.
+    v = v:gsub("[^%w%.%-_]", "")
+    if v == "" then return "unknown" end
+    return v
 end
 
 local function _logFile(pnum)
@@ -201,7 +236,8 @@ local function _collectStats(player)
     -- PZ levels move rarely, so a session summary built on levels alone shows
     -- "5 -> 5" for a session that gained most of a level and for one that
     -- gained nothing at all.  These feed AutoPilot_SessionHistory ONLY: the
-    -- run-log line below is unchanged and stays schema_version=5.
+    -- run-log line below carries no XP field (the schema bump to v6 appended
+    -- mod_version and nothing else; tests/test_session_xp.lua pins the absence).
     -- API verified live in the 42.19 install: player:getXp():getXP(Perks.X)
     -- (client/ISUI/PlayerStats/ISPlayerStatsUI.lua:515, server/XpSystem/
     -- XpUpdate.lua:311).  Read inline, like the perk levels above, rather
@@ -320,11 +356,11 @@ function AutoPilot_Telemetry.logTick(player, action, reason)
         "schema_version=%d,player=%d,mode=autopilot,ff=%s,speed=%d,run_tick=%d,"
         .. "action=%s,reason=%s,class=%s,stage=%s,fail_reason=%s,retry_count=%d,"
         .. "hunger=%d,thirst=%d,fatigue=%d,endurance=%d,"
-        .. "zombies=%d,bleeding=%d,str=%d,fit=%d,doc=%d",
+        .. "zombies=%d,bleeding=%d,str=%d,fit=%d,doc=%d,mod_version=%s",
         SCHEMA_VERSION, pnum, ff, speed, _runTick[pnum],
         action, reason, cls, stage, fail_reason, retry_count,
         s.hunger, s.thirst, s.fatigue, s.endurance,
-        s.zombies, s.bleeding, s.str, s.fit, s.doc
+        s.zombies, s.bleeding, s.str, s.fit, s.doc, _modBuild()
     )
     _appendLine(pnum, line)
 

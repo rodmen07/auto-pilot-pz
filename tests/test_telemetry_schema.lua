@@ -139,11 +139,12 @@ do
     assert_eq("pending action is 'recover'", AutoPilot_Telemetry.getPendingAction(p), "recover")
 end
 
--- ── Test 8: schema v5 line carries doc after fit + the real game-speed field ──
+-- ── Test 8: schema v6 line carries doc after fit + the real game-speed field ──
 -- V4.1 (C6) put wood,doc after fit; V5.0 removed barricading and with it the wood
--- field; v5 (2026-07-24) adds the `speed` game-multiplier field after ff.  The
--- line still ends str,fit,doc.
-print("\n=== Telemetry Test 8: schema v5 line carries doc after fit + real speed ===")
+-- field; v5 (2026-07-24) adds the `speed` game-multiplier field after ff; v6
+-- (2026-08-10) appends the mod_version build stamp AFTER doc, so the str,fit,doc
+-- run still ends the numeric block.
+print("\n=== Telemetry Test 8: schema v6 line carries doc after fit + real speed ===")
 do
     MockFiles["auto_pilot_run.log"] = nil
     MockGameSpeed.set(1)
@@ -157,8 +158,8 @@ do
     local f = MockFiles["auto_pilot_run.log"]
     assert_true("run-log line written", f ~= nil and #f.lines >= 1)
     local line = (f and f.lines[#f.lines]) or ""
-    assert_true("schema_version=5 emitted",
-        line:find("schema_version=5,", 1, true) ~= nil)
+    assert_true("schema_version=6 emitted",
+        line:find("schema_version=6,", 1, true) ~= nil)
     assert_true("doc appended after fit",
         line:find("str=1,fit=2,doc=3", 1, true) ~= nil)
     -- The player above still HAS Woodwork 4; the field must be gone anyway.
@@ -251,6 +252,62 @@ do
         line:find("class=idle,", 1, true) ~= nil)
     assert_true("barricade is NOT classified as survival",
         line:find("class=survival", 1, true) == nil)
+end
+
+-- ── Test 10 (v6): every line names the BUILD that wrote it ───────────────────
+-- The run log is append-only at ONE fixed path across every session AND every
+-- mod update, so one file accumulates evidence about many builds.  Until v6 a
+-- line said nothing about which, and the consequence was not theoretical: on
+-- 2026-08-10 a HIGH flee-stall bug was filed against current main on five
+-- findings whose bytes all predate the three merged fixes aimed at their two
+-- shapes (#120/#122/#123).  triage_run_log.session_build reads this field, and
+-- tests/test_game_logs.py's TestBuildAttribution pins the behaviour difference
+-- it buys; this test pins the WRITER half.
+print("\n=== Telemetry Test 10 (v6): the line carries the mod build stamp ===")
+do
+    MockFiles["auto_pilot_run.log"] = nil
+    local p = makePlayer(0)
+    AutoPilot_Telemetry.logTick(p, "exercise", "training")
+    local f = MockFiles["auto_pilot_run.log"]
+    local line = (f and f.lines[#f.lines]) or ""
+
+    -- The stamp is the value the mod actually reports as its version, not a
+    -- second version home: AutoPilot_Constants.VERSION is already bound to
+    -- modversion= in both mod.info files (tests/test_version_constant.lua).
+    assert_true("AutoPilot_Constants.VERSION is a non-empty string",
+        type(AutoPilot_Constants.VERSION) == "string"
+        and AutoPilot_Constants.VERSION ~= "")
+    assert_true("the line stamps AutoPilot_Constants.VERSION",
+        line:find("mod_version=" .. AutoPilot_Constants.VERSION, 1, true) ~= nil)
+    -- Appended AFTER doc, so every pre-v6 field keeps its position and offline
+    -- parsers that never heard of this key are unaffected.
+    assert_true("the stamp is appended after doc, not spliced mid-line",
+        line:find("doc=%d+,mod_version=") ~= nil)
+
+    -- A stamp carrying a comma or an '=' would split into phantom fields and
+    -- corrupt every field after it, so the writer clamps the character set.
+    local realVersion = AutoPilot_Constants.VERSION
+    AutoPilot_Constants.VERSION = "0.9,9=x"
+    MockFiles["auto_pilot_run.log"] = nil
+    AutoPilot_Telemetry.logTick(p, "exercise", "training")
+    local dirty = (MockFiles["auto_pilot_run.log"]
+        and MockFiles["auto_pilot_run.log"].lines[
+            #MockFiles["auto_pilot_run.log"].lines]) or ""
+    assert_true("a stamp with CSV delimiters is stripped, not written raw",
+        dirty:find("mod_version=0.99x", 1, true) ~= nil)
+
+    -- A missing Constants must SAY it cannot name the build.  Writing nothing
+    -- would read as "pre-v6 session" to every reader and silently mis-date a
+    -- current one -- the exact confusion this field exists to end.
+    AutoPilot_Constants.VERSION = nil
+    MockFiles["auto_pilot_run.log"] = nil
+    AutoPilot_Telemetry.logTick(p, "exercise", "training")
+    local absent = (MockFiles["auto_pilot_run.log"]
+        and MockFiles["auto_pilot_run.log"].lines[
+            #MockFiles["auto_pilot_run.log"].lines]) or ""
+    assert_true("an unreadable version stamps 'unknown', never an empty field",
+        absent:find("mod_version=unknown", 1, true) ~= nil)
+    AutoPilot_Constants.VERSION = realVersion  -- restore
 end
 
 -- ── Summary ───────────────────────────────────────────────────────────────────
