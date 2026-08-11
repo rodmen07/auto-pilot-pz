@@ -213,12 +213,22 @@ program's day focus when it names one, otherwise the persisted selection
    trip that pulls a dumbbell/barbell from home containers, unlocking the
    higher-xpMod equipment exercises. The fetch is itself that cycle's
    action.
-3. Builds the focus's ordered candidate pool (Strength: dumbbell press,
-   biceps curl, barbell curl, push-ups; Fitness: squats, or sit-ups while
-   any leg part is too stiff; Auto (V5.2): the same equipment lifts first,
-   then burpees, then squats, push-ups, sit-ups) and picks the first
-   candidate whose required item is carried (the vanilla
-   `inventory:contains` gate) and that is not XP-fatigued.
+3. Builds the focus's ordered candidate pool and picks the first candidate
+   whose required item is carried (the vanilla `inventory:contains` gate)
+   and that is not XP-fatigued. The two FOCUSED pools are the mod-side
+   V3.2 perk map (Strength: dumbbell press, biceps curl, barbell curl,
+   push-ups; Fitness: squats, or sit-ups while any leg part is too stiff).
+   The AUTO pool is DERIVED from `FitnessExercises.exercisesType` since
+   V6.3 C1, not hardcoded: every exercise the engine declares is sorted by
+   `xpMod` descending (ties broken by a known-order seed, then by name, so
+   the result cannot depend on `pairs()`), then the both-stats exercises
+   are spliced in ahead of the first bodyweight entry. Over the vanilla
+   seven that reproduces the V5.2 list exactly — the same equipment lifts
+   first, then burpees, then squats, push-ups, sit-ups — so the pool only
+   changes when the exercise table does, which is the point: an exercise
+   another mod or a future Build adds is trained the moment it is
+   declared. Which perk an exercise trains is NOT in the vanilla table, so
+   an unknown exercise joins Auto and never a focused pool.
 4. Queues `ISFitnessAction` via `ISTimedActionQueue.addGetUpAndThen`
    (stands the character up first), equipping the exercise's prop item the
    same way the vanilla fitness UI does, and snapshots both perks' XP for
