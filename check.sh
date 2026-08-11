@@ -110,6 +110,13 @@ echo ""
 # ── 2. Static API Guard ───────────────────────────────────────────────────────
 echo "=== 2/4  Static API Guard (deprecated PZ API scan) ==="
 
+# The pattern list and the corpus probe below are the SECOND home of ci.yml's
+# "Static API Guard" step. tests/test_static_api_guard.py extracts both and
+# fails if the two pattern lists drift, and executes this block's blind guard,
+# so the local gate and the merge gate can never disagree about what counts as
+# a deprecated API or about how few files it is willing to scan.
+API_GUARD_DIR="42/media/lua/client"
+
 DEPRECATED_PATTERNS=(
     ":getHunger()"
     ":getThirst()"
@@ -118,21 +125,39 @@ DEPRECATED_PATTERNS=(
     "CharacterStats\."
 )
 
-API_GUARD_FOUND=0
-for pattern in "${DEPRECATED_PATTERNS[@]}"; do
-    if grep -rn --include="*.lua" -- "$pattern" 42/media/lua/client/ 2>/dev/null; then
-        echo "ERROR: Deprecated API pattern found: $pattern"
-        API_GUARD_FOUND=$((API_GUARD_FOUND + 1))
-    fi
-done
+# Positive control, in the scan's OWN grep form (recursive, same --include glob,
+# same directory): every check below decides from an EMPTY grep result, and an
+# unreachable corpus reads empty exactly like a clean one. Before this probe
+# existed, running this section anywhere without a 42/media/lua/client/ printed
+# "PASS Static API Guard: no deprecated APIs detected" having read nothing.
+API_GUARD_FILES="$(grep -rl --include="*.lua" -e 'AutoPilot' -- "${API_GUARD_DIR}" 2>/dev/null || true)"
 
-if [[ $API_GUARD_FOUND -gt 0 ]]; then
-    echo "FAIL  Static API Guard: $API_GUARD_FOUND deprecated pattern(s) detected."
-    echo "      Use player:getStats():get(CharacterStat.X) instead of direct stat getters."
+if [[ -z ${API_GUARD_FILES} ]]; then
+    echo "FAIL  Static API Guard: the scan reaches 0 Lua file(s) under ${API_GUARD_DIR}/."
+    echo "      The guard has gone blind; it must never report a clean scan of nothing."
+    echo "      Fix: point API_GUARD_DIR (and ci.yml's CLIENT_DIR) at the directory the"
+    echo "      shipped client Lua now lives in."
     FAIL=$((FAIL + 1))
 else
-    echo "PASS  Static API Guard: no deprecated APIs detected."
-    PASS=$((PASS + 1))
+    API_GUARD_REACHED="$(printf '%s\n' "${API_GUARD_FILES}" | wc -l | tr -d '[:space:]')"
+    echo "      Corpus probe: the scan reaches ${API_GUARD_REACHED} Lua file(s) under ${API_GUARD_DIR}/."
+
+    API_GUARD_FOUND=0
+    for pattern in "${DEPRECATED_PATTERNS[@]}"; do
+        if grep -rn --include="*.lua" -- "$pattern" "${API_GUARD_DIR}/" 2>/dev/null; then
+            echo "ERROR: Deprecated API pattern found: $pattern"
+            API_GUARD_FOUND=$((API_GUARD_FOUND + 1))
+        fi
+    done
+
+    if [[ $API_GUARD_FOUND -gt 0 ]]; then
+        echo "FAIL  Static API Guard: $API_GUARD_FOUND deprecated pattern(s) detected."
+        echo "      Use player:getStats():get(CharacterStat.X) instead of direct stat getters."
+        FAIL=$((FAIL + 1))
+    else
+        echo "PASS  Static API Guard: no deprecated APIs detected in ${API_GUARD_REACHED} file(s)."
+        PASS=$((PASS + 1))
+    fi
 fi
 
 # M4.3 Line-count guard: warn if any single Lua module exceeds 1000 lines.

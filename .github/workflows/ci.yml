@@ -366,9 +366,52 @@ jobs:
       - name: Lua lint
         run: luacheck 42/media/lua/client/*.lua --config .luacheckrc
 
+      # The LAST step in this job that decided from an empty result with nothing
+      # proving the result could ever be non-empty.  Every neighbour here already
+      # fails closed on zero input (the changelog guard on an unresolvable base,
+      # the pin guard on zero `uses:` lines, the Lua test discovery on zero test
+      # files, the credential guard on an unreadable config); this one did not,
+      # and it scans a corpus named by a HARDCODED path.
+      #
+      # `grep -rn --include="*.lua" -- "$pattern" 42/media/lua/client/` against an
+      # absent directory -- or one holding no `.lua` at all -- exits non-zero for
+      # every pattern, so FOUND stayed 0 and the step printed
+      # "Static API Guard PASSED: no deprecated APIs detected" having read
+      # nothing.  Measured before this change, on a tree with no `42/` at all:
+      # five "No such file or directory" lines, then PASSED, exit 0.
+      #
+      # That path is spelled out at four sites across two files (this scan, the
+      # Lua lint line below, and check.sh's copy of each), and
+      # `docs/b42_20_checklist.md` plans a Build-42.20 layout move, so "the lint
+      # line was updated and this one was missed" is the realistic way it goes
+      # blind -- not deletion.  A rename would leave luacheck happily linting the
+      # new directory while this guard reported a clean scan of nothing.
+      #
+      # The probe is a POSITIVE CONTROL in the same shape as the credential guard
+      # above: it runs the scan's OWN grep form -- recursive, the same
+      # `--include` glob, the same directory -- for the mod's namespace prefix,
+      # a token every shipped module carries (24 of 24 at the time of writing).
+      # One command therefore proves both that the corpus resolves and that this
+      # invocation reaches it, which a bare `test -d` would not.
+      # tests/test_static_api_guard.py extracts THIS script and executes it
+      # against synthetic trees in every direction, so it cannot rot into an
+      # inert surface.
       - name: Static API Guard
         run: |
           echo "=== Static API Guard: checking for deprecated PZ APIs ==="
+          CLIENT_DIR="42/media/lua/client"
+          REACHED_FILES="$(grep -rl --include="*.lua" -e 'AutoPilot' -- "${CLIENT_DIR}" 2>/dev/null || true)"
+          if [ -z "${REACHED_FILES}" ]; then
+            echo "ERROR: this scan's own grep reaches 0 Lua file(s) under ${CLIENT_DIR}/."
+            echo "Every check below decides from an EMPTY grep result, and an unreachable"
+            echo "corpus reads empty exactly like a clean one -- so the guard would report"
+            echo "PASSED having read nothing.  It has gone blind; it must never pass on one."
+            echo "Fix: point CLIENT_DIR at the directory the shipped client Lua now lives in"
+            echo "(check.sh carries the same constant, and both must move together)."
+            exit 1
+          fi
+          REACHED="$(printf '%s\n' "${REACHED_FILES}" | wc -l | tr -d '[:space:]')"
+          echo "Corpus probe: the scan reaches ${REACHED} Lua file(s) under ${CLIENT_DIR}/."
           DEPRECATED_PATTERNS=(
             ":getHunger()"
             ":getThirst()"
@@ -378,7 +421,7 @@ jobs:
           )
           FOUND=0
           for pattern in "${DEPRECATED_PATTERNS[@]}"; do
-            if grep -rn --include="*.lua" -- "$pattern" 42/media/lua/client/; then
+            if grep -rn --include="*.lua" -- "$pattern" "${CLIENT_DIR}/"; then
               echo "ERROR: Deprecated API pattern found: $pattern"
               FOUND=$((FOUND + 1))
             fi
@@ -388,7 +431,7 @@ jobs:
             echo "Use player:getStats():get(CharacterStat.X) instead of direct stat getters."
             exit 1
           fi
-          echo "Static API Guard PASSED: no deprecated APIs detected."
+          echo "Static API Guard PASSED: no deprecated APIs detected in ${REACHED} file(s)."
 
       - name: Lua logic tests
         run: |
