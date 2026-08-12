@@ -202,6 +202,25 @@ Project Zomboid Lua (Kahlua) is sandboxed:
 
 So AutoPilot is fully local and rule-based by design.
 
+### The one moodle AutoPilot leaves to you: Uncomfortable
+
+Build 42.19 gives Lua no action that lowers Discomfort. Every other moodle on
+the list AutoPilot was built to cover has one — sleep, food, water, a towel,
+a book, a radio — but Discomfort has none, so the mod does not pretend to
+manage it.
+
+That is not the same as "nothing can be done about it". Discomfort comes from
+**what you wear and carry**: 344 vanilla clothing and bag entries declare a
+`DiscomfortModifier`, from `0.02` on a kneepad to `0.75` on an NBC mask, and
+your sandbox Discomfort Factor scales all of it (`0.7` on Outbreak, `0.8` on
+Apocalypse, `1.0` on Extinction). Riding a vehicle over-encumbered adds more.
+If your character is permanently uncomfortable, the fix is the loadout, not
+the mod.
+
+There is one indirect assist: discomfort feeds **Stress**, and AutoPilot does
+manage stress — it will sit your character down with a book. So the mod treats
+the symptom while the cure stays in your hands.
+
 ## Versioning and Release Notes
 
 - Current modversion: 0.2.1 (root mod.info and 42/mod.info, which must always match)

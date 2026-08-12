@@ -143,6 +143,12 @@ Suggested order, dependency-driven only (no calendar):
 - The v0.2.0 cut decision: its own backlog item, its own user call.
 - Stress / Uncomfortable moodle management: both have NO Lua-visible relief action in
   42.19 (PR #83's follow-up); needs a product answer, not a code slice.
+  **⤷ HALF FALSIFIED, annotated 2026-08-12 rather than rewritten (dated out-of-scope
+  record).** Stress DOES have relief, declared on items in `media/scripts` rather than in
+  Lua, and it shipped as V6.3 C2-D4 (PR #153). Discomfort's half holds and is now
+  documented in `docs/architecture.md` "Moodle Coverage" — no relief ACTION, but an
+  indirect lever through what the character wears and carries. The product answer arrived
+  as the V6.3 decision.
 - Foraging revival, combat, barricading: standing non-goals; combat is engine-impossible
   (no B42 AI-attack API, flee-only rework stands).
 - The TV/radio zombie-attraction question (PR #82's follow-up) stays open, but note for

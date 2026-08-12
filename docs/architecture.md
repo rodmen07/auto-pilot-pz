@@ -194,6 +194,80 @@ trainer again: 25-tile radius, a cooldown of about a minute between trips,
 and a back-off of about 15 minutes after 3 trips with no supply-count
 improvement. Reactive hunger/thirst still search the full loot radius.
 
+## Moodle Coverage
+
+**The managed side is the priority chain above, and it is deliberately not
+restated here.** `tests/test_priority_chain_truth.py` binds `README.md`'s
+numbered chain to `Needs.check()`'s own branch order with comments stripped, so
+that list has exactly one guarded home; a second hand-maintained enumeration in
+this file would be an unguarded twin of it, and an unguarded twin of a list is
+how the claim below went stale in the first place.
+
+**The unmanaged side is exactly one stat: Discomfort (the Uncomfortable
+moodle).** It is the last survivor of the coverage list in the user's
+2026-07-24 report (`AutoPilot_Comfort.lua`'s header quotes it verbatim): Stress
+was managed by V6.3 C2-D4, Wet by the dry-off arm, Heavy Load by the carry
+gate, Unhappy and Bored by the mood arm.
+
+**There is no relief ACTION, and that is measured rather than assumed.**
+Re-derived live against the B42.19 install on 2026-08-12, in BOTH layers,
+because searching only the first one is what produced the false claim this
+section replaces:
+
+- `grep -rn "iscomfort" media/lua/` returns **10** hits outside the
+  translation JSONs and **none of them is a queueable action**:
+  `client/DebugUIs/DebugMenu/General/ISStatsAndBody.lua:73` (the debug slider)
+  and `:74` (its label); `SandboxVars.DiscomfortFactor` in the two Last Stand
+  presets, the server-settings option row, and the four sandbox presets; and
+  the two `shared/defines.lua` constants named below.
+- `CharacterStat.DISCOMFORT` therefore has exactly **one** `media/lua` hit, the
+  debug slider.
+- Every `MoodleType.<MEMBER>` referenced anywhere in `media/lua` is one of
+  DRUNK, ENDURANCE, FOOD_EATEN, HEAVY_LOAD, HYPERTHERMIA, HYPOTHERMIA, PAIN,
+  PANIC, STRESS, TIRED, UNHAPPY — **eleven, and no discomfort member at all**,
+  so there is no attested moodle enum for the arm to gate on either (the same
+  reason the dry-off arm gates on the WETNESS stat).
+
+### The lever
+
+**Discomfort is not inert, and this document must never say it "cannot be
+managed".** The lever is what the character wears and carries, and it lives in
+the OTHER layer — `media/scripts`, where item EFFECT properties are declared.
+(This sub-heading is where `tests/test_architecture_truth.py` requires every
+lever below to be named. The section above mentions two of the same tokens as
+EVIDENCE OF ABSENCE, which is a different claim, so the guard anchors here
+rather than on the section as a whole — a presence check over the whole section
+was satisfied by those evidence mentions, and its own control caught it.)
+
+- `DiscomfortModifier` appears on **344** item entries: **343** in
+  `scripts/generated/items/clothing.txt` and **1** in
+  `scripts/generated/items/container.txt` (`Bag_ChestRig_Tarp`, `0.05` — bags
+  count, not just clothes). Fourteen distinct values spanning **0.02**
+  (`Kneepad_Left`) to **0.75** (`Hat_NBCmask`).
+- `SandboxVars.DiscomfortFactor` scales the lot: `0.7` on Outbreak, `0.8` on
+  Apocalypse and Rising, `1.0` on Extinction.
+- `VehicleDiscomfortWhenOverEncumbered = 0.25` (`shared/defines.lua:58`) adds
+  more while riding over capacity.
+- `StressFromDiscomfort = 0.00000013` (`shared/defines.lua:30`) feeds it into
+  Stress — which the mod DOES manage since V6.3 C2-D4. So AutoPilot already
+  treats the downstream symptom and never the source: the source is a loadout
+  decision, which is the player's to make.
+
+**The two-layer rule this section exists to enforce.** The superseded claim was
+produced by a `media/lua`-only search, and the identical mistake had already
+been made about Stress: 301 vanilla entries carry a negative `StressChange` in
+`media/scripts`, every one delivered by an action the mod already queues. Any
+future absence claim about a moodle must grep BOTH `media/lua` (which reads and
+adds stats) and `media/scripts` (which declares the effects), or it is not
+evidence.
+
+**Guard.** `tests/test_moodle_triggers.lua` ("Discomfort coverage") asserts
+that no module under `42/media/lua/client/` references `DISCOMFORT` in CODE —
+lexed through `tests/lua_source_scan.lua`, not grepped, because
+`AutoPilot_Comfort.lua` mentions the token in two comments today and a text
+scan cannot tell those from an arm. The day that guard goes red, a Discomfort
+arm has shipped and THIS SECTION plus the README note are what to update.
+
 ## Exercise Focus Flow
 
 The exercise slot in `Needs.check` calls `Leveler.check`, which samples
