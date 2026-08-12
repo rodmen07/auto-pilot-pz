@@ -11,8 +11,14 @@
 > **IMPLEMENTATION STATUS (updated as each slice lands, so this record never outlives its own
 > truth):** **C1 SHIPPED 2026-08-11** — the auto pool is derived from
 > `FitnessExercises.exercisesType`, the vanilla seven come out in the V5.2 order element for
-> element, and `tests/test_exercise_pool.lua` pins D1, D2 and the fallback. **C2-D4 (the stress
-> trigger on the existing read arm) and C2-D6 (Discomfort documented) are still OPEN.** C3 is
+> element, and `tests/test_exercise_pool.lua` pins D1, D2 and the fallback. **C2-D4 SHIPPED
+> 2026-08-12** — `AutoPilot_Mood.doMoodRelief` takes the Stress moodle as a third entry trigger
+> at `AutoPilot_Constants.STRESS_MOODLE_THRESHOLD` (2, the Unhappy arm's scale and default), and
+> that trigger unlocks the READ arm only: the food, media and outdoor arms all stay behind
+> `boredOrSad`, since each of them is evidenced against boredom or unhappiness and none against
+> stress. `tests/test_stress_relief.lua` is the done-when's behaviour-difference suite (16 cases,
+> 40 assertions): the same character reads at the threshold and queues nothing one level below.
+> **C2-D6 (Discomfort documented) is still OPEN** and is the next slice of C2. C3 is
 > closed by the decision itself: D8 keeps the direct `getPoisonPower` read, so there is no code
 > change to make. D5 stays deferred on the unknown below.
 >

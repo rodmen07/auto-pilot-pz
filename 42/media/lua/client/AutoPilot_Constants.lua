@@ -470,6 +470,27 @@ AutoPilot_Constants.HAPPINESS_LOW_THRESHOLD  = 2    -- Unhappy moodle level (0-4
 -- food for the unhappier levels and let reading cover the milder ones.
 AutoPilot_Constants.HAPPINESS_FOOD_PRIORITY  = 2
 
+-- V6.3 C2-D4: the Stress moodle level (0-4, same scale and same getter as
+-- HAPPINESS_LOW_THRESHOLD above) at/above which mood relief runs on stress
+-- alone.  MoodleType.STRESS is verified live in the 42.19 install
+-- (shared/TimedActions/ISReloadWeaponAction.lua:476, MoodlesUI wiggle) and in
+-- the jar's constant pool alongside every other member this mod reads.
+--
+-- Why 2 and not 1, stated so the default is overridable rather than accidental:
+-- level 1 is the mildest band and is up for ordinary weather, a scratch or a
+-- reload, while reading is a multi-minute engine action that claims the cycle.
+-- The unhappy arm made exactly this call at exactly this level, so stress
+-- inherits it; lower it to 1 to have Auto read at the first hint of stress.
+--
+-- This is the TRIGGER only.  Stress relief itself is delivered by the existing
+-- read arm: 259 of the 301 vanilla entries carrying a negative StressChange are
+-- literature (media/scripts/generated/items/literature.txt, e.g. item ComicBook
+-- at :1720, StressChange = -20), and literature is consumed by ISReadABook,
+-- which AutoPilot_Mood already queues.  Ranking BY stress magnitude stays
+-- deferred (V6.3 D5): item:getStressChange() has zero call sites in the whole
+-- 42.19 Lua tree, so it is not a verified surface.
+AutoPilot_Constants.STRESS_MOODLE_THRESHOLD  = 2
+
 -- Media relief (television / radio).  A switched-on device only relieves a
 -- character standing inside the engine's broadcast box, so these two numbers
 -- are not independent: MEDIA_BROADCAST_RANGE is dictated by the engine and

@@ -195,8 +195,24 @@ function AutoPilot_Mood.doMoodRelief(player, seatedOnly)
     -- translation KEYS, Moodles_Unhappy_lvl1..4, kept the old spelling).
     local boredom    = AutoPilot_Utils.safeStat(player, CharacterStat.BOREDOM)
     local unhappyLvl = safeMoodleLevel(player, MoodleType.UNHAPPY)
-    if boredom < BOREDOM_STAT_THRESHOLD
-        and unhappyLvl < AutoPilot_Constants.HAPPINESS_LOW_THRESHOLD then
+    local boredOrSad = boredom >= BOREDOM_STAT_THRESHOLD
+        or unhappyLvl >= AutoPilot_Constants.HAPPINESS_LOW_THRESHOLD
+
+    -- V6.3 C2-D4: stress is the THIRD trigger for this arm, and it unlocks the
+    -- read path ONLY.  The mod has read CharacterStat.STRESS since V4
+    -- (AutoPilot_Threat.NEGATIVE_STAT_CHECKS) and never acted on it, while the
+    -- relief was sitting in the item layer the whole time: 301 vanilla entries
+    -- carry a negative StressChange and 259 of them are literature consumed by
+    -- ISReadABook, which doRead already queues.  So this needs no new module,
+    -- no new engine action and no unverified getter -- only the trigger.
+    --
+    -- The moodle, not the stat, because it is what the player sees on screen
+    -- and because the unhappy arm above already reads its band from the same
+    -- getter (V6.2 C1 made the same choice for hunger/thirst).
+    local stressLvl = safeMoodleLevel(player, MoodleType.STRESS)
+    local stressed  = stressLvl >= AutoPilot_Constants.STRESS_MOODLE_THRESHOLD
+
+    if not boredOrSad and not stressed then
         return false
     end
 
@@ -208,7 +224,14 @@ function AutoPilot_Mood.doMoodRelief(player, seatedOnly)
     -- levels were silently the same knob; they default to the same value, so
     -- the default behaviour is unchanged and raising it now reserves food for
     -- the unhappier levels while reading still covers the milder ones.
-    if unhappyLvl >= AutoPilot_Constants.HAPPINESS_FOOD_PRIORITY then
+    -- `boredOrSad and` is what confines V6.3 C2-D4 to the read arm.  It is a
+    -- no-op at the shipped defaults (both levels are 2, so unhappyLvl below
+    -- HAPPINESS_LOW_THRESHOLD is also below HAPPINESS_FOOD_PRIORITY), and it
+    -- matters for a player who has LOWERED the food priority: without it, a
+    -- stress-only cycle would start spending food that preferTastyFood ranks by
+    -- getUnhappyChange -- a happiness ranking, not a stress one, which is the
+    -- kind of unevidenced spend D5 deferred.
+    if boredOrSad and unhappyLvl >= AutoPilot_Constants.HAPPINESS_FOOD_PRIORITY then
         local tastyFood, tastyCont = AutoPilot_Inventory.preferTastyFood(player)
         if tastyFood then
             AutoPilot_Telemetry.setDecision("eat", "unhappy")
@@ -225,8 +248,37 @@ function AutoPilot_Mood.doMoodRelief(player, seatedOnly)
         end
     end
 
-    AutoPilot_Telemetry.setDecision("read", "boredom")
+    -- Telemetry honesty, the same rule V6.2 C1 set for the *_moodle reasons:
+    -- "stress" is recorded ONLY when the stress arm is what fired and the
+    -- boredom/unhappy arms alone would not have.  A stressed AND bored cycle
+    -- still reads "boredom", so no existing log line changes meaning.
+    --
+    -- Written as two literal calls rather than one
+    -- `setDecision("read", boredOrSad and "boredom" or "stress")`, and that is
+    -- not a style preference: tests/test_reason_line.lua discovers the reason
+    -- VOCABULARY by scanning production sources for the literal shape
+    -- `setDecision("<action>", "<reason>")`, so the ternary form emits a token
+    -- no drift guard can see -- which is exactly how a reason token ends up
+    -- with no F11 label and nothing failing.  The ternary was written first
+    -- here and that suite caught it.
+    if boredOrSad then
+        AutoPilot_Telemetry.setDecision("read", "boredom")
+    else
+        AutoPilot_Telemetry.setDecision("read", "stress")
+    end
     if doRead(player, seatedOnly) then return true, "reading" end
+
+    if not boredOrSad then
+        -- Stress-only cycle: reading is the whole arm, and that is a claim about
+        -- EVIDENCE, not a shortcut.  Going outdoors is gated on boredom below
+        -- and relieves boredom, not stress.  A television or radio CAN carry a
+        -- stress operation, but only when the broadcast script happens to
+        -- contain one (Interactions.STS, shared/RadioCom/ISRadioInteractions.lua:99)
+        -- -- it is a property of what is being aired, not of the device -- so
+        -- walking a stressed character to a set is not a relief the mod can
+        -- promise.  Fall through to the rest of the chain instead.
+        return false
+    end
 
     if seatedOnly then
         -- Going outside walks; it is not available to a seated character.
