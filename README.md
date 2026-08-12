@@ -183,7 +183,11 @@ so a comment cannot satisfy it, and a step the code does not walk fails it:
 8. Exhausted — rest when endurance is critically low, and hold an in-progress
    rest (seated reading or snacking allowed) until endurance recovers
 9. Wet — dry off with a towel
-10. Bored or sad — tasty food, then reading, then a tv/radio, then going outside
+10. Bored or sad — tasty food, then reading, then a tv/radio, then going outside.
+    The Stress moodle enters this step too, and it unlocks the reading arm only:
+    literature is where the game declares stress relief (259 of the 301 vanilla
+    entries with a negative `StressChange`), while a television only relieves
+    stress when the broadcast happens to carry it
 11. Winded — sit to recover endurance rather than stand idle
 12. Idle — exercise, the mod's primary purpose (strength/fitness alternating by level)
 13. Scavenge — proactive supply top-up, the background chore that runs when

@@ -381,6 +381,10 @@ local REASON_LABELS = {
     thirst_moodle  = "thirsty moodle",
     hunger_moodle  = "hungry moodle",
     unhappy        = "low mood",
+    -- V6.3 C2-D4: the stress arm fired where boredom and unhappiness alone
+    -- would not have, so the parenthetical names the moodle the player can see
+    -- rather than restating "reading".
+    stress         = "stressed",
     weather        = "bad weather",
     temperature    = "body temperature",
     boredom        = "bored",

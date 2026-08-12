@@ -164,10 +164,13 @@ Decision pairs set by `AutoPilot_Needs` via `setDecision`: `bandage`
 (`rest_cooldown`, `low_endurance`), `drink` (`thirst_thresh`,
 `thirst_moodle`), `shelter` (`weather`), `eat` (`hunger_thresh`,
 `hunger_moodle`, `unhappy`), `clothing` (`temperature`), `read`
-(`boredom`), `outside` (`boredom`), `exercise` (`training`), `scavenge`
-(`low_supplies`). The `*_moodle` variants (V6.2 C1) mean the game's own
-Hungry/Thirsty moodle fired the trigger where the stat slider alone
-would not have.
+(`boredom`, `stress`), `outside` (`boredom`), `exercise` (`training`),
+`scavenge` (`low_supplies`). The `*_moodle` variants (V6.2 C1) mean the
+game's own Hungry/Thirsty moodle fired the trigger where the stat slider
+alone would not have. `read` (`stress`) is the same kind of honesty for
+V6.3 C2-D4: it is recorded only when the Stress moodle is what opened the
+mood arm and boredom/unhappiness alone would not have, so a stressed AND
+bored cycle still reads `boredom` and no historical line changes meaning.
 
 Older logs may also contain the legacy labels `loot`, `fight`, `flee`,
 `happiness`, `recover`, `blocked`, and (through V4.9) `barricade`

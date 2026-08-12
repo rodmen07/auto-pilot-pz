@@ -6,6 +6,31 @@ All notable changes to AutoPilot are documented here.
 
 ### Added
 
+- **Auto now reads a book when you are STRESSED, not only when you are bored or unhappy (V6.3
+  C2-D4, approved 2026-08-10).** Stress was the mod's longest-standing read-but-never-acted-on
+  signal: `AutoPilot_Threat` has carried a `CharacterStat.STRESS` entry since V4 and nothing ever
+  did anything with it, and `AutoPilot_Comfort`'s header said in as many words that the comfort arm
+  "never references Stress". The reason it looked unfixable was a one-directory search — relief
+  for stress is declared in the ITEM layer, not in Lua. **301 vanilla entries carry a negative
+  `StressChange` and 259 of them are literature** (`item ComicBook` is `BoredomChange = -30,
+  StressChange = -20, UnhappyChange = -20`), consumed by `ISReadABook`, which the mood arm already
+  queues for boredom. So this needed a trigger, not a module: when the Stress moodle reaches
+  `STRESS_MOODLE_THRESHOLD` (2 by default, the same 0-4 scale and the same default as the Unhappy
+  arm) and nothing higher in the chain has claimed the cycle, Auto reads.
+  **The stress trigger unlocks the reading arm and nothing else, deliberately.** It will not spend
+  mood food (that selector ranks by `getUnhappyChange` — a happiness ranking that says nothing
+  about stress), it will not walk you to a television (a broadcast relieves stress only when its
+  own script carries that operation — a property of the programme, not of the set), and it will
+  not walk you outdoors (that arm is gated on boredom and relieves boredom). Reading's own
+  "loot a book from a nearby container" fallback still applies, and mid-rest it reads only what is
+  already carried, so a stressed character never stands up out of a rest hold. Ranking candidates
+  *by* stress magnitude stays deferred: `item:getStressChange()` has zero call sites in the whole
+  42.19 Lua tree, so it is not a verified surface to key on.
+  **Telemetry stays honest the way the V6.2 moodle triggers did:** `reason=stress` is recorded
+  only when the stress arm is what fired and boredom/unhappiness alone would not have, so a
+  stressed *and* bored cycle still logs `boredom` and no historical log line changes meaning. The
+  F11 panel shows it as "stressed".
+
 - **The Auto training pool is now DISCOVERED from the game's exercise table instead of being a
   hardcoded list of seven names (V6.3 C1, approved 2026-08-10).** Until now the trainer walked a
   literal list of the exercises vanilla Build 42.19 happens to ship, so an exercise added by

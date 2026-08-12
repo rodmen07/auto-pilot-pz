@@ -32,6 +32,8 @@
 --                       rest (seated relief allowed) until it recovers
 --   9. Wet           -> dry off with a towel
 --  10. Bored or sad  -> tasty food, then reading, then a tv/radio, then outside
+--                       (V6.3 C2-D4: the Stress moodle also enters this step,
+--                        and it unlocks the reading arm only)
 --  11. Winded        -> sit to recover endurance rather than stand idle
 --  12. Idle          -> exercise (strength/fitness alternating by level)
 --  13. Scavenge      -> proactive supply top-up when nothing else claimed the

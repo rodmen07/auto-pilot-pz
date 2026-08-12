@@ -272,13 +272,16 @@
 --          test_threat_logic until 2026-07-25; a suite-local enum key hides the
 --          member from the enum-drift guard, so every member production reads
 --          now lives here); safeStat degrades missing keys to 0 by design
---   [M]  MoodleType   ENDURANCE/UNHAPPY/PAIN/PANIC/HEAVY_LOAD/HUNGRY/THIRST
+--   [M]  MoodleType   ENDURANCE/UNHAPPY/PAIN/PANIC/HEAVY_LOAD/HUNGRY/THIRST/
+--          STRESS
 --          (PAIN and PANIC
 --          added for AutoPilot_Sleep.canSleepNow, which mirrors the engine
 --          sleep gate; HEAVY_LOAD for AutoPilot_Utils.hasCarryRoom, which
 --          mirrors the vanilla fitness gate at ISFitnessUI.lua:219;
 --          HUNGRY/THIRST for the V6.2 C1 moodle-aligned triggers, verified in
---          the jar constant pool — see the enum note below;
+--          the jar constant pool — see the enum note below; STRESS for the
+--          V6.3 C2-D4 read-arm trigger, verified in the install's own Lua at
+--          ISReloadWeaponAction.lua:476;
 --          getMoodleLevel returns 0 for any key a test does not set).  B42
 --          spells these SCREAMING_SNAKE_CASE — modelling "Unhappy" here kept a
 --          nil-in-game read looking alive in the suites until 2026-07-25
@@ -452,6 +455,12 @@ MoodleType = {
     -- is the engine's own: HUNGRY but THIRST, not HUNGER/THIRSTY.
     HUNGRY = "HUNGRY",
     THIRST = "THIRST",
+    -- V6.3 C2-D4 (the stress trigger on the read arm).  Unlike HUNGRY/THIRST
+    -- this one IS present in the install's Lua -- MoodlesUI.getInstance():wiggle(
+    -- MoodleType.STRESS) at shared/TimedActions/ISReloadWeaponAction.lua:476 --
+    -- and it is the same constant-pool member the note above already lists
+    -- ("... SICK, BORED, UNHAPPY, ... STRESS, THIRST, INJURED ...").
+    STRESS = "STRESS",
 }
 
 -- ── CharacterTrait enum ───────────────────────────────────────────────────────
