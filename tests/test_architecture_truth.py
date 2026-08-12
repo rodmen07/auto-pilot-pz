@@ -270,6 +270,7 @@ class TestEachCheckFiresOnDoctoredInput(unittest.TestCase):
 # exclude it would also miss the real regression.  Naming the four levers is
 # the positive form of the same intent and cannot be satisfied by a disclaimer.
 MOODLE_SECTION_HEADING = "## Moodle Coverage"
+LEVER_SUBSECTION_HEADING = "### The lever"
 
 # Structural anchor, not a token search (L-048): the heading, then everything
 # up to the next level-2 heading.  Searching for the word "Discomfort" to find
@@ -277,6 +278,17 @@ MOODLE_SECTION_HEADING = "## Moodle Coverage"
 # own tokens.
 MOODLE_SECTION = re.compile(
     r"(?ms)^## Moodle Coverage\r?\n(.*?)(?=^## )",
+)
+
+# The lever list gets its OWN anchor, one level deeper, and this is not
+# fussiness -- it is what a control caught.  The first form of this guard
+# required the levers anywhere in the section, and dropping
+# `SandboxVars.DiscomfortFactor` from the lever list left the guard GREEN,
+# because the same token also appears ABOVE as evidence that no relief action
+# exists.  Those are two different claims sharing a token, so the region that
+# must name the levers is the lever sub-section, not the section.
+LEVER_SUBSECTION = re.compile(
+    r"(?ms)^### The lever\r?\n(.*?)(?=^#{2,3} )",
 )
 
 # Every lever the D6 decision required the docs to name.  Presence only: this
@@ -293,17 +305,26 @@ REQUIRED_LEVERS = (
 MOODLE_GUARD = ROOT / "tests" / "test_moodle_triggers.lua"
 
 
-def moodle_coverage_section(text: str) -> str:
-    """The section body, or raise -- exactly-once, blind and ambiguous both hard."""
-    matches = MOODLE_SECTION.findall(text)
+def _exactly_one(pattern: "re.Pattern[str]", text: str, heading: str) -> str:
+    matches = pattern.findall(text)
     if len(matches) != 1:
         raise RoadmapAnchorError(
-            f"expected exactly ONE {MOODLE_SECTION_HEADING!r} section in "
-            f"docs/architecture.md, found {len(matches)}.  Zero means the "
-            "heading was reworded and this guard went blind; two means the "
-            "claim has two live homes, which is the drift itself."
+            f"expected exactly ONE {heading!r} region in docs/architecture.md, "
+            f"found {len(matches)}.  Zero means the heading was reworded and "
+            "this guard went blind; two means the claim has two live homes, "
+            "which is the drift itself."
         )
     return matches[0]
+
+
+def moodle_coverage_section(text: str) -> str:
+    """The section body, or raise -- exactly-once, blind and ambiguous both hard."""
+    return _exactly_one(MOODLE_SECTION, text, MOODLE_SECTION_HEADING)
+
+
+def lever_subsection(text: str) -> str:
+    """Just the lever list -- the region that must name every lever."""
+    return _exactly_one(LEVER_SUBSECTION, text, LEVER_SUBSECTION_HEADING)
 
 
 class TestMoodleCoverageSection(unittest.TestCase):
@@ -312,13 +333,13 @@ class TestMoodleCoverageSection(unittest.TestCase):
     def test_the_section_exists_exactly_once(self) -> None:
         moodle_coverage_section(architecture_text())
 
-    def test_the_section_names_every_lever_the_decision_required(self) -> None:
-        body = moodle_coverage_section(architecture_text())
+    def test_the_lever_subsection_names_every_lever_the_decision_required(self) -> None:
+        body = lever_subsection(architecture_text())
         missing = [lever for lever in REQUIRED_LEVERS if lever not in body]
         self.assertEqual(
             missing,
             [],
-            f"docs/architecture.md's {MOODLE_SECTION_HEADING} no longer names "
+            f"docs/architecture.md's {LEVER_SUBSECTION_HEADING} no longer names "
             f"{missing}.  D6 approved documenting Discomfort as 'no relief "
             "ACTION, but an indirect lever through what the character wears "
             "and carries'; a section that drops the levers has silently "
@@ -353,14 +374,27 @@ class TestMoodleCoverageSection(unittest.TestCase):
         )
 
 
+# Mirrors the REAL document's structure, including the trap that a control
+# caught: the evidence paragraph names two of the lever tokens for a DIFFERENT
+# reason (proving no relief action exists), so a whole-section presence check
+# stays green when the lever list loses one.  A minimal synthetic without that
+# duplication would have passed and shipped the vacuous guard (L-079's point
+# about minimal controls missing the incidental structure that defeats a rule).
 SYNTHETIC_MOODLE_SECTION = """\
 # Synthetic control
 
 ## Moodle Coverage
 
-Discomfort has no relief ACTION, but the lever is `DiscomfortModifier` on
-clothing, scaled by `SandboxVars.DiscomfortFactor`, plus
-`VehicleDiscomfortWhenOverEncumbered`, and it feeds `StressFromDiscomfort`.
+There is no relief ACTION: the only hits are the debug slider, the
+`SandboxVars.DiscomfortFactor` rows, and `StressFromDiscomfort` /
+`VehicleDiscomfortWhenOverEncumbered` in `shared/defines.lua`.
+
+### The lever
+
+Discomfort is not inert. The lever is `DiscomfortModifier` on clothing and
+bags, scaled by `SandboxVars.DiscomfortFactor`, plus
+`VehicleDiscomfortWhenOverEncumbered` while over-encumbered, and it feeds
+`StressFromDiscomfort`.
 Guard: `tests/test_moodle_triggers.lua`.
 
 ## Exercise Focus Flow
@@ -375,8 +409,10 @@ class TestMoodleCoverageChecksFireOnDoctoredInput(unittest.TestCase):
     def test_the_control_itself_is_well_formed(self) -> None:
         body = moodle_coverage_section(SYNTHETIC_MOODLE_SECTION)
         self.assertNotIn("Not this section", body, "the section must stop at the next ##")
-        for lever in REQUIRED_LEVERS:
-            self.assertIn(lever, body)
+        lever = lever_subsection(SYNTHETIC_MOODLE_SECTION)
+        self.assertNotIn("Not this section", lever, "the sub-section must stop too")
+        for name in REQUIRED_LEVERS:
+            self.assertIn(name, lever)
 
     def test_a_dropped_lever_is_caught(self) -> None:
         doctored = SYNTHETIC_MOODLE_SECTION.replace(
@@ -385,10 +421,30 @@ class TestMoodleCoverageChecksFireOnDoctoredInput(unittest.TestCase):
         self.assertNotEqual(
             doctored, SYNTHETIC_MOODLE_SECTION, "the perturbation did nothing"
         )
-        body = moodle_coverage_section(doctored)
         self.assertEqual(
-            [lever for lever in REQUIRED_LEVERS if lever not in body],
+            [n for n in REQUIRED_LEVERS if n not in lever_subsection(doctored)],
             ["SandboxVars.DiscomfortFactor"],
+        )
+
+    def test_the_sub_anchor_is_what_makes_a_dropped_lever_visible(self) -> None:
+        """The control that caught the first form of this guard (L-033 shape).
+
+        The SAME perturbation, judged over the whole section instead of the
+        lever sub-section, is INVISIBLE -- the evidence paragraph above still
+        names the token.  This test fails if anyone widens the anchor back.
+        """
+        doctored = SYNTHETIC_MOODLE_SECTION.replace(
+            "scaled by `SandboxVars.DiscomfortFactor`,", "scaled by the sandbox,"
+        )
+        self.assertNotEqual(
+            doctored, SYNTHETIC_MOODLE_SECTION, "the perturbation did nothing"
+        )
+        self.assertEqual(
+            [n for n in REQUIRED_LEVERS if n not in moodle_coverage_section(doctored)],
+            [],
+            "the whole-section scan is supposed to MISS this -- if it now "
+            "catches it, the duplication the sub-anchor exists for is gone "
+            "and this control controls nothing",
         )
 
     def test_a_reworded_heading_is_a_blind_hard_failure(self) -> None:

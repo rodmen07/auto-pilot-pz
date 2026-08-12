@@ -228,9 +228,16 @@ section replaces:
   so there is no attested moodle enum for the arm to gate on either (the same
   reason the dry-off arm gates on the WETNESS stat).
 
-**But it is not inert, and this document must never say Discomfort "cannot be
+### The lever
+
+**Discomfort is not inert, and this document must never say it "cannot be
 managed".** The lever is what the character wears and carries, and it lives in
-the OTHER layer — `media/scripts`, where item EFFECT properties are declared:
+the OTHER layer — `media/scripts`, where item EFFECT properties are declared.
+(This sub-heading is where `tests/test_architecture_truth.py` requires every
+lever below to be named. The section above mentions two of the same tokens as
+EVIDENCE OF ABSENCE, which is a different claim, so the guard anchors here
+rather than on the section as a whole — a presence check over the whole section
+was satisfied by those evidence mentions, and its own control caught it.)
 
 - `DiscomfortModifier` appears on **344** item entries: **343** in
   `scripts/generated/items/clothing.txt` and **1** in
