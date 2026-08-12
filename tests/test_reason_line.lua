@@ -26,6 +26,12 @@
 -- ── Load mocks ────────────────────────────────────────────────────────────────
 dofile("tests/lua_mock_pz.lua")
 
+-- The lexical Lua scanner Tests 4/4b/4c/4d read production sources with.
+-- Loaded here rather than inline because it is pure logic with no dependency
+-- on this suite's mocks, and because a second guard scanning Lua sources
+-- should reuse it instead of growing a second text pattern.
+dofile("tests/lua_source_scan.lua")
+
 -- ── Events mock — capture registered handlers ─────────────────────────────────
 local _registeredHandlers = {
     OnTick              = {},
@@ -400,6 +406,37 @@ end
 --     no_cloth/blocked, Media's tuned) are control-flow states that never reach
 --     the reason surface.  They may only WIDEN what counts as emitted; Test 4b
 --     therefore takes its reverse direction from the decision reasons alone.
+--
+-- EXTRACTION IS LEXICAL, not textual (2026-08-12, QA).  Both shapes used to be
+-- read with a gmatch over the raw file text, and a raw-text pattern cannot tell
+-- code from a comment or from the inside of a string.  Measured on b659c89, it
+-- harvested `stalled` out of AutoPilot_Media.lua:334 — the DOC COMMENT that
+-- documents the stall emitter — as well as out of the real call at line 352.
+-- That is not cosmetic: it is the guard's own failure mode.  Test 4 exists to
+-- report a mapping nothing emits any more, and a mapping whose last emitter is
+-- a comment read to it as emitted.  Proven by control: adding
+-- `phantom = "phantom control"` to REASON_LABELS and one doc-comment line
+-- naming setDecision("media","phantom") left this suite at 110 passed / 0
+-- failed — the guard GAINED two green assertions for a label production
+-- cannot emit — with luacheck clean, all 45 Lua suites green and 393 pytest
+-- green.  Nothing in the repo could see it.
+--
+-- The tokens now come from tests/lua_source_scan.lua, which lexes Lua 5.1
+-- (both comment forms, both string forms, long brackets, escapes) and matches
+-- calls over the TOKEN STREAM.  Comments and strings are discarded before any
+-- matching happens, so the phantom class is gone by construction rather than
+-- by adding one more pattern per shape — a race a regex cannot win, since the
+-- language keeps letting the author write the same call a new way.  It also
+-- removes the mirror-image false positive: AutoPilot_Telemetry.lua:280 is
+-- `function AutoPilot_Telemetry.setDecision(action, reason, ...)`, which any
+-- raw-text call scan sees as a call whose reason is not a literal.
+--
+-- Test 4c then closes the hole that motivated all of this (backlog FOLLOW-UP
+-- opened by PR #153): a reason argument that is NOT a string literal is
+-- invisible to any vocabulary scan, so instead of chasing shapes the guard now
+-- REFUSES them — every setDecision call site must pass a literal, and one that
+-- does not fails by name.  That turns an open-world matching problem into a
+-- closed-world one, and it is the second clearing condition the item offered.
 local function productionFiles()
     local files = {}
     -- No stderr redirect: `2>/dev/null` is shell syntax that io.popen's Windows
@@ -425,27 +462,66 @@ local function readFile(path)
     return text
 end
 
--- Returns decisionReasons, failLabels, moduleCount, readCount.
--- Each token table maps token -> the basename of the first module emitting it,
--- so a failure message can name where the guard did (or did not) look.
+--- Scan one Lua source for both emitter shapes, lexically.
+-- Shared by the production scan and by the fixture self-test, so Test 4d
+-- exercises the SAME code path the real guard runs (a self-test calling a
+-- private twin of the scanner would prove nothing about the guard).
+-- @param text string  Lua source
+-- @param base string  label used in messages (a basename or a fixture name)
+-- @return literals table  token -> base
+-- @return failLabels table  token -> base
+-- @return dynamic table  array of { line, base, text } — non-literal reasons
+-- @return callSites number  setDecision call sites found (definitions excluded)
+local function scanText(text, base)
+    local literals, failLabels, dynamic = {}, {}, {}
+    local toks  = LuaSourceScan.tokenize(text)
+    local calls = LuaSourceScan.callsIn(toks, "setDecision")
+
+    for _, call in ipairs(calls) do
+        local reason = LuaSourceScan.literalArg(call.args[2])
+        if reason then
+            literals[reason] = literals[reason] or base
+        else
+            dynamic[#dynamic + 1] = {
+                line = call.line,
+                base = base,
+                text = LuaSourceScan.argText(call.args[2]),
+            }
+        end
+    end
+
+    for _, entry in ipairs(LuaSourceScan.returnFalseLabelsIn(toks)) do
+        failLabels[entry.label] = failLabels[entry.label] or base
+    end
+
+    return literals, failLabels, dynamic, #calls
+end
+
+-- Returns decisionReasons, failLabels, moduleCount, readCount, dynamic,
+-- callSites.  Each token table maps token -> the basename of the first module
+-- emitting it, so a failure message can name where the guard did (or did not)
+-- look.
 local function scanEmitters()
-    local decisionReasons, failLabels = {}, {}
+    local decisionReasons, failLabels, dynamic = {}, {}, {}
     local files = productionFiles()
-    local readCount = 0
+    local readCount, callSites = 0, 0
     for _, path in ipairs(files) do
         local text = readFile(path)
         if text then
             readCount = readCount + 1
             local base = path:match("([^/]+)$") or path
-            for reason in text:gmatch('setDecision%(%s*"[%w_]+"%s*,%s*"([%w_]+)"') do
-                decisionReasons[reason] = decisionReasons[reason] or base
+            local lits, fails, dyn, calls = scanText(text, base)
+            for token, owner in pairs(lits) do
+                decisionReasons[token] = decisionReasons[token] or owner
             end
-            for fail in text:gmatch('return%s+false%s*,%s*"([%w_]+)"') do
-                failLabels[fail] = failLabels[fail] or base
+            for token, owner in pairs(fails) do
+                failLabels[token] = failLabels[token] or owner
             end
+            for _, d in ipairs(dyn) do dynamic[#dynamic + 1] = d end
+            callSites = callSites + calls
         end
     end
-    return decisionReasons, failLabels, #files, readCount
+    return decisionReasons, failLabels, #files, readCount, dynamic, callSites
 end
 
 local function sortedKeys(tbl)
@@ -554,6 +630,133 @@ do
         assert_true(("exempt token '%s' is not also mapped"):format(token),
             mapped[token] == nil)
     end
+end
+
+-- 4c. COMPLETENESS: every setDecision call site passes a LITERAL reason.
+--
+--     Tests 4 and 4b can only reason about tokens the scan can SEE, and a
+--     reason built at run time — `setDecision("read", bored and "boredom" or
+--     "stress")`, a variable, a table lookup, a concatenation — is invisible to
+--     any vocabulary scan no matter how many shapes it learns.  Test 4 catches
+--     that only by accident (it fires when the vanished token happens to have
+--     no second emitter, which is how PR #153 was caught); when the token has
+--     a second emitter, or no label at all, NOTHING is red and the reason
+--     reaches the run log with no F11 label.
+--
+--     Proven by control before this test existed: rewriting
+--     setDecision("outside", "boredom") in AutoPilot_Mood.lua as a ternary
+--     introducing the unmapped token "restlessness" left this suite at
+--     108 passed / 0 failed, luacheck clean, all 45 Lua suites green and
+--     393 pytest green.
+--
+--     So the guard refuses the shape instead of chasing it.  This is the
+--     closed-world half: production may only pass a string literal, which
+--     makes the vocabulary scan above provably complete rather than
+--     best-effort.  Writing the two literal calls out longhand is cheap; the
+--     comment in AutoPilot_Mood.lua:255-262 is the worked example.
+--
+--     SCOPE, deliberate: only the REASON argument (position 2) is pinned.  The
+--     fail_reason argument (position 5) is legitimately threaded from a
+--     caller — AutoPilot_Needs.lua:400 passes `blockReason` from
+--     canSleepNow — and its vocabulary is discovered from the
+--     `return false, "<label>"` shape instead.  Pinning it to literals would
+--     forbid a pattern the mod correctly uses.
+print("\n-- Test 4c: every setDecision reason argument is a string literal")
+do
+    local _, _, _, _, dynamic, callSites = scanEmitters()
+
+    -- Content floor sits at "read nothing" (L-090): a call-site count pinned
+    -- at today's number would abort as a CANNOT-READ refusal on the next
+    -- legitimate emitter added or removed, and send the reader to edit this
+    -- guard instead of the thing that changed.
+    assert_true(("the scan found setDecision call sites (got %d)")
+        :format(callSites), callSites >= 1)
+
+    assert_eq("no setDecision call passes a non-literal reason argument",
+        #dynamic, 0)
+    for _, d in ipairs(dynamic) do
+        assert_true(("%s:%d passes a non-literal reason `%s` — write literal " ..
+            "calls, one per branch, so the vocabulary stays discoverable")
+            :format(d.base, d.line, d.text), false)
+    end
+end
+
+-- 4d. The scanner's OWN self-test, over a committed fixture.
+--
+--     tests/fixtures/reason_scan_shapes.lua carries one entry per shape the
+--     LUA 5.1 GRAMMAR allows in these positions — every comment form, every
+--     string form, and every expression form — rather than the shapes this
+--     scanner happens to handle, because a fixture drawn from the parser's own
+--     assumptions agrees with the parser instead of testing it (L-069).  It is
+--     valid Lua and this test proves that with loadfile(), since a fixture the
+--     language would reject is a shape the real input can never take.
+--
+--     It runs through scanText, the SAME function the production scan above
+--     calls, so a regression in the scanner reddens here and there together.
+print("\n-- Test 4d: the lexical scanner on the committed shape fixture")
+do
+    local FIXTURE = "tests/fixtures/reason_scan_shapes.lua"
+
+    local chunk, loadErr = loadfile(FIXTURE)
+    assert_true(("the fixture is valid Lua 5.1 (%s)"):format(tostring(loadErr)),
+        chunk ~= nil)
+
+    local text = readFile(FIXTURE)
+    assert_true("the fixture is readable from the project root", text ~= nil)
+
+    local literals, failLabels, dynamic, callSites = scanText(text or "", "fixture")
+
+    -- The fixture and its expectations are ONE committed unit with a single
+    -- writer, so exact counts are correct here (unlike the corpus floors
+    -- above, which must never sit at today's size).
+    assert_eq("the definition `function T.setDecision(action, reason, ...)` " ..
+        "is not counted as a call site", callSites, 10)
+
+    assert_eq("exactly the four literal emitters are discovered",
+        table.concat(sortedKeys(literals), ","), "alpha,bravo,charlie,delta")
+
+    assert_eq("exactly the six dynamic reason arguments are reported",
+        #dynamic, 6)
+
+    local reported = {}
+    for _, d in ipairs(dynamic) do reported[d.text] = true end
+    local dynamicShapes = {
+        { 'cond and "echo" or "foxtrot"', "and/or ternary (the PR #153 shape)" },
+        { "reasonVar",                    "bare variable" },
+        { "REASONS . golf",               "table index" },
+        { '"hotel_" .. suffix',           "concatenation" },
+        { "pickReason ( )",               "function call" },
+        { '( "juliett" )',                "parenthesised literal" },
+    }
+    for _, shape in ipairs(dynamicShapes) do
+        assert_true(("the %s is reported, not silently dropped"):format(shape[2]),
+            reported[shape[1]] == true)
+    end
+
+    -- One assertion per PHANTOM shape, so a failure names the shape that broke
+    -- rather than a count that could hide five of six.
+    local phantoms = {
+        { "phantom_line",     "a plain -- line comment" },
+        { "phantom_doc",      "a --- doc comment (the live Media.lua:334 shape)" },
+        { "phantom_long",     "a --[[ ]] long comment" },
+        { "phantom_level",    "a --[==[ ]==] comment containing ]]" },
+        { "phantom_squote",   "a single-quoted string" },
+        { "phantom_longstr",  "a [[ ]] long string" },
+        { "phantom_tern_a",   "a comment quoting the ternary (Mood.lua:257)" },
+        { "phantom_tern_b",   "a comment quoting the ternary (Mood.lua:257)" },
+    }
+    for _, p in ipairs(phantoms) do
+        assert_true(("`%s` in %s is NOT read as an emitter"):format(p[1], p[2]),
+            literals[p[1]] == nil)
+    end
+
+    -- The fail-label shape gets the same treatment in both directions.
+    assert_true("a real `return false, \"lima\"` is discovered",
+        failLabels["lima"] ~= nil)
+    assert_true("`phantom_fail` in a comment is NOT read as a fail label",
+        failLabels["phantom_fail"] == nil)
+    assert_true("`phantom_fail_str` in a string is NOT read as a fail label",
+        failLabels["phantom_fail_str"] == nil)
 end
 
 -- 5. Integration: the HUD renders the reason (test_main_logic shape).
