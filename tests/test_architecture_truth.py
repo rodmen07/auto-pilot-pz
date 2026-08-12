@@ -365,9 +365,10 @@ class TestMoodleCoverageSection(unittest.TestCase):
         (renaming the heading) must redden BOTH, and one red must not stand in
         for the other."""
         guard_src = MOODLE_GUARD.read_text(encoding="utf-8")
-        self.assertIn(
-            "Moodle Coverage",
-            guard_src,
+        # assertTrue, not assertIn: assertIn dumps the whole 400-line haystack
+        # into the failure, which buries the message that says what to do.
+        self.assertTrue(
+            "Moodle Coverage" in guard_src,
             f"{MOODLE_GUARD.name} no longer names the architecture section it "
             "tells a failing developer to update.  A guard whose failure "
             "message points nowhere is a guard whose finding gets dropped.",
