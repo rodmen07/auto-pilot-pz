@@ -78,6 +78,34 @@ verify them before the rest of the list:
 Also newest and least battle-tested: `ISPathFindAction:pathToSitOnFurniture`
 (V5.8) has exactly one release of real-world exposure.
 
+### Re-check the Discomfort absence claim, in BOTH layers
+
+`docs/architecture.md`'s **Moodle Coverage** section and the README's
+"The one moodle AutoPilot leaves to you" note both state that 42.19 exposes no
+Lua-visible relief action for Discomfort. That is a NEGATIVE claim about the
+engine, which is precisely the kind 42.20 can flip without anything in this
+repo going red — no test can see it, because the install is not checked in.
+Re-derive it on 42.20 rather than inheriting it, with **two** greps, not one:
+
+1. `grep -rn "iscomfort" media/lua/ | grep -v Translate/` — 42.19 answer: 10
+   hits, none a queueable action (the debug slider and its label, the sandbox
+   `DiscomfortFactor` rows, and `StressFromDiscomfort` /
+   `VehicleDiscomfortWhenOverEncumbered` in `shared/defines.lua`). A hit that
+   is a timed action, a context-menu entry, or anything a mod could queue means
+   the claim has flipped and both documents are wrong.
+2. `grep -rc "DiscomfortModifier" media/scripts/generated/items/*.txt` — 42.19
+   answer: 343 in `clothing.txt`, 1 in `container.txt`, values 0.02 to 0.75.
+   This is the layer the original false claim never looked at, and it is where
+   the item EFFECT properties live.
+
+**Both layers, every time.** The one-directory mistake has now been made twice
+in this project's history — once about Stress (301 `StressChange` entries sat
+in `media/scripts` while a `media/lua`-only grep concluded there was no relief
+at all, PR #117) and once about Discomfort's lever. `media/lua` holds the code
+that READS and ADDS stats; `media/scripts` holds the definitions that carry the
+EFFECT properties the engine applies when a queued action completes. A search
+of the first alone makes real capability look absent.
+
 ## Step 2: update the mock header, not just the mock behavior
 
 When a signature or existence fact changes, update the corresponding line in

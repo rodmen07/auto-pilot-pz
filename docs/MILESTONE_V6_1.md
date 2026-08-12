@@ -106,6 +106,14 @@ reason recorded, luacheck 0/0, suites green.
 - No revival of Foraging, Skills, Vehicles, Combat, Explore, or Actions.
 - No Stress or Discomfort relief action: 42.19 exposes no Lua-visible path for either
   (established by PR #83's follow-up). That gap needs a product answer, not a code slice.
+  **⤷ HALF FALSIFIED, annotated 2026-08-12 rather than rewritten because this is a dated
+  non-goals record.** The STRESS half was wrong and was wrong when it was written: the
+  relief is declared on ITEMS in `media/scripts` (301 vanilla entries with a negative
+  `StressChange`), which a `media/lua`-only search cannot see, and the mod already queued
+  every delivery action. Stress relief SHIPPED as V6.3 C2-D4 (PR #153). The DISCOMFORT half
+  survives re-derivation and is now documented as the genuine limitation with its indirect
+  lever named — see `docs/architecture.md` "Moodle Coverage". The "needs a product answer"
+  sentence is spent: the answer is the V6.3 decision.
 - No change to the V6.0 malus ranking, the carry-capacity gate, or the ownership registry.
 - No Workshop action of any kind. (Superseded wording, quoted where it stood: *"No Workshop action
   of any kind (USER-ONLY, permanently)."* The "USER-ONLY, permanently" clause was falsified on

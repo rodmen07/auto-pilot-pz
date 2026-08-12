@@ -18,7 +18,14 @@
 > `boredOrSad`, since each of them is evidenced against boredom or unhappiness and none against
 > stress. `tests/test_stress_relief.lua` is the done-when's behaviour-difference suite (16 cases,
 > 40 assertions): the same character reads at the threshold and queues nothing one level below.
-> **C2-D6 (Discomfort documented) is still OPEN** and is the next slice of C2. C3 is
+> **C2-D6 SHIPPED 2026-08-12** — `docs/architecture.md` gains a **Moodle Coverage** section and
+> `README.md` a player-facing note, both stating the limitation as "no relief ACTION, but an
+> indirect lever through what the character wears and carries", never "cannot be managed";
+> `docs/b42_20_checklist.md` gains the two-layer re-check step D6 asked for.
+> `tests/test_moodle_triggers.lua` pins the code half (no client module references `DISCOMFORT`
+> in code, read through the `tests/lua_source_scan.lua` lexer because two comments mention it)
+> and `tests/test_architecture_truth.py` pins the doc half. **C2 is now complete, and so is the
+> whole V6.3 decision except the deferred D5.** C3 is
 > closed by the decision itself: D8 keeps the direct `getPoisonPower` read, so there is no code
 > change to make. D5 stays deferred on the unknown below.
 >
@@ -199,6 +206,16 @@ plainly exists. Triggering on stress needs no such getter; ranking by it does.
   ACTION. What the wider search adds is that it is not inert either — discomfort is driven by
   `DiscomfortModifier` on clothing (`scripts/generated/items/clothing.txt`, 0.05-0.12), by
   `SandboxVars.DiscomfortFactor`, and by `VehicleDiscomfortWhenOverEncumbered = 0.25`
+  <!-- ⤷ TWO FIGURES IN THIS BULLET CORRECTED 2026-08-12 by C2-D6's own implementation, which
+       re-derived them live instead of inheriting them (they are quoted above verbatim so the
+       correction stays grep-recoverable). (a) The range is **0.02 to 0.75** across fourteen
+       distinct values — `Kneepad_Left` at 0.02, `Hat_NBCmask` at 0.75 — not 0.05-0.12, so the
+       draft understated the top of the range by 6x and the lever is far stronger than it read.
+       (b) `clothing.txt` is not the only home: `DiscomfortModifier` appears **344** times, 343
+       there and **1** in `scripts/generated/items/container.txt` (`Bag_ChestRig_Tarp`, 0.05), so
+       what the character CARRIES counts too — which is why the shipped wording is "wears and
+       carries". The shipped text in `docs/architecture.md` carries the corrected figures. -->
+
   (`shared/defines.lua:58`), and it FEEDS stress through `StressFromDiscomfort = 0.00000013`
   (`shared/defines.lua:30`). So the docs say "no relief action, but an indirect lever through
   what the character wears and carries", never "cannot be managed".

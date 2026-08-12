@@ -289,6 +289,133 @@ do
     AutoPilot_Inventory.getBestDrink = function(_player) return nil end
 end
 
+-- ── Discomfort coverage (V6.3 C2-D6) ─────────────────────────────────────────
+--
+-- WHAT THIS PINS.  `docs/architecture.md`'s "Moodle Coverage" section and the
+-- README's "The one moodle AutoPilot leaves to you" note both state that the
+-- mod does not manage Discomfort.  That is a claim about THIS CODE, and it is
+-- the exact shape that went stale before: the identical sentence used to name
+-- Stress too, and it stayed in two documents for a day after V6.3 C2-D4 (PR
+-- #153) shipped stress relief, because nothing was watching.  The day a
+-- Discomfort arm lands, this guard reddens and names the documents to update.
+--
+-- WHY IT IS LEXED AND NOT GREPPED.  `AutoPilot_Comfort.lua` mentions the token
+-- in TWO comments today (the debug-slider step-size table, and the line saying
+-- that module is the seam a future Discomfort arm would grow in).  A text scan
+-- cannot tell those from an arm, so the naive form of this guard would be red
+-- from birth and would then be weakened into uselessness.  Reading the token
+-- STREAM from tests/lua_source_scan.lua removes comments and string literals by
+-- construction (L-031: a guard that reports garbage gets deleted, so a false
+-- positive is as fatal as a false negative).
+dofile("tests/lua_source_scan.lua")
+
+--- Client modules, glob-discovered.  A hand list would silently stop covering
+-- the next module added, which is precisely when this claim can go wrong.
+local function clientModules()
+    local files = {}
+    -- No `2>/dev/null`: that is shell syntax io.popen's Windows host does not
+    -- understand, and an empty list must fail loudly rather than pass quietly.
+    local pipe = io.popen("ls -1 42/media/lua/client/*.lua")
+    if pipe then
+        for line in pipe:lines() do
+            line = line:gsub("%s+$", "")
+            if line ~= "" then files[#files + 1] = line end
+        end
+        pipe:close()
+    end
+    table.sort(files)
+    return files
+end
+
+local function readFile(path)
+    local fh = io.open(path, "r")
+    if not fh then return nil end
+    local text = fh:read("*a")
+    fh:close()
+    return text
+end
+
+--- Every CODE-position occurrence of `DISCOMFORT` in one source.
+-- Comments and strings are gone before this looks, so a hit is a real
+-- reference: `CharacterStat.DISCOMFORT` lexes to name/op/name and the trailing
+-- name is what matches.
+local function discomfortCodeRefs(text, label)
+    local hits = {}
+    for _, t in ipairs(LuaSourceScan.tokenize(text)) do
+        if t.type == "name" and t.value == "DISCOMFORT" then
+            hits[#hits + 1] = ("%s:%d"):format(label, t.line)
+        end
+    end
+    return hits
+end
+
+do
+    local modules = clientModules()
+
+    -- Clause 1: the corpus exists.  Zero matches means the module tree moved
+    -- and every clause below would pass by seeing nothing.
+    assert_true("the client-module glob finds modules at all (zero = blind guard)",
+        #modules > 0)
+
+    -- Clause 2: the load-bearing claim.  Its own case, because clause 3's red
+    -- must never stand in for this one (L-072).
+    local codeRefs, rawFiles = {}, {}
+    for _, path in ipairs(modules) do
+        local text = readFile(path)
+        if text then
+            local base = path:match("[^/]+$") or path
+            for _, hit in ipairs(discomfortCodeRefs(text, base)) do
+                codeRefs[#codeRefs + 1] = hit
+            end
+            if text:find("DISCOMFORT", 1, true) then
+                rawFiles[#rawFiles + 1] = base
+            end
+        end
+    end
+    assert_eq("no client module references DISCOMFORT in code -- if this is red, "
+        .. "a Discomfort arm shipped: update docs/architecture.md 'Moodle Coverage' "
+        .. "and README.md's 'The one moodle AutoPilot leaves to you' in the same PR",
+        table.concat(codeRefs, ","), "")
+
+    -- Clause 3: the committed control (L-033 shape).  The CHEAP claim -- "grep
+    -- finds no DISCOMFORT in the client tree" -- is FALSE today, and that is
+    -- the point: a text-matching guard would be satisfied by prose, so the
+    -- lexer is what makes clause 2 mean anything.  If this ever goes red the
+    -- comments were removed and clause 2 is no longer proving the lexer earns
+    -- its place; re-point this control at whatever prose replaced them, or
+    -- retire both together.
+    assert_true("the RAW text still contains DISCOMFORT somewhere (the phantom that "
+        .. "makes clause 2 non-trivial), got: " .. table.concat(rawFiles, ","),
+        #rawFiles > 0)
+end
+
+-- The detector proved against synthetic input, one case per shape the language
+-- allows (L-069/L-072), so a failure names the shape that broke.  Only the last
+-- of these is a reference; the first four are the phantoms a regex would take.
+do
+    local shapes = {
+        { name = "a -- line comment naming CharacterStat.DISCOMFORT",
+          src  = "-- CharacterStat.DISCOMFORT is only a debug slider\nlocal x = 1\n",
+          want = 0 },
+        { name = "a --[[ block ]] comment naming it",
+          src  = "--[[ reads CharacterStat.DISCOMFORT ]] local x = 1\n",
+          want = 0 },
+        { name = "a --[==[ long ]==] comment naming it",
+          src  = "--[==[ DISCOMFORT ]] still inside ]==] local x = 1\n",
+          want = 0 },
+        { name = "a string literal containing it",
+          src  = "local label = \"DISCOMFORT\"\nlocal other = 'DISCOMFORT'\n",
+          want = 0 },
+        { name = "a real reference in code",
+          src  = "local v = getStat(CharacterStat.DISCOMFORT)\n",
+          want = 1 },
+    }
+    for _, s in ipairs(shapes) do
+        assert_eq("Discomfort detector: " .. s.name,
+            #discomfortCodeRefs(s.src, "synthetic"), s.want)
+    end
+end
+
 -- ── Summary ──────────────────────────────────────────────────────────────────
 print(("\n=== MoodleTriggers: %d passed, %d failed ==="):format(PASS, FAIL))
 if FAIL > 0 then os.exit(1) end
