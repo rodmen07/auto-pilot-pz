@@ -95,8 +95,14 @@ how it complies:
    > V7.0 proposal. Vehicles, Actions, barricading, and woodworking all remain closed.
    > Note for anyone reading this document's evidence policy: the Skills reopening came with a
    > falsification of a claim repeated across several of these docs — 42.19 DOES expose queueable
-   > skill-XP actions (e.g. `ISRepairClothing` grants Tailoring XP in its own `perform()`),
-   > verified against the live install. This does NOT change any candidate below — all three were
+   > skill-XP actions (e.g. `ISRepairClothing` grants Tailoring XP in its own `complete()`, at
+   > line 74), verified against the live install.
+   > **⤷ CORRECTED 2026-08-13 by `docs/EXPANSION_PROPOSAL_V7.md` section 2; superseded wording,
+   > quoted where it stood: *"`ISRepairClothing` grants Tailoring XP in its own `perform()`"*.
+   > `perform()` grants XP nowhere in 42.19: all 41 uncommented `addXp(self.character, Perks.*)`
+   > sites sit in `complete()`, `animEvent()`, `update()`, `start()` or `serverStart()`. The
+   > reopening this note records still stands — only the hook name was wrong.**
+   > This does NOT change any candidate below — all three were
    > designed inside the stricter constraint and none of them touch the reopened areas.
    >
    > **FURTHER BOUNDED 2026-07-25 (hard engine finding, does not affect this document's
