@@ -1,9 +1,35 @@
 # AutoPilot: V7.0 Expansion Proposal — non-exercise leveler skills
 
-> **STATUS: PROPOSED 2026-08-13, AWAITING USER DECISION.** Every open choice below carries an
-> overridable default, so "approve with defaults" (or a per-decision answer like "approve D3 only",
-> "flip D4") is a complete answer. Nothing here is implemented. This document is the product gate
-> that `ROADMAP.md`'s Blocked table has named since 2026-08-07 and that nobody had written.
+> **STATUS: APPROVED WITH DEFAULTS 2026-08-14 by the owner (direct answer: "Approve with
+> defaults"). No longer awaiting a decision.** All six decisions stand exactly as drafted in
+> section 5, nothing overridden: **D1** ADOPT the corrected in-scope bar (the grant must be inside
+> the action's own lifecycle, cited by file, line and hook), which is the reading already shipped
+> with this document rather than a new edit; **D2** V7.0 is SKILLS-ONLY, with Combat, Explore and
+> loot-zone Foraging staying reopened territory but out of scope; **D3** SHIP First Aid accounting
+> first — the leveler metrics and the F11 panel count Doctor XP beside Strength and Fitness, no new
+> queued action and no new engine surface; **D4** DEFER Tailoring on its supply constraint, not on
+> the engine; **D5** DEFER the 714-entry crafting surface to its own proposal; **D6** CLOSE
+> Mechanics, Cooking and PlantScavenging, each on its measured reason from section 4.
+>
+> **What this unblocks, and what it does not.** D3 is the only approved code slice: one PR,
+> depending on nothing, held to the done-when already written in section 6 (a behaviour-difference
+> test proving the panel value moves for a bandage the mod queued and does NOT move for one it did
+> not, the F11 panel and run log reading one source, and the standing in-game smoke-test flag).
+> D1 and D6 are documentation and are recorded in `ROADMAP.md` in the same increment as this
+> header. D4 and D5 are each their own proposal if they are ever reopened; D4's clearing condition
+> stays exactly as drafted — one in-game reading of how many patchable holes and how much thread a
+> normal session carries — so it is deferred on a measurement, not on a preference.
+>
+> **The safety property in section 5 is not affected by this approval and is restated here so it
+> travels with the decision:** the mod must never injure the character to create work for a medical
+> arm. D3 is accounting only for exactly that reason — it counts XP the mod already earns and
+> changes no behaviour.
+>
+> Original status line, preserved: *"PROPOSED 2026-08-13, AWAITING USER DECISION. Every open choice
+> below carries an overridable default, so 'approve with defaults' (or a per-decision answer like
+> 'approve D3 only', 'flip D4') is a complete answer. Nothing here is implemented. This document is
+> the product gate that `ROADMAP.md`'s Blocked table has named since 2026-08-07 and that nobody had
+> written."*
 >
 > **ONE PREMISE OF THE GATE CAME BACK FALSE, and correcting it is shipped WITH this proposal
 > rather than proposed by it.** The bar `ROADMAP.md` set for every candidate in this territory —
