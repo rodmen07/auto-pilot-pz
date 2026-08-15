@@ -74,6 +74,23 @@ All notable changes to AutoPilot are documented here.
 
 ### Fixed
 
+- **Six mod-options slider labels no longer make the engine throw a Java exception on every launch
+  (the `(%)` bug).** Vanilla's mod options panel runs every option name through
+  `Translator.getText`, which hands it to Java's `String.format`. Six labels ended in a literal
+  `(%)` — "Eat when hunger reaches (%)", "Resume training when endurance reaches (%)", and four
+  more — so the engine tried to parse `%)` as a format conversion and threw
+  `UnknownFormatConversionException` out of `addModOptionsPanel` (`MainOptions.lua:3025`). All six
+  now read `(0-100)`.
+  **It was never fatal, which is exactly why it survived.** The exception is caught and logged, the
+  options page still renders and every slider still works, and the only symptom is a Java stack
+  trace per label per load buried in `console.txt` — so nothing about playing the mod ever pointed
+  at it. It was found by counting: a live 42.20.2 client carried **12 of these per launch**, and the
+  count went to **0** with the labels renamed. The six assertions in `tests/test_options_mapping.lua`
+  that pin the exact label strings moved with them, and were the reason the coupling was checked
+  before the labels were edited rather than discovered by a red suite afterwards.
+  **No range, default, id or behaviour changed** — `(0-100)` describes the same 0–100 slider the
+  `(%)` did, so no saved setting is reinterpreted.
+
 - **The run-log suspicious-pattern guard no longer fails forever on evidence about code that no
   longer exists.** `tests/test_game_logs.py` now gates on the findings written by the build under
   test, which is a correction of a false positive rather than a relaxation — a permanently-red gate
