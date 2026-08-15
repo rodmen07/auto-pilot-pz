@@ -148,7 +148,7 @@ do
     local s = slider("hungerPct")
     assert_true("hungerPct slider registered", s ~= nil)
     assert_eq("player-facing name states the semantics",
-        s.name, "Eat when hunger reaches (%)")
+        s.name, "Eat when hunger reaches (0-100)")
     assert_eq("min is 5%", s.min, 5)
     assert_eq("max is 50%", s.max, 50)
     assert_eq("step is 5%", s.step, 5)
@@ -161,7 +161,7 @@ do
     local s = slider("thirstPct")
     assert_true("thirstPct slider registered", s ~= nil)
     assert_eq("player-facing name states the semantics",
-        s.name, "Drink when thirst reaches (%)")
+        s.name, "Drink when thirst reaches (0-100)")
     assert_eq("same range as hunger (min)", s.min, slider("hungerPct").min)
     assert_eq("same range as hunger (max)", s.max, slider("hungerPct").max)
     assert_eq("same step as hunger", s.step, slider("hungerPct").step)
@@ -261,9 +261,9 @@ do
             groupOf(id), "Survival Fail-Safe")
     end
     assert_eq("the sit slider names the behaviour it controls",
-        slider("sitPct").name, "Sit to recover when endurance falls below (%)")
+        slider("sitPct").name, "Sit to recover when endurance falls below (0-100)")
     assert_eq("the target slider names the behaviour it controls",
-        slider("restTargetPct").name, "Stay seated until endurance reaches (%)")
+        slider("restTargetPct").name, "Stay seated until endurance reaches (0-100)")
     assert_eq("the hold slider is in GAME minutes, not real seconds",
         slider("restHoldMin").name, "Max time seated per rest (game minutes)")
 end
@@ -471,9 +471,9 @@ do
     -- Both halves of the pair are on the page, adjacent, under Training, with
     -- labels that say which is which.
     assert_eq("the resume gate has a start-shaped label",
-        slider("endMin").name, "Resume training when endurance reaches (%)")
+        slider("endMin").name, "Resume training when endurance reaches (0-100)")
     assert_eq("the floor has a stop-shaped label",
-        slider("endFloor").name, "Keep training until endurance falls to (%)")
+        slider("endFloor").name, "Keep training until endurance falls to (0-100)")
     assert_eq("the resume gate is in the Training group",
         groupOf("endMin"), "Training")
     assert_eq("the floor is in the Training group too",

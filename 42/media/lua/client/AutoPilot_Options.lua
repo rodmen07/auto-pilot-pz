@@ -50,8 +50,8 @@
 -- gate, which is a design that thrashes at any value: "The old setting of 50
 -- made it so that only a single rep would be completed after a period of
 -- resting."  So the single slider became a PAIR -- "Resume training when
--- endurance reaches (%)" (high) and "Keep training until endurance falls to
--- (%)" (low) -- and the user's 90 is now the RESUME value, which is what they
+-- endurance reaches (0-100)" (high) and "Keep training until endurance falls to
+-- (0-100)" (low) -- and the user's 90 is now the RESUME value, which is what they
 -- actually meant by it.  See the DEFS entries below for why the resume gate
 -- keeps the old "endMin" id while the floor gets a new one, and
 -- AutoPilot_Needs for the run-state machine that makes two gates possible.
@@ -113,10 +113,10 @@ local DEFS = {
     -- value can be silently reinterpreted under new semantics; anyone
     -- upgrading gets the shipped 30% floor rather than an inherited 90 that
     -- would recreate the single-rep bug.
-    { id = "endMin",       name = "Resume training when endurance reaches (%)",
+    { id = "endMin",       name = "Resume training when endurance reaches (0-100)",
       min = 10, max = 90, step = 5, key = "EXERCISE_ENDURANCE_RESUME",
       scale = 0.01 },
-    { id = "endFloor",     name = "Keep training until endurance falls to (%)",
+    { id = "endFloor",     name = "Keep training until endurance falls to (0-100)",
       min = 5,  max = 60, step = 5, key = "EXERCISE_ENDURANCE_MIN",
       scale = 0.01 },
     { id = "fatigueRec",   name = "Exercise XP-fatigue recovery (game hours)",
@@ -131,9 +131,9 @@ local DEFS = {
     -- (the V3.3 live-read pattern), so a save takes effect on the next cycle.
     -- Defaults are unchanged at 20%: the sliders exist so a player who never
     -- sees the bot eat can lower the trigger instead of assuming it is broken.
-    { id = "hungerPct",    name = "Eat when hunger reaches (%)",
+    { id = "hungerPct",    name = "Eat when hunger reaches (0-100)",
       min = 5,  max = 50, step = 5, key = "HUNGER_THRESHOLD", scale = 0.01 },
-    { id = "thirstPct",    name = "Drink when thirst reaches (%)",
+    { id = "thirstPct",    name = "Drink when thirst reaches (0-100)",
       min = 5,  max = 50, step = 5, key = "THIRST_THRESHOLD", scale = 0.01 },
     { id = "foodMin",      name = "Food stockpile minimum",
       min = 0,  max = 8,  step = 1, key = "SUPPLY_FOOD_MIN" },
@@ -151,9 +151,9 @@ local DEFS = {
     -- old dead zone (training gated at 50%, resting at 30%, nothing in
     -- between); restTargetPct must stay ABOVE it or the character sits and
     -- stands at the same number.
-    { id = "sitPct",       name = "Sit to recover when endurance falls below (%)",
+    { id = "sitPct",       name = "Sit to recover when endurance falls below (0-100)",
       min = 10, max = 90, step = 5, key = "ENDURANCE_SIT_MIN", scale = 0.01 },
-    { id = "restTargetPct", name = "Stay seated until endurance reaches (%)",
+    { id = "restTargetPct", name = "Stay seated until endurance reaches (0-100)",
       min = 20, max = 100, step = 5, key = "ENDURANCE_REST_TARGET", scale = 0.01 },
     { id = "restHoldMin",  name = "Max time seated per rest (game minutes)",
       min = 5,  max = 120, step = 5, key = "REST_HOLD_MS", scale = 60000 },
