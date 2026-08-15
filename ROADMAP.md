@@ -1,6 +1,26 @@
 # AutoPilot Leveler Roadmap
 
-> ## ✅ REVIVED (2026-07-24) — active roadmap again
+> ## ⛔ CLOSED (2026-08-15) — this roadmap is no longer live guidance
+>
+> **Everything below is a historical record.** Development stopped by owner decision on
+> 2026-08-15 and the repository is archived. The V7.0 milestone approved on 2026-08-15
+> (`docs/EXPANSION_PROPOSAL_V7.md`, decisions D1–D6, commit `2a3fb9a`) is **closed unstarted** —
+> approved and then retired the same day, without a line of it written. The four streams
+> (software-developer, DevSecOps, QA, product) are all stood down.
+>
+> **This is not the 2026-07-21 decommission repeating.** That one was reversed in four days and
+> its "there is no roadmap / everything below is void" language was retracted by the REVIVED
+> banner below, which stood from 2026-07-24 until today. This closure supersedes that banner.
+> The difference that matters: the 2026-07-21 shelving was recorded as *"a still-open product
+> question, not an engineering one"* — and it stayed open. This closure answers it. The owner's
+> stated reasons are that the mod is unreliable and has grown too complex, which is the same
+> unsettled-purpose problem the banner below diagnoses, now resolved by stopping rather than by
+> pivoting a fourth time.
+>
+> Nothing below is binding. Direction, next-milestone and standing-non-goal sections are kept
+> unedited as the record of what was planned, not as work anyone owes.
+
+> ## ✅ REVIVED (2026-07-24) — active roadmap again  *(superseded 2026-08-15, see above)*
 >
 > **This roadmap is live guidance once more.** The project was decommissioned on 2026-07-21 and
 > REVIVED on 2026-07-24 by explicit user decision as a FULL revival: the software-developer,

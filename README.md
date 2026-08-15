@@ -3,14 +3,31 @@
 Auto-exercise leveler with a survival fail-safe. Reach a stable spot, press
 F10, and your character grinds Strength/Fitness while you step away.
 
-Status: ACTIVE — Build 42.19.0 Unstable. **Distributed through GitHub Releases only.**
+> ## ⚠️ RETIRED (2026-08-15) — no longer maintained
+>
+> **Status: RETIRED.** Development has stopped by owner decision on 2026-08-15. The repository is
+> archived, the V7.0 roadmap approved eleven days earlier is closed unstarted, and there will be no
+> further releases, bug fixes, or compatibility updates. The Steam Workshop item (3767254910) has
+> been removed; it had already been delisted since 2026-07-21 and permanently retired by the
+> 2026-08-10 decision recorded in `docs/WORKSHOP_RELIST_DECISION.md`, so this changes nothing for
+> anyone who was still using it.
+>
+> **Why, in the owner's words:** the mod is *unreliable — it does dumb things*, and it has *grown
+> too complex*. Both are about the product, not the build: at retirement the engineering was green
+> (luacheck clean, 402 tests passing, CI green). The complexity complaint is the honest epitaph —
+> 24 Lua modules with adaptive death-learning, telemetry, session history and training programs,
+> serving a mod whose own description concedes that Build 42 gives an AI-driven character no way to
+> swing a weapon, so it runs away instead of standing its ground.
+>
+> **The code stays.** Nothing is deleted; the repo is archived, not removed, and remains readable
+> and forkable. If you want it, clone it — it works, and `check.sh` still passes.
+>
+> **This banner, unlike the 2026-07-21 one described below, is true.** That distinction is the
+> whole point of the note further down: read it before assuming this file has cried wolf twice.
 
-The Steam Workshop item (3767254910) was delisted on 2026-07-21 and, by owner decision on
-2026-08-10, **stays delisted permanently** — the listing is deliberately retired, not awaiting
-a relist. Do not wait for a Workshop update: releases here are the whole channel. The reasoning
-is recorded in `docs/WORKSHOP_RELIST_DECISION.md`.
-
-> **Note on this file's history:** between 2026-07-21 and 2026-08-08 this README opened with a
+> **Note on this file's history — concerns the 2026-07-21 banner, NOT the 2026-08-15 retirement
+> above.** The two say similar things and only one of them was true when written; this note is
+> about the earlier, false one. Between 2026-07-21 and 2026-08-08 this README opened with a
 > banner headed *"⚠️ DEPRECATED — NO LONGER MAINTAINED"*, stating that the project *"was
 > decommissioned on 2026-07-21 and is no longer developed, supported, or published"*, that the
 > Workshop item had been delisted, and that *"no further releases, bug fixes, or compatibility
